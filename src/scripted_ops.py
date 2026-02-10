@@ -584,39 +584,3 @@ def quick_analysis(repo_path: str) -> Dict[str, Any]:
     analysis['arch_specific_code'] = ops.find_architecture_specific_code(repo_path)
     
     return analysis
-
-
-# ============================================================================
-# TESTING
-# ============================================================================
-
-if __name__ == "__main__":
-    # Example usage
-    ops = ScriptedOperations()
-    
-    # Test repository operations
-    url = "https://github.com/madler/zlib"
-    name = "zlib"
-    
-    print("=== Cloning Repository ===")
-    result = ops.clone_or_update_repository(url, name)
-    print(f"Success: {result.success}")
-    
-    repo_path = f"/workspace/repos/{name}"
-    
-    print("\n=== Detecting Build System ===")
-    build_sys = ops.detect_build_system(repo_path)
-    print(f"Type: {build_sys.type}, Confidence: {build_sys.confidence}")
-    
-    print("\n=== Extracting Dependencies ===")
-    deps = ops.extract_dependencies(repo_path, build_sys.type)
-    print(f"Build tools: {deps.build_tools}")
-    print(f"System packages: {deps.system_packages}")
-    
-    print("\n=== Finding Arch-Specific Code ===")
-    arch_code = ops.find_architecture_specific_code(repo_path)
-    print(f"Found {len(arch_code)} instances of arch-specific code")
-    
-    print("\n=== Quick Analysis ===")
-    analysis = quick_analysis(repo_path)
-    print(json.dumps({k: str(v)[:200] for k, v in analysis.items()}, indent=2))
