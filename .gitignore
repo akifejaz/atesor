@@ -1,0 +1,8 @@
+
+# Workspace directories (host-side)
+/workspace/
+*.pyc
+__pycache__/
+.cache/
+/output/
+*.backup
