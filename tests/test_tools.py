@@ -11,7 +11,7 @@ class TestTools(unittest.TestCase):
             "grep -r pattern .",
             "cmake -B build .",
             "make -j4",
-            "apt-get update",
+            "apk update",
             "git clone http://url",
             "mkdir -p /workspace/foo",
             "echo 'hello' > file.txt"

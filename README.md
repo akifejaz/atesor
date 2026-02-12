@@ -79,6 +79,10 @@ By offloading deterministic tasks (like dependency tree parsing and build system
 ### Prerequisites
 
 - Docker installed and running.
+- **Cross-Platform Support**: If you are on an x86 host, you must enable RISC-V emulation via `binfmt`:
+  ```bash
+  docker run --privileged --rm tonistiigi/binfmt --install all
+  ```
 - API key for an LLM provider (OpenAI, Gemini, or OpenRouter).
 
 ### Installation

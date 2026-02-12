@@ -58,11 +58,8 @@ def configure_logging(verbose: bool):
 
 logger = logging.getLogger(__name__)
 
-# Constants
-CONTAINER_NAME = "riscv_agent_sandbox"
-IMAGE_NAME = "riscv-porting-foundry:latest"
-OUTPUT_DIR = os.path.abspath("./output")
-
+from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR
+from src.tools import execute_command, DockerConfig as DC
 
 def check_keys() -> bool:
     """Verify required API keys are set."""
@@ -103,7 +100,8 @@ def setup_docker_environment() -> bool:
                 path=".",
                 tag=IMAGE_NAME,
                 rm=True,
-                forcerm=True
+                forcerm=True,
+                platform="linux/riscv64"
             )
             print(colored(f"Image built successfully", "green"))
         except docker.errors.BuildError as e:
@@ -131,6 +129,7 @@ def setup_docker_environment() -> bool:
                 name=CONTAINER_NAME,
                 detach=True,
                 tty=True,
+                platform="linux/riscv64",
                 volumes={
                     os.path.abspath("./workspace"): {
                         'bind': '/workspace',
@@ -148,8 +147,22 @@ def setup_docker_environment() -> bool:
             print(colored(f"{e}", "yellow"))
             return False
 
-    # Step 3: Verify container is working
+    # Step 3: Verify container is working and architecture is correct
     try:
+        # Check architecture
+        arch_result = container.exec_run("uname -m")
+        if arch_result.exit_code == 0:
+            arch = arch_result.output.decode('utf-8').strip()
+            if "riscv64" in arch:
+                print(colored(f"Container architecture verified: {arch} (Correctly Emulated)", "green"))
+            else:
+                print(colored(f"WARNING: Container architecture is {arch} (Expected riscv64!)", "yellow"))
+                print(colored("Try running: docker run --privileged --rm tonistiigi/binfmt --install all", "yellow"))
+        else:
+            print(colored("ERROR: Container is not responding correctly", "red"))
+            return False
+        
+        # Simple health check
         exec_result = container.exec_run("echo 'Container ready!'")
         if exec_result.exit_code == 0:
             print(colored("Container is responsive", "green"))

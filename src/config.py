@@ -64,6 +64,10 @@ OUTPUT_DIR = get_output_dir()
 REPOS_DIR = get_repos_dir()
 CACHE_DIR = get_cache_dir()
 
+# Docker Configuration
+CONTAINER_NAME = "atesor-ai-sandbox"
+IMAGE_NAME = "atesor-ai-sandbox:latest"
+
 def print_config():
     """Print current configuration."""
     print(f"[Config] Environment: {'Docker Container' if _IN_DOCKER else 'Host System'}")
@@ -75,4 +79,5 @@ __all__ = [
     'is_running_in_docker', 'get_workspace_root', 'get_output_dir',
     'get_repos_dir', 'get_cache_dir', 'WORKSPACE_ROOT', 'OUTPUT_DIR',
     'REPOS_DIR', 'CACHE_DIR', 'print_config',
+    'CONTAINER_NAME', 'IMAGE_NAME',
 ]

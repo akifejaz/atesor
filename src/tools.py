@@ -10,6 +10,7 @@ import os
 from typing import Optional, Tuple
 
 from src.state import CommandResult
+from src.config import CONTAINER_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +107,8 @@ class CommandValidator:
     # Dangerous patterns to block (blacklist)
     DANGEROUS_PATTERNS = {
         r'rm\s+-rf\s+/',                      # Recursive root deletion
-        r':\(\)\{\s*:\|:\&\s*\}',            # Fork bomb
-        r'dd\s+if=/dev/zero\s+of=/dev/sd',  # Disk wipe
+        r':\(\)\{\s*:\|:\&\s*\}',             # Fork bomb
+        r'dd\s+if=/dev/zero\s+of=/dev/sd',    # Disk wipe
         r'mkfs\.',                            # Format filesystem
         r'fdisk',                             # Partition editing
         r'wget.*\|\s*bash',                   # Remote code execution
@@ -151,7 +152,7 @@ _validator = CommandValidator()
 class DockerConfig:
     """Docker container configuration."""
     
-    CONTAINER_NAME = "riscv_agent_sandbox"
+    CONTAINER_NAME = CONTAINER_NAME
     WORKSPACE_PATH = "/workspace"  # Path inside container
     
     @staticmethod

@@ -136,9 +136,16 @@ def init_node(state: AgentState) -> AgentState:
         # Store in context cache
         state.context_cache['quick_analysis'] = analysis
         
+        # Perform system audit (New: Identify missing tools early)
+        system_info = scripted_ops.get_system_info()
+        missing_tools = [t for t, status in system_info.items() if status == "Not installed"]
+        state.context_cache['system_info'] = system_info
+        state.context_cache['missing_tools'] = missing_tools
+        
         logger.info(f"Quick analysis complete: "
                    f"Build system: {state.build_system_info.type if state.build_system_info else 'unknown'}, "
-                   f"Arch-specific code: {len(state.arch_specific_code)} instances")
+                   f"Arch-specific code: {len(state.arch_specific_code)} instances. "
+                   f"Missing tools: {', '.join(missing_tools) if missing_tools else 'None'}")
         
     except Exception as e:
         logger.warning(f"Quick analysis failed: {e}")
@@ -166,6 +173,7 @@ URL: {repo_url}
 - Dependencies: {dependencies_summary}
 - Architecture-Specific Code: {arch_code_count} instances found
 - Documentation Available: {doc_count} files
+- System Environment: {system_info}
 
 {arch_concerns}
 
@@ -251,6 +259,10 @@ def planner_node(state: AgentState) -> AgentState:
             for concern in high_severity[:5]:
                 arch_concerns += f"- {concern.arch_type} in {concern.file}:{concern.line}\n"
     
+    # System Environment summary
+    system_info_raw = state.context_cache.get('system_info', {})
+    system_info = "\n".join([f"  - {tool}: {status}" for tool, status in system_info_raw.items()])
+    
     # Create prompt
     prompt = PLANNER_PROMPT.format(
         repo_name=state.repo_name,
@@ -262,6 +274,7 @@ def planner_node(state: AgentState) -> AgentState:
         doc_count=len([k for k in state.file_content_cache.keys() if 'README' in k or 'INSTALL' in k]),
         arch_concerns=arch_concerns,
         repo_path=state.repo_path,
+        system_info=system_info,
     )
     
     # Call LLM
@@ -380,7 +393,7 @@ def create_default_plan() -> TaskPlan:
 
 
 # ============================================================================
-# NODE: SUPERVISOR (Enhanced)
+# NODE: SUPERVISOR 
 # ============================================================================
 
 SUPERVISOR_PROMPT = """You are the **RISC-V Porting Architect**, the controller of a multi-agent system.
@@ -531,7 +544,7 @@ def supervisor_node(state: AgentState) -> AgentState:
 
 
 # ============================================================================
-# NODE: SCOUT (Enhanced)
+# NODE: SCOUT 
 # ============================================================================
 
 SCOUT_PROMPT = """You are the **Scout Agent**, expert at analyzing software projects for RISC-V porting.
@@ -559,6 +572,7 @@ Review the available information and create a detailed build plan.
 
 # Your Task
 Analyze the project and create a **Build Plan**.
+If any required tools (like 'go', 'rustc', 'ninja') are listed as "Not installed" in the System Environment, your FIRST phase MUST be to install them using 'apk add <tool>'.
 The Build Plan MUST use only standard tools (gcc, cmake, make) without absolute paths unless they are standard (e.g., /usr/bin/gcc).
 DO NOT guess or hallucinate compiler paths like '/path/to/riscv64-gcc'. Just use 'gcc' or appropriate environment variables.
 Use the system architecture: {architecture}.
@@ -573,7 +587,7 @@ Provide a JSON object with:
     {{
       "id": 1,
       "name": "install_dependencies",
-      "commands": ["apt-get update", "apt-get install -y gcc cmake"],
+      "commands": ["apk update", "apk add build-base cmake"],
       "can_parallelize": false,
       "expected_duration": "30s"
     }},
@@ -772,7 +786,7 @@ Builder, Fixer, and Workflow Assembly
 # Continued from part 1...
 
 # ============================================================================
-# NODE: BUILDER (Enhanced)
+# NODE: BUILDER 
 # ============================================================================
 
 BUILDER_PROMPT = """You are the **Builder Agent**, executing build commands in the RISC-V environment.
@@ -914,7 +928,7 @@ Failed Command: {failed_command}
       "confidence": 0.8,
       "actions": [
         {{"type": "patch", "file": "src/file.c", "content": "patch content"}},
-        {{"type": "command", "command": "apt-get install -y libfoo"}}
+        {{"type": "command", "command": "apk add libfoo"}}
       ]
     }}
   ],

@@ -18,6 +18,7 @@ from src.state import (
     CommunityPortStatus,
     CommandResult,
 )
+from src.tools import execute_command
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ class ScriptedOperations:
     
     def _extract_cmake_dependencies(self, repo_path: str) -> DependencyInfo:
         """Extract dependencies from CMakeLists.txt."""
-        deps = DependencyInfo(install_method='apt')
+        deps = DependencyInfo(install_method='apk')
         cmake_file = os.path.join(repo_path, 'CMakeLists.txt')
         
         if not os.path.exists(cmake_file):
@@ -188,16 +189,16 @@ class ScriptedOperations:
         package_pattern = r'find_package\s*\(\s*(\w+)'
         packages = re.findall(package_pattern, content, re.IGNORECASE)
         
-        # Map common CMake packages to system packages
+        # Map common CMake packages to system packages (Alpine/apk names)
         package_map = {
-            'Threads': 'libpthread-stubs0-dev',
-            'OpenSSL': 'libssl-dev',
-            'ZLIB': 'zlib1g-dev',
+            'Threads': 'musl-dev',
+            'OpenSSL': 'openssl-dev',
+            'ZLIB': 'zlib-dev',
             'PNG': 'libpng-dev',
-            'JPEG': 'libjpeg-dev',
-            'Boost': 'libboost-all-dev',
-            'Qt5': 'qtbase5-dev',
-            'Protobuf': 'libprotobuf-dev',
+            'JPEG': 'libjpeg-turbo-dev',
+            'Boost': 'boost-dev',
+            'Qt5': 'qt5-qtbase-dev',
+            'Protobuf': 'protobuf-dev',
         }
         
         for pkg in packages:
@@ -292,7 +293,7 @@ class ScriptedOperations:
     
     def _extract_make_dependencies(self, repo_path: str) -> DependencyInfo:
         """Extract dependencies from Makefile (basic parsing)."""
-        deps = DependencyInfo(install_method='apt')
+        deps = DependencyInfo(install_method='apk')
         makefile = os.path.join(repo_path, 'Makefile')
         
         if not os.path.exists(makefile):
@@ -305,14 +306,14 @@ class ScriptedOperations:
         lib_pattern = r'-l(\w+)'
         libs = re.findall(lib_pattern, content)
         
-        # Map to system packages (common ones)
+        # Map to system packages (common ones for Alpine/apk)
         lib_map = {
-            'ssl': 'libssl-dev',
-            'crypto': 'libssl-dev',
-            'z': 'zlib1g-dev',
-            'pthread': 'libpthread-stubs0-dev',
-            'dl': 'libc6-dev',
-            'm': 'libc6-dev',
+            'ssl': 'openssl-dev',
+            'crypto': 'openssl-dev',
+            'z': 'zlib-dev',
+            'pthread': 'musl-dev',
+            'dl': 'musl-dev',
+            'm': 'musl-dev',
         }
         
         for lib in libs:
@@ -504,19 +505,19 @@ class ScriptedOperations:
         return status
 
     def get_system_info(self) -> Dict[str, str]:
-        """Get information about the system environment."""
+        """Get information about the system environment inside the CONTAINER."""
         info = {}
-        tools = ['gcc', 'g++', 'cmake', 'make', 'automake', 'autoconf', 'python3', 'go', 'rustc']
+        tools = ['gcc', 'g++', 'cmake', 'make', 'ninja', 'meson', 'automake', 'autoconf', 'python3', 'go', 'rustc', 'cargo']
         for tool in tools:
-            # Check availability
-            res = self._execute_command(f"which {tool}")
+            # Check availability INSIDE the container
+            res = execute_command(f"which {tool}", use_docker=True)
             if res.success:
                 info[tool] = "Available in PATH"
             else:
                 info[tool] = "Not installed"
         
         # Architecture check
-        arch_res = self._execute_command("uname -m")
+        arch_res = execute_command("uname -m", use_docker=True)
         info['architecture'] = arch_res.stdout.strip() if arch_res.success else "unknown"
         
         return info
