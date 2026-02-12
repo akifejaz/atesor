@@ -1,17 +1,13 @@
 """
-Scripted Operations Layer - Zero-Cost Deterministic Operations.
-
-This module handles all operations that can be done without LLM intelligence,
-saving 60-70% of API costs by using simple scripts and heuristics.
+Deterministic, non-LLM operations for repository analysis and file management.
+Handles repository cloning, build system detection, and dependency extraction.
 """
 
 import os
 import re
 import json
 import subprocess
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Any
-from dataclasses import dataclass
+from typing import List, Dict, Optional, Any
 import logging
 from .config import WORKSPACE_ROOT, REPOS_DIR, CACHE_DIR
 
@@ -53,6 +49,12 @@ class ScriptedOperations:
                 raise
         
         logger.info(f"ScriptedOperations initialized: {self.workspace_root}")
+    
+    def _to_host_path(self, path: str) -> str:
+        """Translate container path to host path if necessary."""
+        if path.startswith("/workspace") and not os.path.exists("/workspace") and os.path.exists(self.workspace_root):
+            return path.replace("/workspace", self.workspace_root)
+        return path
     def clone_or_update_repository(self, url: str, name: str) -> CommandResult:
         """
         Clone a repository or update if it already exists.
@@ -72,6 +74,7 @@ class ScriptedOperations:
     
     def get_repository_info(self, repo_path: str) -> Dict[str, str]:
         """Get basic repository information."""
+        repo_path = self._to_host_path(repo_path)
         info = {}
         
         # Get current commit
@@ -98,6 +101,7 @@ class ScriptedOperations:
         Detect build system using file-based heuristics.
         This is a zero-cost operation.
         """
+        repo_path = self._to_host_path(repo_path)
         build_systems = {
             'cmake': ['CMakeLists.txt'],
             'autotools': ['configure.ac', 'configure.in'],
@@ -151,6 +155,7 @@ class ScriptedOperations:
         Extract dependencies by parsing package files.
         This is a zero-cost operation.
         """
+        repo_path = self._to_host_path(repo_path)
         deps = DependencyInfo()
         
         if build_system == 'cmake':
@@ -325,6 +330,7 @@ class ScriptedOperations:
         Search for architecture-specific code patterns.
         This is a zero-cost operation using grep.
         """
+        repo_path = self._to_host_path(repo_path)
         arch_specific = []
         
         # Patterns to search for
@@ -387,6 +393,7 @@ class ScriptedOperations:
     
     def get_file_tree(self, repo_path: str, max_depth: int = 3) -> str:
         """Get a tree view of the repository."""
+        repo_path = self._to_host_path(repo_path)
         cmd = f"tree -L {max_depth} -I '.git|node_modules|__pycache__|.venv' {repo_path}"
         result = self._execute_command(cmd)
         
@@ -400,6 +407,7 @@ class ScriptedOperations:
     
     def read_file(self, filepath: str, max_lines: int = 1000) -> str:
         """Read file content with line limit."""
+        filepath = self._to_host_path(filepath)
         if not os.path.exists(filepath):
             return f"File not found: {filepath}"
         
@@ -494,6 +502,24 @@ class ScriptedOperations:
         # 3. Search RISC-V forums/mailing lists
         
         return status
+
+    def get_system_info(self) -> Dict[str, str]:
+        """Get information about the system environment."""
+        info = {}
+        tools = ['gcc', 'g++', 'cmake', 'make', 'automake', 'autoconf', 'python3', 'go', 'rustc']
+        for tool in tools:
+            # Check availability
+            res = self._execute_command(f"which {tool}")
+            if res.success:
+                info[tool] = "Available in PATH"
+            else:
+                info[tool] = "Not installed"
+        
+        # Architecture check
+        arch_res = self._execute_command("uname -m")
+        info['architecture'] = arch_res.stdout.strip() if arch_res.success else "unknown"
+        
+        return info
     
     # ========== Helper Methods ==========
     

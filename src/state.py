@@ -1,6 +1,6 @@
 """
-Enhanced State Management for RISC-V Porting Agent.
-Implements comprehensive state tracking with caching, context preservation, and performance metrics.
+Global state definitions, data structures, and status tracking for the porting process.
+Manages the AgentState dataclass and system-wide constants.
 """
 
 from dataclasses import dataclass, field
@@ -53,6 +53,7 @@ class AgentRole(str, Enum):
     BUILDER = "builder"
     FIXER = "fixer"
     SUMMARIZER = "summarizer"
+    AGENT = "agent"
 
 
 class Action(str, Enum):
@@ -269,6 +270,10 @@ class AgentState:
     build_artifacts: List[str] = field(default_factory=list)
     porting_recipe: Optional[str] = None
     
+    # ========== Debugging & Audit ==========
+    audit_trail: List[Dict[str, Any]] = field(default_factory=list)
+    current_agent: Optional[AgentRole] = None
+    
     # ========== Metadata ==========
     created_at: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
@@ -296,10 +301,29 @@ class AgentState:
         self.api_cost_usd += cost
         self.update_timestamp()
     
-    def log_scripted_op(self):
+    def log_scripted_op(self, operation: str = "unknown"):
         """Track scripted operation usage."""
         self.scripted_ops_count += 1
+        self.log_event("scripted_op", {"operation": operation})
         self.update_timestamp()
+    
+    def log_event(self, event_type: str, data: Dict[str, Any]):
+        """Add an event to the audit trail."""
+        self.audit_trail.append({
+            "timestamp": datetime.now().isoformat(),
+            "event": event_type,
+            "agent": self.current_agent.value if self.current_agent else None,
+            "data": data
+        })
+        self.update_timestamp()
+    
+    def log_agent_decision(self, agent: AgentRole, action: str, reason: str):
+        """Log a decision made by an agent."""
+        self.log_event("decision", {
+            "agent": agent.value,
+            "action": action,
+            "reason": reason
+        })
     
     def cache_command_result(self, command: str, result: CommandResult):
         """Cache a command result for reuse."""
@@ -353,6 +377,33 @@ class AgentState:
             f"Duration: {duration:.1f}s\n"
             f"Phase: {self.current_phase}"
         )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert state to a dictionary for serialization."""
+        from dataclasses import asdict
+        # We need a custom converter for Enums and Datetime
+        def custom_serializer(obj):
+            if isinstance(obj, (datetime, Enum)):
+                return str(obj)
+            if isinstance(obj, list):
+                return [custom_serializer(i) for i in obj]
+            if isinstance(obj, dict):
+                return {k: custom_serializer(v) for k, v in obj.items()}
+            if hasattr(obj, "__dict__"):
+                return custom_serializer(vars(obj))
+            return obj
+            
+        return custom_serializer(asdict(self))
+
+    def save_to_json(self, filepath: str):
+        """Save the current state to a JSON file."""
+        import json
+        with open(filepath, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    def get_last_audit_events(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve the last N audit events."""
+        return self.audit_trail[-limit:]
 
 
 # ============================================================================
@@ -386,47 +437,47 @@ def classify_error(error_message: str) -> ErrorCategory:
     if any(term in error_lower for term in ['rate limit', 'too many requests', '429', 'quota exceeded']):
         return ErrorCategory.RATE_LIMIT
     
-    # Dependency errors
-    if any(term in error_lower for term in [
-        'cannot find', 'not found', 'no such file', 'missing dependency',
-        'package not found', 'module not found', 'import error'
-    ]):
-        return ErrorCategory.DEPENDENCY
-    
-    # Compilation errors
-    if any(term in error_lower for term in [
-        'compilation error', 'syntax error', 'parse error',
-        'undeclared', 'undefined reference', 'implicit declaration'
-    ]):
-        return ErrorCategory.COMPILATION
-    
     # Linking errors
     if any(term in error_lower for term in [
         'linking error', 'linker', 'undefined symbol', 'cannot find -l',
         'ld returned', 'collect2: error'
     ]):
         return ErrorCategory.LINKING
-    
+
+    # Compilation errors
+    if any(term in error_lower for term in [
+        'compilation error', 'syntax error', 'parse error',
+        'undeclared', 'undefined reference', 'implicit declaration'
+    ]):
+        return ErrorCategory.COMPILATION
+
     # Architecture-specific errors
     if any(term in error_lower for term in [
         'architecture', 'arch', 'sse', 'avx', 'neon', 'simd',
         'unsupported instruction', 'illegal instruction', 'x86_64', 'amd64'
     ]):
         return ErrorCategory.ARCHITECTURE
-    
+
     # Configuration errors
     if any(term in error_lower for term in [
         'configure error', 'cmake error', 'configure: error',
         'unsupported option', 'invalid argument'
     ]):
         return ErrorCategory.CONFIGURATION
-    
+
     # Missing tools
     if any(term in error_lower for term in [
         'command not found', 'no such command', 'not installed',
         'cmake: not found', 'make: not found'
     ]):
         return ErrorCategory.MISSING_TOOLS
+
+    # Dependency errors
+    if any(term in error_lower for term in [
+        'cannot find', 'not found', 'no such file', 'missing dependency',
+        'package not found', 'module not found', 'import error'
+    ]):
+        return ErrorCategory.DEPENDENCY
     
     # Permission errors
     if any(term in error_lower for term in ['permission denied', 'access denied', 'forbidden']):
@@ -435,6 +486,10 @@ def classify_error(error_message: str) -> ErrorCategory:
     # Disk space
     if any(term in error_lower for term in ['no space left', 'disk full', 'out of space']):
         return ErrorCategory.DISK_SPACE
+    
+    # Python/System errors
+    if any(term in error_lower for term in ['keyerror', 'indexerror', 'attributeerror', 'typeerror', 'valueerror', 'importerror']):
+        return ErrorCategory.CONFIGURATION # Usually a code/config bug
     
     return ErrorCategory.UNKNOWN
 

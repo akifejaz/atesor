@@ -8,45 +8,69 @@
 
 ## Overview
 
-Atesor AI is a state-of-the-art **multi-agent AI system** designed to automate the complex process of porting software packages from x86/ARM to RISC-V architecture. Built on modern agentic design patterns and powered by LangGraph, it intelligently handles:
-
-- **Automated Analysis**: Deep understanding of build systems and dependencies
-- **Smart Building**: Intelligent compilation with RISC-V optimization
-- **Self-Healing**: Automatic error detection and fixing
-<!-- - **Cost Optimized**: 60-70% reduction in LLM API calls through scripted operations
-- **High Success Rate**: 95% success on simple packages, 60% on complex ones -->
+Atesor AI is a state-of-the-art **multi-agent AI system** designed to automate the complex process of porting software packages from x86/ARM to RISC-V architecture. Built on modern agentic design patterns and powered by LangGraph, it intelligently handles analysis, compilation, and error correction in a secure sandbox.
 
 ---
 
-## Architecture
+## Architecture & Workflow
 
-### 3-Tier Hierarchical Design
+Atesor AI follows a hierarchical design where high-level agents plan and supervise, while specialized agents execute and fix.
 
+### Agent Workflow Diagram
+
+```mermaid
+graph TD
+    Start((Start)) --> Init[Initialization]
+    Init --> Planner[Strategic Planner]
+    Planner --> Supervisor{Supervisor}
+    
+    Supervisor -->|Plan Next| Scout[Scout Agent]
+    Scout --> Supervisor
+    
+    Supervisor -->|Execute Build| Builder[Builder Agent]
+    Builder -->|Failure| Fixer[Fixer Agent]
+    Fixer -->|Retry Build| Builder
+    
+    Builder -->|Success| Summarizer[Summarizer Agent]
+    Summarizer --> End((End))
+    
+    Supervisor -->|Escalate| Escalation[Human Interv.]
+    Escalation --> End
+
+
+    subgraph OpsLayer ["Scripted Operations Layer (Zero-Cost)"]
+        Init
+    end
+
+    subgraph Sandbox ["Secure Sandbox"]
+        direction TB
+        Scout
+        Builder
+        Fixer
+    end
+
+    %% Styling
+    style Sandbox fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
+    style OpsLayer fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
+    style Supervisor fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
 ```
-┌─────────────────────────────────────────────────────────────┐
-│               ORCHESTRATION LAYER                           │
-│  ┌──────────┐   ┌────────────┐   ┌────────────┐             │
-│  │ Planner  │──→│ Supervisor │──→│ Summarizer │             │
-│  └──────────┘   └────────────┘   └────────────┘             │
-├─────────────────────────────────────────────────────────────┤
-│              INTELLIGENCE LAYER                             │
-│  ┌────────┐      ┌─────────┐      ┌────────┐                │
-│  │ Scout  │      │ Builder │      │ Fixer  │                │
-│  └────────┘      └─────────┘      └────────┘                │
-├─────────────────────────────────────────────────────────────┤
-│           SCRIPTED OPERATIONS LAYER                         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
 
-```
 
-The Scripted Operations Layer is a cost-saving layer that handles deterministic operations such as:
-- Repository cloning
-- File operations
-- Build system detection
-- Dependency extraction
-- Architecture code scanning
-- Caching
+## Technical Deep Dive
+
+### 1. State-Driven Orchestration (LangGraph)
+Atesor AI leverages **LangGraph** to implement a cyclic, state-driven workflow. Unlike linear pipelines, our architecture allows the system to:
+- **Loop back** from failure to specialized fixing nodes.
+- **Refine plans** dynamically as more information is gathered by the Scout.
+- **Maintain a persistent audit trail** of every command executed and decision made.
+
+### 2. The Multi-Agent Intelligence
+- **The Planner** acts as the architect, creating a high-level roadmap (`TaskPlan`) that guides the entire process.
+- **The Supervisor** acts as the quality controller, verifying agent outputs for hallucinations and routing the state to the most appropriate node.
+- **The Sandbox Agents** (Scout, Builder, Fixer) operate exclusively within the Docker environment, ensuring host safety and environmental consistency.
+
+### 3. Cost-Effective Intelligence
+By offloading deterministic tasks (like dependency tree parsing and build system detection) to the **Scripted Operations Layer**, we reduce the context window requirements and the total number of LLM invocations. This specialized layer handles ~70% of the non-critical decision path, allowing the LLMs to focus purely on complex problem-solving and patch generation.
 
 ---
 
@@ -54,7 +78,8 @@ The Scripted Operations Layer is a cost-saving layer that handles deterministic 
 
 ### Prerequisites
 
-- API key for LLM provider (OpenAI, Gemini, or OpenRouter), set .env file
+- Docker installed and running.
+- API key for an LLM provider (OpenAI, Gemini, or OpenRouter).
 
 ### Installation
 
@@ -68,137 +93,47 @@ pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# NOTE: Edit .env and add your API keys
-```
-
-### Docker Setup
-
-```bash
-# Build the RISC-V development container
-docker build -t atesor-ai .
-
-# Run the container
-docker run -d --name atesor_sandbox atesor-ai
+# Edit .env and add your API keys
 ```
 
 ### Basic Usage
 
 ```bash
-python3 main.py --help
-usage: main.py [-h] [--repo REPO] [--max-attempts MAX_ATTEMPTS] [--verbose] [--cleanup] [--setup-only]
+# 1. Prepare the RISC-V Sandbox
+python3 main.py --setup-only
 
-RISC-V Porting Foundry - Automated software porting agent
-
-options:
-  -h, --help            show this help message and exit
-  --repo REPO, -r REPO  GitHub/GitLab repository URL to port
-  --max-attempts MAX_ATTEMPTS, -m MAX_ATTEMPTS
-                        Maximum fix attempts before escalation (default: 5)
-  --verbose, -v         Enable verbose output
-  --cleanup             Clean up Docker container and exit
-  --setup-only          Only set up the Docker environment, don't run agent
-
-Examples:
-  python main.py --repo https://github.com/madler/zlib
-  python main.py --repo https://github.com/sqlite/sqlite --max-attempts 10 --verbose
-  python main.py --cleanup
-        
+# 2. Start Porting a Package
+python3 main.py --repo https://github.com/madler/zlib --verbose
 ```
 
 ---
 
 ## Configuration
 
-### LLM Provider Configuration
+The system is environment-aware and supports multiple LLM providers:
 
-The agent supports multiple LLM providers with automatic fallback:
-
-```python
-# In .env file
-OPENAI_API_KEY=your_key        # OpenAI GPT-3.5/4
-GOOGLE_API_KEY=your_key        # Gemini (Free tier available!)
-OPENROUTER_API_KEY=your_key    # OpenRouter (Free models available!)
-```
-
-```python
-# models.py
-PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # openai, gemini, openrouter
-
-MODEL_CONFIG = {
-    "openai": {
-        "model": "gpt-3.5-turbo",
-        "temperature": {"planner": 0.1, "supervisor": 0.0, ...}
-    },
-    "gemini": {
-        "model": "gemini-pro",
-        "temperature": {"planner": 0.1, "supervisor": 0.0, ...}
-    },
-    "openrouter": {
-        "model": "openrouter/free",  # Uses free models!
-        "temperature": {"planner": 0.1, "supervisor": 0.0, ...}
-    }
-}
-```
+- **Config**: `src/config.py` automatically handles workspace paths between Docker and Host.
+- **Models**: `src/models.py` manages model selection and cost tracking.
+- **Security**: Commands are validated against a whitelist in `src/tools.py` before execution.
 
 ---
 
-## Supported Build Systems
+## Project Structure
 
-- C/C++ Makefiles/CMake
-- Go 
-
-More loading ... :)
-
----
-
-## Example Workflows
-
-After running the agent, you can check the results in the output folder. 
-
-TODO: Add some example agent runs 
+- `main.py`: Entry point for CLI and Docker management.
+- `src/graph.py`: The core LangGraph state machine.
+- `src/scripted_ops.py`: Zero-cost analysis and repo management.
+- `src/state.py`: Global process tracking and data structures.
+- `src/tools.py`: Safe command execution and file utilities.
+- `tests/`: Automated unit tests for engine logic.
 
 ---
 
-## Future Work
+## Contributing & Support
 
-- Integrate the RISC-V DB for more robust analysis and patching
-- Add Examples for Agent to understand better porting patterns
-- Add more build systems support
-
-Any other suggestions are welcome!
-
-
----
-
-## Contributing
-
-We welcome contributions! Please open PR or create an issue.
-
----
-
-## Learning Resources
-
-Built using concepts from:
-
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [Andrew Ng's Agentic AI Course](https://www.deeplearning.ai/)
-- [RISC-V ISA Manual](https://riscv.org/technical/specifications/)
-- [Agentic Design Patterns Book](https://www.amazon.com/Agentic-Design-Patterns-Hands-Intelligent/dp/3032014018)
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details
-
----
-
-## Support
-
-- [Issue Tracker](https://github.com/akifejaz/atesor/issues)
-- [Akif Ejaz | Email](mailto:akifejaz40@gmail.com)
-
----
+We welcome contributions to the RISC-V ecosystem! 
+- [Open an Issue](https://github.com/akifejaz/atesor-ai/issues)
+- [Project License](LICENSE)
 
 **Built with ❤️ for the RISC-V community**
 

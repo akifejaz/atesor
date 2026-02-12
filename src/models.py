@@ -1,18 +1,12 @@
 """
-Enhanced Model Management with Multi-Provider Support.
-
-Supports:
-- OpenAI (GPT-3.5, GPT-4)
-- Google Gemini (Free & Pro)
-- OpenRouter (Free & Paid models)
-- Anthropic Claude (via OpenRouter)
+LLM provider management, model configuration, and cost tracking logic.
+Handles interactions with OpenAI, Gemini, and OpenRouter.
 """
 
 import os
 import logging
 from typing import Optional, Tuple
 from enum import Enum
-from termcolor import colored
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models import BaseChatModel
@@ -37,13 +31,15 @@ MODEL_CONFIG = {
         "scout": {"model": "gpt-4", "temperature": 0.1},
         "builder": {"model": "gpt-3.5-turbo", "temperature": 0.0},
         "fixer": {"model": "gpt-4", "temperature": 0.2},
+        "summarizer": {"model": "gpt-3.5-turbo", "temperature": 0.1},
     },
     "gemini": {
-        "supervisor": {"model": "gemini-pro", "temperature": 0.0},
-        "planner": {"model": "gemini-pro", "temperature": 0.1},
-        "scout": {"model": "gemini-pro", "temperature": 0.1},
-        "builder": {"model": "gemini-pro", "temperature": 0.0},
-        "fixer": {"model": "gemini-pro", "temperature": 0.2},
+       "supervisor": {"model": "gemini-flash-lite-latest", "temperature": 0.0},
+       "planner": {"model": "gemini-flash-lite-latest", "temperature": 0.1},
+       "scout": {"model": "gemini-flash-lite-latest", "temperature": 0.1},
+       "builder": {"model": "gemini-flash-lite-latest", "temperature": 0.0},
+       "fixer": {"model": "gemini-flash-lite-latest", "temperature": 0.2},
+       "summarizer": {"model": "gemini-flash-lite-latest", "temperature": 0.1},
     },
     "openrouter": {
         "supervisor": {"model": "openrouter/free", "temperature": 0.0},
@@ -51,6 +47,7 @@ MODEL_CONFIG = {
         "scout": {"model": "openrouter/free", "temperature": 0.1},
         "builder": {"model": "openrouter/free", "temperature": 0.0},
         "fixer": {"model": "openrouter/free", "temperature": 0.2},
+        "summarizer": {"model": "openrouter/free", "temperature": 0.1},
     },
 }
 
@@ -178,8 +175,9 @@ class CostTrackingLLM(BaseChatModel):
         input_tokens = sum(len(m.content.split()) * 1.3 for m in messages)  # Rough
         output_tokens = len(response.content.split()) * 1.3
         
+        model_name = getattr(self.base_llm, 'model_name', getattr(self.base_llm, 'model', 'unknown'))
         cost = estimate_cost(
-            self.base_llm.model_name,
+            model_name,
             int(input_tokens),
             int(output_tokens)
         )

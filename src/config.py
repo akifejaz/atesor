@@ -1,4 +1,7 @@
-"""Configuration and environment detection for RISC-V Porting Foundry."""
+"""
+Environment configuration and path management for the Atesor AI system.
+Detects Docker context and sets up workspace directories.
+"""
 import os
 from pathlib import Path
 

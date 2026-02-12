@@ -1,20 +1,13 @@
 """
-Enhanced LangGraph State Machine for RISC-V Porting Agent.
-
-Improvements:
-1. Added Planner agent for task decomposition
-2. Integrated scripted operations layer
-3. Better context management and caching
-4. Smart retry and fallback logic
-5. Reduced LLM calls by 60-70%
-6. Parallel execution where possible
+Core orchestration logic defining the multi-agent state machine and workflow nodes.
+Utilizes LangGraph to manage agent transitions and state.
 """
 
 import json
 import logging
-import asyncio
 from typing import Literal, Optional, List
 from datetime import datetime
+from pathlib import Path
 
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -24,7 +17,6 @@ from src.state import (
     BuildStatus,
     ErrorCategory,
     AgentRole,
-    Action,
     classify_error,
     create_initial_state,
     should_escalate,
@@ -68,9 +60,41 @@ def extract_content(content) -> str:
 
 
 # ============================================================================
+# NODE WRAPPER
+# ============================================================================
+
+def agent_node(role: AgentRole):
+    """Decorator to wrap agent nodes with error handling and state tracking."""
+    def decorator(func):
+        def wrapper(state: AgentState) -> AgentState:
+            state.current_agent = role
+            logger.info(f"Node Started: {role.value}")
+            try:
+                result = func(state)
+                logger.info(f"Node Completed: {role.value}")
+                return result
+            except Exception as e:
+                logger.exception(f"Exception in {role.value} node: {e}")
+                error_msg = f"Unexpected error in {role.value} agent: {str(e)}"
+                error = create_error_record(
+                    message=error_msg,
+                    category=classify_error(str(e)),
+                    attempt_number=state.attempt_count
+                )
+                state.add_error(error)
+                state.last_error = error_msg
+                state.build_status = BuildStatus.ESCALATED
+                state.current_phase = "escalate"
+                return state
+        return wrapper
+    return decorator
+
+
+# ============================================================================
 # NODE: INITIALIZATION
 # ============================================================================
 
+@agent_node(AgentRole.SUPERVISOR) # init is special but handled by supervisor/scripted ops logic
 def init_node(state: AgentState) -> AgentState:
     """
     Initialize the workflow by cloning the repository using scripted operations.
@@ -196,6 +220,7 @@ Provide your plan in this JSON format:
 Repository path: {repo_path}
 """
 
+@agent_node(AgentRole.PLANNER)
 def planner_node(state: AgentState) -> AgentState:
     """
     Strategic planning phase - decomposes task and creates execution plan.
@@ -255,11 +280,26 @@ def planner_node(state: AgentState) -> AgentState:
         # Create TaskPlan
         phases = []
         for p in plan_data['phases']:
+            agent_str = p['agent'].lower()
+            if agent_str in ['architect', 'supervisor']:
+                role = AgentRole.BUILDER # Fallback for planning
+            elif 'scout' in agent_str:
+                role = AgentRole.SCOUT
+            elif 'fix' in agent_str:
+                role = AgentRole.FIXER
+            elif 'build' in agent_str:
+                role = AgentRole.BUILDER
+            else:
+                try:
+                    role = AgentRole(agent_str)
+                except ValueError:
+                    role = AgentRole.BUILDER
+            
             phase = TaskPhase(
                 id=p['id'],
                 name=p['name'],
                 description=p['description'],
-                agent=AgentRole(p['agent']) if p['agent'] != 'scripted' else AgentRole.BUILDER,
+                agent=role,
                 use_scripted_ops=p['use_scripted_ops'],
                 depends_on=p.get('depends_on', []),
                 estimated_cost=p.get('estimated_cost', 0.0),
@@ -289,6 +329,43 @@ def planner_node(state: AgentState) -> AgentState:
     state.current_phase = "planned"
     return state
 
+
+# ============================================================================
+# NODE: SUMMARIZER (New - Professional Documentation)
+# ============================================================================
+
+SUMMARIZER_PROMPT = """You are the **RISC-V Documentation Agent**. Your task is to create a professional **RISC-V Porting Guide** for the project: {repo_name}.
+
+# Repository
+URL: {repo_url}
+Build System: {build_system}
+
+# Execution Metrics
+- Duration: {duration}
+- API Calls: {api_calls}
+- Estimated Cost: ${cost:.4f}
+
+# Porting Context
+## Architecture Issues Found:
+{arch_issues}
+
+## Fixes Applied:
+{fixes}
+
+# Your Task
+Write a comprehensive Markdown report with the following sections:
+1. **Executive Summary**: High-level status and value.
+2. **Environment Setup**: Necessary tools and dependencies.
+3. **Build Instructions**: Step-by-step commands to build on RISC-V.
+4. **Architecture Notes**: Detailed analysis of what was architecture-specific and how it was resolved.
+5. **Validation**: How to verify the build.
+6. **Future Recommendations**: What could be improved for better RISC-V support.
+
+Use code blocks and clear headings. Be technical and precise.
+
+# RISC-V Specific Instructions:
+{build_steps}
+"""
 
 def create_default_plan() -> TaskPlan:
     """Create a default task plan if planning fails."""
@@ -323,6 +400,15 @@ SUPERVISOR_PROMPT = """You are the **RISC-V Porting Architect**, the controller 
 - Scripted Ops: {scripted_ops}
 - Cost: ${cost:.4f}
 
+# Your Goal
+Orchestrate the RISC-V porting process. You are the final authority on quality and correctness.
+
+# Your Verification Duty:
+Before recommending an action:
+1. Check if the current agent provided nonsense (e.g., hallucinated compiler paths like '/path/to/riscv64-gcc').
+2. If the BuildPlan has invalid absolute paths, route back to SCOUT with a critique.
+3. If the Fixer suggested a patch that doesn't match the file structure, route back to FIXER.
+
 # Available Actions
 - SCOUT: Deep analysis and build plan creation
 - BUILDER: Execute build commands
@@ -338,11 +424,12 @@ ACTION: [SCOUT|BUILDER|FIXER|ESCALATE|FINISH]
 REASON: [Brief justification in one sentence]
 """
 
+@agent_node(AgentRole.SUPERVISOR)
 def supervisor_node(state: AgentState) -> AgentState:
     """
     Enhanced supervisor with better context awareness and cost optimization.
     """
-    logger.info("Supervisor making routing decision...")
+    logger.info(f"Supervisor making routing decision... (BuildPlan: {'Exists' if state.build_plan else 'Missing'})")
     
     # Check for automatic escalation
     should_esc, esc_reason = should_escalate(state)
@@ -358,8 +445,20 @@ def supervisor_node(state: AgentState) -> AgentState:
     # For simple cases, use recommendation directly
     if state.api_calls_made > 10 or state.api_cost_usd > 0.10:
         # Cost optimization: use heuristic routing instead of LLM
+        state.log_agent_decision(AgentRole.SUPERVISOR, recommended_action.value, "Cost optimization heuristic")
         logger.info(f"Using cost-optimized routing: {recommended_action.value}")
         state.current_phase = recommended_action.value.lower()
+        return state
+
+    # Deterministic guards (from Foundry)
+    if state.build_status == BuildStatus.SUCCESS:
+        state.log_agent_decision(AgentRole.SUPERVISOR, "FINISH", "Build succeeded, moving to final documentation.")
+        state.current_phase = "finish"
+        return state
+    
+    if state.attempt_count >= state.max_attempts:
+        state.log_agent_decision(AgentRole.SUPERVISOR, "ESCALATE", f"Max attempts ({state.max_attempts}) reached.")
+        state.current_phase = "escalate"
         return state
     
     # Prepare context
@@ -376,7 +475,9 @@ def supervisor_node(state: AgentState) -> AgentState:
             f"Consider if FIXER can handle it, or if SCOUT needs more info."
         )
     elif not state.build_plan:
-        decision_context = "No build plan exists. SCOUT should create one."
+        decision_context = "No build plan exists. SCOUT must create one."
+    elif state.build_status == BuildStatus.PENDING:
+        decision_context = "A build plan exists. BUILDER should now execute the build phases."
     elif state.build_status == BuildStatus.SUCCESS:
         decision_context = "Build succeeded. FINISH or run tests if not done."
     
@@ -416,6 +517,8 @@ def supervisor_node(state: AgentState) -> AgentState:
             'FINISH': 'finish',
         }
         
+        decision_reason = f"LLM Routing: {action_str}"
+        state.log_agent_decision(AgentRole.SUPERVISOR, action_str, content.split('\n')[-1])
         state.current_phase = action_map.get(action_str, 'scout')
         
         logger.info(f"Supervisor decision: {action_str}")
@@ -451,8 +554,17 @@ Review the available information and create a detailed build plan.
 ## Dependencies:
 {dependencies}
 
+# System Environment (Actual tools available)
+{system_info}
+
+# Your Task
+Analyze the project and create a **Build Plan**.
+The Build Plan MUST use only standard tools (gcc, cmake, make) without absolute paths unless they are standard (e.g., /usr/bin/gcc).
+DO NOT guess or hallucinate compiler paths like '/path/to/riscv64-gcc'. Just use 'gcc' or appropriate environment variables.
+Use the system architecture: {architecture}.
+
 # Output Format
-Provide a complete build plan in JSON:
+Provide a JSON object with:
 ```json
 {{
   "build_system": "cmake",
@@ -488,6 +600,29 @@ Provide a complete build plan in JSON:
 Repository: {repo_path}
 """
 
+def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
+    """Validate BuildPlan for hallucinations and common issues."""
+    hallucination_patterns = [
+        '/path/to/',
+        'your_username',
+        'example.com',
+        'riscv64-unknown-linux-gnu-gcc', # Unless we confirmed it's there
+    ]
+    
+    for phase in plan.phases:
+        for cmd in phase.commands:
+            for pattern in hallucination_patterns:
+                if pattern in cmd:
+                    return False, f"Hallucination detected in command: '{cmd}' (contains '{pattern}')"
+            
+            # Check for absolute paths that look guessed
+            if '/home/' in cmd and '/workspace/' not in cmd:
+                return False, f"Suspicious absolute path in command: '{cmd}'"
+    
+    return True, ""
+
+
+@agent_node(AgentRole.SCOUT)
 def scout_node(state: AgentState) -> AgentState:
     """
     Enhanced scout that leverages pre-analysis from scripted operations.
@@ -525,17 +660,24 @@ def scout_node(state: AgentState) -> AgentState:
             'libraries': deps.libraries[:10],
         }, indent=2)
     
+    # Get system info
+    from src.scripted_ops import ScriptedOperations
+    ops = ScriptedOperations()
+    system_info_raw = ops.get_system_info()
+    system_info = "\n".join([f"- {k}: {v}" for k, v in system_info_raw.items()])
+    
     # Create prompt
-    from pathlib import Path
     prompt = SCOUT_PROMPT.format(
-        build_system=build_sys.type if build_sys else "unknown",
+        build_system=(build_sys.type if build_sys else "unknown").replace('{', '{{').replace('}', '}}'),
         deps_count=len(deps.system_packages) if deps else 0,
         arch_code_count=len(state.arch_specific_code),
         doc_count=len(state.file_content_cache),
-        documentation=documentation,
-        arch_concerns=arch_concerns,
-        dependencies=dependencies,
-        repo_path=state.repo_path,
+        documentation=documentation.replace('{', '{{').replace('}', '}}'),
+        arch_concerns=arch_concerns.replace('{', '{{').replace('}', '}}'),
+        dependencies=dependencies.replace('{', '{{').replace('}', '}}'),
+        repo_path=state.repo_path.replace('{', '{{').replace('}', '}}'),
+        system_info=system_info.replace('{', '{{').replace('}', '}}'),
+        architecture=system_info_raw.get('architecture', 'riscv64').replace('{', '{{').replace('}', '}}')
     )
     
     try:
@@ -570,7 +712,23 @@ def scout_node(state: AgentState) -> AgentState:
             notes=plan_data.get('notes', []),
         )
         
-        logger.info(f"Build plan created: {len(phases)} phases")
+        # Validate plan
+        is_valid, reason = validate_build_plan(state.build_plan)
+        if not is_valid:
+            logger.warning(f"Plan validation failed: {reason}")
+            state.add_error(create_error_record(
+                message=f"Invalid build plan: {reason}. Please avoid absolute paths and placeholders.",
+                category=ErrorCategory.CONFIGURATION
+            ))
+            # Clear invalid plan so supervisor knows we need a real one
+            state.build_plan = None
+            
+            # Create a simple fallback if this happened multiple times
+            if state.attempt_count >= 2:
+                logger.info("Using fallback build plan after repeated failures")
+                state.build_plan = create_fallback_build_plan(state)
+        else:
+            logger.info(f"Build plan created and validated: {len(phases)} phases")
         
     except Exception as e:
         logger.error(f"Scout failed: {e}")
@@ -642,6 +800,7 @@ Use the execute_command tool to run commands.
 Repository: {repo_path}
 """
 
+@agent_node(AgentRole.BUILDER)
 def builder_node(state: AgentState) -> AgentState:
     """
     Execute the build plan with smart error detection.
@@ -737,7 +896,12 @@ Failed Command: {failed_command}
 - Use scalar fallbacks for SIMD code
 - Update configure flags (-march=rv64gc)
 - Install missing dependencies
-- Fix incompatible assembly
+- Fix incompatible assembly: Port x86 asm to RISC-V or use C fallback
+- Endianness: RISC-V is little-endian, check for assumptions
+- Alignment: RISC-V may have stricter alignment requirements
+- Compiler Flags: Some x86-specific flags need removal
+- Version Mismatch: If tool versions need update, patch files or install newer versions
+- Reflection Loop: 1. ANALYZE error 2. HYPOTHESIZE fix 3. SELF-CRITIQUE (will it work? risks?) 4. APPLY minimal fix
 
 # Output Format
 ```json
@@ -761,6 +925,7 @@ Failed Command: {failed_command}
 Repository: {repo_path}
 """
 
+@agent_node(AgentRole.FIXER)
 def fixer_node(state: AgentState) -> AgentState:
     """
     Intelligent error fixing with reflection pattern.
@@ -777,7 +942,7 @@ def fixer_node(state: AgentState) -> AgentState:
     
     # Prepare context
     previous_fixes = "\n".join([
-        f"- {fix.strategy} ({'✓' if fix.success else '✗'})"
+        f"- {fix.strategy} ({'Success' if fix.success else 'Failed'})"
         for fix in state.fixes_attempted[-5:]
     ]) if state.fixes_attempted else "None"
     
@@ -842,16 +1007,15 @@ def fixer_node(state: AgentState) -> AgentState:
             if action['type'] == 'patch':
                 # Apply patch
                 patch_content = action['content']
-                file_path = os.path.join(state.repo_path, action['file'])
+                file_path = action.get('file')
+                full_file_path = os.path.join(state.repo_path, file_path) if file_path else None
                 
-                # Simple patch application
-                try:
-                    with open(file_path, 'a') as f:
-                        f.write(f"\n{patch_content}\n")
-                    changes_made.append(f"Patched {action['file']}")
+                # Use robust apply_patch tool
+                if apply_patch(patch_content, filepath=full_file_path, cwd=state.repo_path, use_docker=True):
+                    changes_made.append(f"Patched {file_path if file_path else 'repository'}")
                     state.patches_generated.append(patch_content)
-                except Exception as e:
-                    logger.error(f"Failed to apply patch: {e}")
+                else:
+                    logger.error(f"Failed to apply patch to {file_path}")
             
             elif action['type'] == 'command':
                 # Execute command
@@ -886,6 +1050,7 @@ def fixer_node(state: AgentState) -> AgentState:
 # NODE: ESCALATE
 # ============================================================================
 
+@agent_node(AgentRole.SUPERVISOR) # Escalation is a supervisor-level summary
 def escalate_node(state: AgentState) -> AgentState:
     """
     Escalate to human with comprehensive report.
@@ -915,7 +1080,7 @@ Message: {state.last_error[:500] if state.last_error else 'N/A'}
 """
     
     for fix in state.fixes_attempted[-5:]:
-        report += f"\n- {fix.strategy} ({'✓' if fix.success else '✗'})"
+        report += f"\n- {fix.strategy} ({'Success' if fix.success else 'Failed'})"
     
     report += f"""
 
@@ -944,48 +1109,62 @@ Message: {state.last_error[:500] if state.last_error else 'N/A'}
 # NODE: FINISH
 # ============================================================================
 
+@agent_node(AgentRole.SUMMARIZER)
 def finish_node(state: AgentState) -> AgentState:
     """
-    Finalize successful porting with recipe generation.
+    Finalize successful porting with comprehensive guide generation.
     """
-    logger.info("Generating porting recipe...")
+    logger.info("Generating comprehensive porting guide...")
     
     state.build_status = BuildStatus.SUCCESS
     state.current_phase = "finished"
     
-    # Generate porting recipe
-    recipe = f"""# RISC-V Porting Recipe: {state.repo_name}
-
-## Summary
-Successfully ported to RISC-V architecture.
-- Build System: {state.build_plan.build_system if state.build_plan else 'unknown'}
-- Total Time: {state.get_execution_duration():.1f}s
-- API Calls: {state.api_calls_made}
-- Cost: ${state.api_cost_usd:.4f}
-
-## Build Instructions
-
-"""
+    # Prepare context for summarizer
+    arch_issues = "\n".join([
+        f"- {a.file}:{a.line} - {a.arch_type} ({a.severity})"
+        for a in state.arch_specific_code[:20]
+    ]) if state.arch_specific_code else "None found."
     
+    fixes = "\n".join([
+        f"- {fix.strategy} ({'Success' if fix.success else 'Failed'})"
+        for fix in state.fixes_attempted
+    ]) if state.fixes_attempted else "No fixes were needed (generic code)."
+    
+    build_steps = ""
     if state.build_plan:
         for phase in state.build_plan.phases:
-            recipe += f"\n### {phase.name}\n\n```bash\n"
+            build_steps += f"\n### {phase.name}\n```bash\n"
             for cmd in phase.commands:
-                recipe += f"{cmd}\n"
-            recipe += "```\n"
+                build_steps += f"{cmd}\n"
+            build_steps += "```\n"
+
+    # Create prompt
+    prompt = SUMMARIZER_PROMPT.format(
+        repo_name=state.repo_name,
+        repo_url=state.repo_url,
+        build_system=state.build_plan.build_system if state.build_plan else "unknown",
+        build_steps=build_steps,
+        arch_issues=arch_issues,
+        fixes=fixes,
+        api_calls=state.api_calls_made,
+        cost=state.api_cost_usd,
+        duration=f"{state.get_execution_duration():.1f}s"
+    )
     
-    if state.patches_generated:
-        recipe += f"\n## Patches Applied\n\n{len(state.patches_generated)} patches were needed:\n"
-        for i, patch in enumerate(state.patches_generated):
-            recipe += f"\n### Patch {i+1}\n```\n{patch[:500]}\n```\n"
-    
-    if state.arch_specific_code:
-        recipe += f"\n## Architecture Notes\n\n"
-        recipe += f"Found {len(state.arch_specific_code)} architecture-specific code sections. "
-        recipe += "These have been handled with appropriate fallbacks.\n"
-    
-    state.porting_recipe = recipe
-    logger.info("Porting recipe generated")
+    try:
+        messages = [HumanMessage(content=prompt)]
+        llm = get_model_for_role(AgentRole.SUMMARIZER)
+        response = llm.invoke(messages)
+        state.log_api_call(cost=0.005)
+        
+        recipe = extract_content(response.content)
+        state.porting_recipe = recipe
+        logger.info("Porting guide generated successfully")
+        
+    except Exception as e:
+        logger.error(f"Summarizer failed: {e}")
+        # Fallback recipe
+        state.porting_recipe = f"# RISC-V Porting Recipe: {state.repo_name}\n\nBuild succeeded.\n\n{build_steps}"
     
     return state
 

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-RISC-V Porting Foundry - CLI Entry Point
-
-This is the main entry point for the RISC-V Porting Agent.
-It sets up the Docker environment and runs the multi-agent workflow.
+Main entry point for Atesor AI.
+Handles CLI, Docker setup, and starts the multi-agent porting workflow.
 """
 
 import os
@@ -22,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.models import check_api_keys, print_model_info, ModelProvider
+from src.state import AgentState, AgentRole, BuildStatus
 
 # Configure logging
 def configure_logging(verbose: bool):
@@ -54,7 +53,8 @@ def configure_logging(verbose: bool):
     logging.getLogger("google.ai").setLevel(logging.WARNING)
     
     # Ensure stdout is flushed
-    sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,10 @@ def check_keys() -> bool:
     """Verify required API keys are set."""
     is_valid, msg, provider = check_api_keys()
     if not is_valid:
-        print(colored(f"❌ ERROR: {msg}", "red"))
+        print(colored(f"ERROR: {msg}", "red"))
         return False
     
-    print(colored(f"   ✓ {msg}", "green"))
+    print(colored(f"{msg}", "green"))
     print_model_info()
     return True
 
@@ -85,16 +85,16 @@ def setup_docker_environment() -> bool:
     try:
         client = docker.from_env()
     except docker.errors.DockerException as e:
-        print(colored(f"❌ ERROR: Docker is not running or not accessible", "red"))
-        print(colored(f"   Details: {e}", "yellow"))
+        print(colored(f"ERROR: Docker is not running or not accessible", "red"))
+        print(colored(f"Details: {e}", "yellow"))
         return False
 
     # Step 1: Check/Build Docker Image
-    print(colored("\n🔧 Setting up RISC-V development environment...", "cyan"))
+    print(colored("\nSetting up RISC-V development environment...", "cyan"))
     
     try:
         client.images.get(IMAGE_NAME)
-        print(colored(f"   ✓ Image '{IMAGE_NAME}' found", "green"))
+        print(colored(f"Image '{IMAGE_NAME}' found", "green"))
     except docker.errors.ImageNotFound:
         print(colored(f"   Building image '{IMAGE_NAME}'...", "yellow"))
         try:
@@ -105,10 +105,10 @@ def setup_docker_environment() -> bool:
                 rm=True,
                 forcerm=True
             )
-            print(colored(f"   ✓ Image built successfully", "green"))
+            print(colored(f"Image built successfully", "green"))
         except docker.errors.BuildError as e:
-            print(colored(f"❌ ERROR: Failed to build Docker image", "red"))
-            print(colored(f"   {e}", "yellow"))
+            print(colored(f"ERROR: Failed to build Docker image", "red"))
+            print(colored(f"{e}", "yellow"))
             return False
 
     # Step 2: Create/Start Container
@@ -118,7 +118,7 @@ def setup_docker_environment() -> bool:
             print(colored(f"   Starting existing container '{CONTAINER_NAME}'...", "yellow"))
             container.start()
             time.sleep(2)  # Wait for container to be ready
-        print(colored(f"   ✓ Container '{CONTAINER_NAME}' is running", "green"))
+        print(colored(f"Container '{CONTAINER_NAME}' is running", "green"))
     except docker.errors.NotFound:
         print(colored(f"   Creating container '{CONTAINER_NAME}'...", "yellow"))
         
@@ -141,80 +141,69 @@ def setup_docker_environment() -> bool:
                 mem_limit="4g",
                 cpu_quota=200000,  # 2 CPUs
             )
-            print(colored(f"   ✓ Container created and started", "green"))
+            print(colored(f"Container created and started", "green"))
             time.sleep(2)  # Wait for container to be ready
         except docker.errors.APIError as e:
-            print(colored(f"❌ ERROR: Failed to create container", "red"))
-            print(colored(f"   {e}", "yellow"))
+            print(colored(f"ERROR: Failed to create container", "red"))
+            print(colored(f"{e}", "yellow"))
             return False
 
     # Step 3: Verify container is working
     try:
         exec_result = container.exec_run("echo 'Container ready!'")
         if exec_result.exit_code == 0:
-            print(colored("   ✓ Container is responsive", "green"))
+            print(colored("Container is responsive", "green"))
         else:
-            print(colored("❌ ERROR: Container is not responding correctly", "red"))
+            print(colored("ERROR: Container is not responding correctly", "red"))
             return False
     except Exception as e:
-        print(colored(f"❌ ERROR: Container health check failed: {e}", "red"))
+        print(colored(f"ERROR: Container health check failed: {e}", "red"))
         return False
 
     return True
 
 
-def save_porting_outputs(final_state: dict, output_dir: str) -> None:
+def save_porting_outputs(state: AgentState, output_dir: str) -> None:
     """
     Save all porting outputs to files.
-    
-    Saves:
-    1. Porting recipe (markdown)
-    2. Build logs
-    3. Patches applied
-    4. Architecture analysis
     """
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
-    repo_name = final_state.get('repo_name', 'unknown')
+    repo_name = state.repo_name
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
+    # 0. Save complete state (JSON)
+    state_path = os.path.join(output_dir, f"{repo_name}_state_{timestamp}.json")
+    try:
+        state.save_to_json(state_path)
+        print(colored(f"Full state saved: {state_path}", "green"))
+    except Exception as e:
+        logger.error(f"Failed to save state JSON: {e}")
+
     # 1. Save porting recipe
-    recipe = final_state.get('porting_recipe')
-    if recipe:
+    if state.porting_recipe:
         recipe_path = os.path.join(output_dir, f"{repo_name}_recipe.md")
         with open(recipe_path, 'w') as f:
-            f.write(recipe)
-        print(colored(f"\n📄 Porting recipe saved: {recipe_path}", "green"))
+            f.write(state.porting_recipe)
+        print(colored(f"Porting recipe saved: {recipe_path}", "green"))
     
     # 2. Save detailed build report
-    report = generate_detailed_report(final_state)
+    report = generate_detailed_report(state.to_dict())
     report_path = os.path.join(output_dir, f"{repo_name}_report_{timestamp}.md")
     with open(report_path, 'w') as f:
         f.write(report)
-    print(colored(f"📄 Detailed report saved: {report_path}", "green"))
+    print(colored(f"Detailed report saved: {report_path}", "green"))
     
-    # 3. Save patches if any
-    patches = final_state.get('patches_generated', [])
-    if patches:
-        patches_dir = os.path.join(output_dir, f"{repo_name}_patches")
+    # 3. Save patches
+    if state.patches_generated:
+        patches_dir = os.path.join(output_dir, f"{repo_name}_patches_{timestamp}")
         os.makedirs(patches_dir, exist_ok=True)
-        
-        for i, patch in enumerate(patches):
+        for i, patch in enumerate(state.patches_generated):
             patch_path = os.path.join(patches_dir, f"patch_{i+1}.patch")
             with open(patch_path, 'w') as f:
                 f.write(patch)
-        
-        print(colored(f"📄 {len(patches)} patch(es) saved: {patches_dir}/", "green"))
-    
-    # 4. Save build plan
-    build_plan = final_state.get('build_plan')
-    if build_plan:
-        plan_content = format_build_plan(build_plan)
-        plan_path = os.path.join(output_dir, f"{repo_name}_build_plan.md")
-        with open(plan_path, 'w') as f:
-            f.write(plan_content)
-        print(colored(f"📄 Build plan saved: {plan_path}", "green"))
+        print(colored(f"{len(state.patches_generated)} patch(es) saved: {patches_dir}/", "green"))
 
 
 def generate_detailed_report(state: dict) -> str:
@@ -248,16 +237,16 @@ def generate_detailed_report(state: dict) -> str:
     
     build_plan = state.get('build_plan')
     if build_plan:
-        report += f"**Build System**: {getattr(build_plan, 'build_system', 'Unknown')}\n\n"
+        report += f"**Build System**: {build_plan.get('build_system', 'Unknown')}\n\n"
         
-        phases = getattr(build_plan, 'phases', [])
+        phases = build_plan.get('phases', [])
         if phases:
             report += "### Build Phases\n\n"
             for i, phase in enumerate(phases, 1):
-                phase_name = getattr(phase, 'name', f'Phase {i}')
+                phase_name = phase.get('name', f'Phase {i}')
                 report += f"#### {i}. {phase_name}\n\n"
                 
-                commands = getattr(phase, 'commands', [])
+                commands = phase.get('commands', [])
                 if commands:
                     report += "```bash\n"
                     for cmd in commands:
@@ -271,11 +260,11 @@ def generate_detailed_report(state: dict) -> str:
     if dependencies:
         report += "### Dependencies\n\n"
         
-        build_tools = getattr(dependencies, 'build_tools', [])
+        build_tools = dependencies.get('build_tools', [])
         if build_tools:
             report += f"**Build Tools**: {', '.join(build_tools)}\n\n"
         
-        system_packages = getattr(dependencies, 'system_packages', [])
+        system_packages = dependencies.get('system_packages', [])
         if system_packages:
             report += f"**System Packages**: {', '.join(system_packages)}\n\n"
     
@@ -286,9 +275,9 @@ def generate_detailed_report(state: dict) -> str:
         report += f"Found {len(arch_code)} instances of architecture-specific code:\n\n"
         
         for i, code in enumerate(arch_code[:5], 1):  # Show first 5
-            filepath = getattr(code, 'file', 'Unknown')
-            line_num = getattr(code, 'line', 'N/A')
-            snippet = getattr(code, 'code_snippet', '')
+            filepath = code.get('file', 'Unknown')
+            line_num = code.get('line', 'N/A')
+            snippet = code.get('code_snippet', '')
             
             report += f"### {i}. {filepath}:{line_num}\n\n"
             report += f"```c\n{snippet[:200]}\n```\n\n"
@@ -326,7 +315,7 @@ def generate_detailed_report(state: dict) -> str:
     status = state.get('build_status')
     if status == 'SUCCESS':
         report += """
-- ✅ Build completed successfully for RISC-V
+- Build completed successfully for RISC-V
 - Test the binary on actual RISC-V hardware or QEMU
 - Consider submitting patches upstream if modifications were needed
 - Add RISC-V to your CI/CD pipeline
@@ -334,14 +323,14 @@ def generate_detailed_report(state: dict) -> str:
     elif status == 'ESCALATED':
         escalation_reason = state.get('escalation_reason', 'Unknown')
         report += f"""
-- ⚠️ Manual intervention required
+- Manual intervention required
 - Reason: {escalation_reason}
 - Review the error logs above
 - Consider consulting RISC-V porting documentation
 """
     else:
         report += """
-- ❌ Build did not complete successfully
+- Build did not complete successfully
 - Review error logs above
 - Check dependencies and build system compatibility
 - Consider filing an issue with the upstream project
@@ -394,7 +383,7 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
     from src.state import create_initial_state, BuildStatus
     from langchain_core.messages import HumanMessage
 
-    print(colored("\n🚀 Starting RISC-V Porting Agent", "cyan", attrs=["bold"]))
+    print(colored("\nStarting RISC-V Porting Agent", "cyan", attrs=["bold"]))
     print(colored(f"   Repository: {repo_url}", "white"))
     print(colored(f"   Max attempts: {max_attempts}", "white"))
     print(colored("-" * 60, "cyan"))
@@ -406,21 +395,27 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
     # Run the workflow
     try:
-        final_state = {}
+        final_state = initial_state
         step_count = 0
         
         for output in app.stream(initial_state):
             for node_name, state_update in output.items():
                 step_count += 1
                 
-                # Update state
-                if state_update:
-                    final_state.update(state_update)
+                # In LangGraph, state_update can be a dict of updates
+                if isinstance(state_update, dict):
+                    # Update final_state fields from dict
+                    for k, v in state_update.items():
+                        if hasattr(final_state, k):
+                            setattr(final_state, k, v)
+                elif isinstance(state_update, AgentState):
+                    final_state = state_update
                 
                 # Print progress
-                status = final_state.get("build_status", "PENDING")
+                status = getattr(final_state.build_status, 'value', str(final_state.build_status))
                 status_color = {
                     "PENDING": "white",
+                    "PLANNING": "cyan",
                     "SCOUTING": "blue",
                     "BUILDING": "yellow",
                     "FIXING": "magenta",
@@ -429,12 +424,12 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                     "ESCALATED": "red"
                 }.get(status, "white")
                 
-                print(colored(f"\n[Step {step_count}] {node_name}", "blue", attrs=["bold"]), flush=True)
+                print(colored(f"\n[Step {step_count}] {node_name}", "cyan", attrs=["bold"]), flush=True)
                 print(colored(f"   Status: {status}", status_color), flush=True)
                 
                 # Print messages if verbose
-                if verbose and "messages" in state_update:
-                    for msg in state_update["messages"]:
+                if verbose and hasattr(state_update, 'messages') and state_update.messages:
+                    for msg in state_update.messages:
                         role = getattr(msg, 'name', 'Assistant')
                         content = getattr(msg, 'content', str(msg))
                         
@@ -455,43 +450,55 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                         print(colored(display_content, "white"), flush=True)
                 elif not verbose and node_name != "Supervisor":
                     # Minimal feedback for non-verbose mode
-                    status = final_state.get("build_status", "ACTIVE")
+                    status = final_state.build_status.value if hasattr(final_state, 'build_status') else "ACTIVE"
                     print(colored(f"   Working... ({status})", "white"), end="\r", flush=True)
 
-        # Print final result
+        # Save and print results
         print(colored("\n" + "=" * 60, "cyan"))
-        final_status = final_state.get("build_status", "UNKNOWN")
         
-        # CRITICAL FIX: Save outputs before printing final status
-        try:
-            save_porting_outputs(final_state, OUTPUT_DIR)
-        except Exception as e:
-            logger.error(f"Failed to save outputs: {e}", exc_info=True)
-            print(colored(f"⚠️  Warning: Failed to save some outputs: {e}", "yellow"))
+        save_porting_outputs(final_state, OUTPUT_DIR)
         
-        if final_status == BuildStatus.SUCCESS.value:
-            print(colored("✅ BUILD SUCCESSFUL!", "green", attrs=["bold"]))
-            print(colored(f"   Attempts: {final_state.get('attempt_count', 0)}", "white"))
-            print(colored(f"\n📦 Output saved to: {OUTPUT_DIR}/", "cyan"))
+        final_status = final_state.build_status
+        
+        if final_status == BuildStatus.SUCCESS:
+            print(colored("\nPORTING SUCCESSFUL!", "green", attrs=["bold"]))
+            print(colored(f"   Recipe generated at: {OUTPUT_DIR}/{final_state.repo_name}_recipe.md", "white"))
             return 0
-        elif final_status == BuildStatus.ESCALATED.value:
-            print(colored("⚠️  ESCALATED TO HUMAN", "yellow", attrs=["bold"]))
-            print(colored(f"   Reason: {final_state.get('escalation_reason', 'Unknown')}", "white"))
-            print(colored(f"   Attempts: {final_state.get('attempt_count', 0)}", "white"))
-            print(colored(f"\n📦 Output saved to: {OUTPUT_DIR}/", "cyan"))
-            return 1
         else:
-            print(colored("❌ BUILD FAILED", "red", attrs=["bold"]))
-            print(colored(f"   Status: {final_status}", "white"))
-            print(colored(f"   Last error: {final_state.get('last_error_category', 'Unknown')}", "white"))
-            print(colored(f"\n📦 Output saved to: {OUTPUT_DIR}/", "cyan"))
+            print(colored("\nPORTING STOPPED / FAILED", "red", attrs=["bold"]))
+            print(colored(f"   Final Status: {final_status.value}", "white"))
+            
+            if final_state.last_error:
+                print(colored("\nLast Error Capture:", "red", attrs=["bold"]))
+                print(colored(f"   Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}", "yellow"))
+                print(colored(f"   {final_state.last_error[:500]}", "white"))
+            
+            # Print audit trail for transparency
+            if final_state.audit_trail:
+                print(colored("\nAgent Decision Audit:", "cyan", attrs=["bold"]))
+                for event in final_state.get_last_audit_events(10):
+                    ts = event['timestamp'].split('T')[-1][:8]
+                    agent = event.get('agent', 'system')
+                    etype = event.get('event')
+                    data = event.get('data', {})
+                    
+                    msg = ""
+                    if etype == 'decision':
+                        msg = f"Decided to {data.get('action')} - {data.get('reason')}"
+                    elif etype == 'scripted_op':
+                        msg = f"Ran scripted op: {data.get('operation')}"
+                    elif etype == 'error':
+                        msg = f"ERROR: {data.get('message')[:100]}..."
+                    
+                    print(colored(f"   [{ts}] {agent:12} | {etype:10} | {msg}", "white"))
+            
             return 1
 
     except KeyboardInterrupt:
-        print(colored("\n\n⚠️  Interrupted by user", "yellow"))
+        print(colored("\n\nInterrupted by user", "yellow"))
         return 130
     except Exception as e:
-        print(colored(f"\n❌ ERROR: {e}", "red"))
+        print(colored(f"\nERROR: {e}", "red"))
         logger.exception("Unexpected error during agent execution")
         return 1
 
@@ -505,7 +512,7 @@ def cleanup_container():
         container.stop(timeout=10)
         print(colored(f"Removing container '{CONTAINER_NAME}'...", "yellow"))
         container.remove()
-        print(colored("✓ Container cleaned up", "green"))
+        print(colored("Container cleaned up", "green"))
     except docker.errors.NotFound:
         print(colored(f"Container '{CONTAINER_NAME}' not found", "yellow"))
     except Exception as e:
@@ -576,12 +583,12 @@ Examples:
 
     # Setup only mode
     if args.setup_only:
-        print(colored("\n✓ Setup complete!", "green"))
+        print(colored("\nSetup complete!", "green"))
         return 0
 
     # Require repo URL
     if not args.repo:
-        print(colored("❌ ERROR: --repo argument is required", "red"))
+        print(colored("ERROR: --repo argument is required", "red"))
         parser.print_help()
         return 1
 

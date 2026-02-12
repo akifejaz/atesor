@@ -1,11 +1,6 @@
 """
-Enhanced Tools with Fixed Command Validation and Docker Support.
-
-Key improvements:
-1. Whitelist-based command validation (no more false blocks!)
-2. Command result caching
-3. Better error handling
-4. Docker integration (FIXED: All commands now run in container)
+Low-level utility functions for command execution, file I/O, and safety validation.
+Provides Docker-aware file and command operations.
 """
 
 import re
@@ -13,8 +8,6 @@ import subprocess
 import logging
 import os
 from typing import Optional, Tuple
-from dataclasses import dataclass
-from datetime import datetime
 
 from src.state import CommandResult
 
@@ -95,6 +88,19 @@ class CommandValidator:
         r'^cut\s+',
         r'^sort\s+',
         r'^uniq\s+',
+        
+        # Environment and Shell
+        r'^export\s+',
+        r'^env\s+',
+        r'^[A-Z_][A-Z0-9_.]*=.*',  # Environment variable assignments
+        
+        # System
+        r'^touch\s+',
+        r'^chmod\s+',
+        r'^patch\s+',
+        r'^diff\s+',
+        r'^tar\s+',
+        r'^unzip\s+',
     }
     
     # Dangerous patterns to block (blacklist)
@@ -344,11 +350,17 @@ def write_file(filepath: str, content: str, use_docker: bool = True) -> bool:
         Success status
     """
     if use_docker:
-        # Write to Docker container using tee
-        # Escape single quotes in content
-        escaped_content = content.replace("'", "'\\''")
+        # Write to Docker container using base64 for robustness
+        import base64
+        encoded = base64.b64encode(content.encode('utf-8')).decode('ascii')
+        
+        # Ensure directory exists
+        dir_path = '/'.join(filepath.split('/')[:-1])
+        if dir_path:
+            execute_command(f"mkdir -p {dir_path}", use_docker=True)
+            
         result = execute_command(
-            f"echo '{escaped_content}' > {filepath}",
+            f"echo '{encoded}' | base64 -d > {filepath}",
             use_docker=True
         )
         return result.success
@@ -456,46 +468,82 @@ def grep_content(pattern: str, filepath: str, context_lines: int = 0, use_docker
 # PATCH OPERATIONS
 # ============================================================================
 
-def apply_patch(patch_content: str, filepath: str, use_docker: bool = True) -> bool:
+def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optional[str] = None, use_docker: bool = True) -> bool:
     """
-    Apply a patch to a file.
+    Apply a patch to one or more files.
     
     Args:
-        patch_content: Patch content
-        filepath: File to patch
-        use_docker: Whether to patch in Docker container
+        patch_content: Unified diff or content to append
+        filepath: Specific file to patch (if None, assumes unified diff with its own paths)
+        cwd: Working directory
+        use_docker: Whether to run in Docker
     
     Returns:
         Success status
     """
-    import tempfile
-    
+    if not patch_content:
+        return False
+        
     if use_docker:
         # Write patch to container's /tmp
-        patch_path = f"/tmp/patch_{os.getpid()}.patch"
-        if not write_file(patch_path, patch_content, use_docker=True):
+        import uuid
+        patch_filename = f"/tmp/agent_{uuid.uuid4().hex[:8]}.patch"
+        if not write_file(patch_filename, patch_content, use_docker=True):
             return False
         
-        # Apply patch
-        result = execute_command(f"patch {filepath} < {patch_path}", use_docker=True)
-        
-        # Clean up
-        execute_command(f"rm {patch_path}", use_docker=True)
-        
-        return result.success
-    else:
-        # Apply patch on host
         try:
+            if filepath:
+                # Apply to specific file
+                # First check if it's a unified diff or just raw content
+                if "--- " in patch_content and "+++ " in patch_content:
+                    cmd = f"patch {filepath} < {patch_filename}"
+                else:
+                    # Raw content append (legacy fallback)
+                    # Use a more robust way to append in container
+                    import base64
+                    encoded = base64.b64encode(patch_content.encode('utf-8')).decode('ascii')
+                    cmd = f"echo '{encoded}' | base64 -d >> {filepath}"
+            else:
+                # Standard unified diff - apply with -p1
+                # Try dry-run first
+                dry_run = execute_command(f"patch -p1 --dry-run < {patch_filename}", cwd=cwd, use_docker=True)
+                if not dry_run.success:
+                    logger.warning(f"Patch dry-run failed: {dry_run.stderr}")
+                    # Try p0 as fallback
+                    dry_run = execute_command(f"patch -p0 --dry-run < {patch_filename}", cwd=cwd, use_docker=True)
+                    if not dry_run.success:
+                        return False
+                    cmd = f"patch -p0 < {patch_filename}"
+                else:
+                    cmd = f"patch -p1 < {patch_filename}"
+            
+            result = execute_command(cmd, cwd=cwd, use_docker=True)
+            return result.success
+        finally:
+            execute_command(f"rm {patch_filename}", use_docker=True)
+    else:
+        # Non-docker implementation (for local testing/setup)
+        try:
+            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.patch') as f:
                 f.write(patch_content)
                 patch_file = f.name
             
-            result = execute_command(f"patch {filepath} < {patch_file}", use_docker=False)
-            os.remove(patch_file)
+            if filepath:
+                if "--- " in patch_content and "+++ " in patch_content:
+                    cmd = f"patch {filepath} < {patch_file}"
+                else:
+                    with open(filepath, 'a') as f:
+                        f.write(f"\n{patch_content}\n")
+                    return True
+            else:
+                cmd = f"patch -p1 < {patch_file}"
             
+            result = execute_command(cmd, cwd=cwd, use_docker=False)
+            os.remove(patch_file)
             return result.success
         except Exception as e:
-            logger.error(f"Failed to apply patch: {e}")
+            logger.error(f"Failed to apply patch on host: {e}")
             return False
 
 
