@@ -22,24 +22,39 @@ load_dotenv()
 from src.models import check_api_keys, print_model_info, ModelProvider
 from src.state import AgentState, AgentRole, BuildStatus
 
+from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
+from src.tools import execute_command, DockerConfig as DC
+
 # Configure logging
 def configure_logging(verbose: bool):
-    level = logging.DEBUG if verbose else logging.INFO
+    # Capture everything at root level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
     
     # Create a custom formatter for better readability
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s', datefmt='%H:%M:%S')
-    
-    # Root logger configuration
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
     
     # Remove existing handlers to avoid duplicates
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
         
-    # Standard output handler
+    # 1. File Handler (Always Capture Everything)
+    log_file = os.path.join(LOGS_DIR, "agent.log")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+        
+    # 2. Console Handler (Respect Verbose Flag)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
+    
+    if verbose:
+        console_handler.setLevel(logging.DEBUG)
+    else:
+        # User requested no in-depth logs in terminal unless verbose is set
+        console_handler.setLevel(logging.ERROR)
+        
     root_logger.addHandler(console_handler)
     
     # Reduce noise from sensitive/chatty packages
@@ -57,9 +72,6 @@ def configure_logging(verbose: bool):
         sys.stdout.reconfigure(line_buffering=True)
 
 logger = logging.getLogger(__name__)
-
-from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR
-from src.tools import execute_command, DockerConfig as DC
 
 def check_keys() -> bool:
     """Verify required API keys are set."""
@@ -89,7 +101,13 @@ def setup_docker_environment() -> bool:
     # Step 1: Check/Build Docker Image
     print(colored("\nSetting up RISC-V development environment...", "cyan"))
     
+    force_rebuild = os.environ.get("REBUILD_IMAGE") == "true"
+    
     try:
+        if force_rebuild:
+            print(colored(f"Forcing rebuild of image '{IMAGE_NAME}'...", "yellow"))
+            raise docker.errors.ImageNotFound("Triggering rebuild")
+            
         client.images.get(IMAGE_NAME)
         print(colored(f"Image '{IMAGE_NAME}' found", "green"))
     except docker.errors.ImageNotFound:
@@ -101,6 +119,7 @@ def setup_docker_environment() -> bool:
                 tag=IMAGE_NAME,
                 rm=True,
                 forcerm=True,
+                pull=True, # Ensure base image is up to date
                 platform="linux/riscv64"
             )
             print(colored(f"Image built successfully", "green"))
@@ -130,6 +149,8 @@ def setup_docker_environment() -> bool:
                 detach=True,
                 tty=True,
                 platform="linux/riscv64",
+                network_mode="bridge",
+                dns=["8.8.8.8", "8.8.4.4"],
                 volumes={
                     os.path.abspath("./workspace"): {
                         'bind': '/workspace',
@@ -137,8 +158,8 @@ def setup_docker_environment() -> bool:
                     }
                 },
                 # Resource limits for safety
-                mem_limit="4g",
-                cpu_quota=200000,  # 2 CPUs
+                mem_limit="8g",
+                cpu_quota=-1,  # Unlimited CPU
             )
             print(colored(f"Container created and started", "green"))
             time.sleep(2)  # Wait for container to be ready
@@ -403,7 +424,7 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
     initial_state = create_initial_state(repo_url, max_attempts=max_attempts)
     initial_state.messages = [
-        HumanMessage(content=f"Port this repository to RISC-V: {repo_url}")
+        HumanMessage(content=f"Port this repository to RISC-V: {repo_url}. The repository is cloned at {initial_state.repo_path}")
     ]
 
     # Run the workflow
@@ -516,20 +537,133 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
         return 1
 
 
-def cleanup_container():
-    """Stop and remove the sandbox container."""
+
+
+def cleanup_workspace(dry_run: bool = False) -> None:
+    """
+    Clean up workspace directory to manage size.
+    
+    Args:
+        dry_run: If True, only show what would be deleted without actually deleting
+    """
+    import shutil
+    from pathlib import Path
+    
+    workspace_path = Path("./workspace")
+    if not workspace_path.exists():
+        print(colored("Workspace directory does not exist", "yellow"))
+        return
+    
+    # Calculate current size
+    total_size = 0
+    file_count = 0
+    
+    for item in workspace_path.rglob("*"):
+        if item.is_file():
+            total_size += item.stat().st_size
+            file_count += 1
+    
+    size_mb = total_size / (1024 * 1024)
+    size_gb = size_mb / 1024
+    
+    print(colored(f"\nWorkspace Statistics:", "cyan", attrs=["bold"]))
+    print(colored(f"   Location: {workspace_path.absolute()}", "white"))
+    print(colored(f"   Total Size: {size_gb:.2f} GB ({size_mb:.2f} MB)", "white"))
+    print(colored(f"   Total Files: {file_count}", "white"))
+    
+    # List subdirectories with sizes
+    print(colored(f"\nDirectory Breakdown:", "cyan"))
+    subdirs = {}
+    for subdir in ["repos", "output", "logs", ".cache", "patches"]:
+        subdir_path = workspace_path / subdir
+        if subdir_path.exists():
+            subdir_size = sum(f.stat().st_size for f in subdir_path.rglob("*") if f.is_file())
+            subdirs[subdir] = subdir_size
+            print(colored(f"   {subdir}: {subdir_size / (1024*1024):.2f} MB", "white"))
+    
+    # Offer cleanup options
+    print(colored(f"\nCleanup Options:", "cyan"))
+    print(colored("   1. Clean repos/ (cloned repositories)", "white"))
+    print(colored("   2. Clean output/ (generated reports)", "white"))
+    print(colored("   3. Clean logs/ (execution logs)", "white"))
+    print(colored("   4. Clean .cache/ (cached data)", "white"))
+    print(colored("   5. Clean ALL (complete workspace reset)", "white"))
+    
+    if dry_run:
+        print(colored("\n[DRY RUN] No files will be deleted", "yellow"))
+        return
+    
+    choice = input(colored("\nSelect option (1-5, or 'q' to quit): ", "cyan"))
+    
+    dirs_to_clean = []
+    if choice == "1":
+        dirs_to_clean = ["repos"]
+    elif choice == "2":
+        dirs_to_clean = ["output"]
+    elif choice == "3":
+        dirs_to_clean = ["logs"]
+    elif choice == "4":
+        dirs_to_clean = [".cache"]
+    elif choice == "5":
+        dirs_to_clean = ["repos", "output", "logs", ".cache", "patches"]
+    elif choice.lower() == "q":
+        print(colored("Cleanup cancelled", "yellow"))
+        return
+    else:
+        print(colored("Invalid option", "red"))
+        return
+    
+    # Perform cleanup
+    for dirname in dirs_to_clean:
+        dir_path = workspace_path / dirname
+        if dir_path.exists():
+            try:
+                shutil.rmtree(dir_path)
+                dir_path.mkdir(exist_ok=True)
+                print(colored(f"   Cleaned {dirname}/", "green"))
+            except Exception as e:
+                print(colored(f"   Error cleaning {dirname}/: {e}", "red"))
+    
+    # Recalculate size
+    new_total_size = sum(f.stat().st_size for f in workspace_path.rglob("*") if f.is_file())
+    new_size_mb = new_total_size / (1024 * 1024)
+    freed_mb = size_mb - new_size_mb
+    
+    print(colored(f"\nCleanup Complete!", "green", attrs=["bold"]))
+    print(colored(f"   Freed: {freed_mb:.2f} MB", "green"))
+    print(colored(f"   New Size: {new_size_mb:.2f} MB", "white"))
+
+
+def cleanup_container(remove_image: bool = False):
+    """Stop and remove the sandbox container and optionally the image."""
     try:
         client = docker.from_env()
-        container = client.containers.get(CONTAINER_NAME)
-        print(colored(f"Stopping container '{CONTAINER_NAME}'...", "yellow"))
-        container.stop(timeout=10)
-        print(colored(f"Removing container '{CONTAINER_NAME}'...", "yellow"))
-        container.remove()
-        print(colored("Container cleaned up", "green"))
-    except docker.errors.NotFound:
-        print(colored(f"Container '{CONTAINER_NAME}' not found", "yellow"))
+        
+        # Remove container
+        try:
+            container = client.containers.get(CONTAINER_NAME)
+            if container.status == "running":
+                print(colored(f"Stopping container '{CONTAINER_NAME}'...", "yellow"))
+                container.stop(timeout=10)
+            print(colored(f"Removing container '{CONTAINER_NAME}'...", "yellow"))
+            container.remove()
+            print(colored("Container cleaned up", "green"))
+        except docker.errors.NotFound:
+            print(colored(f"Container '{CONTAINER_NAME}' not found", "yellow"))
+            
+        # Remove image if requested
+        if remove_image:
+            try:
+                print(colored(f"Removing image '{IMAGE_NAME}'...", "yellow"))
+                client.images.remove(IMAGE_NAME)
+                print(colored(f"Image '{IMAGE_NAME}' removed", "green"))
+            except docker.errors.ImageNotFound:
+                print(colored(f"Image '{IMAGE_NAME}' not found", "yellow"))
+            except Exception as e:
+                print(colored(f"Error removing image: {e}", "red"))
+                
     except Exception as e:
-        print(colored(f"Error cleaning up: {e}", "red"))
+        print(colored(f"Error during cleanup: {e}", "red"))
 
 
 def main():
@@ -575,6 +709,24 @@ Examples:
         action="store_true",
         help="Only set up the Docker environment, don't run agent"
     )
+    
+    parser.add_argument(
+        "--clean-workspace",
+        action="store_true",
+        help="Clean up workspace directory to manage size"
+    )
+    
+    parser.add_argument(
+        "--clean-image",
+        action="store_true",
+        help="Remove the Docker image as well as the container"
+    )
+    
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Force rebuild of the Docker image"
+    )
 
     args = parser.parse_args()
 
@@ -583,14 +735,33 @@ Examples:
 
     # Handle cleanup
     if args.cleanup:
-        cleanup_container()
+        cleanup_container(remove_image=args.clean_image)
         return 0
+
+    if args.clean_image and not args.cleanup:
+        # If only --clean-image is provided, still perform cleanup
+        cleanup_container(remove_image=True)
+        return 0
+
+    # Handle workspace cleanup
+    if args.clean_workspace:
+        cleanup_workspace()
+        return 0
+
+    # Require repo URL before starting long-running setup or API checks
+    if not args.repo and not args.setup_only:
+        print(colored("ERROR: --repo argument is required", "red"))
+        parser.print_help()
+        return 1
 
     # Check API keys
     if not check_keys():
         return 1
 
     # Set up Docker environment
+    if args.rebuild:
+        os.environ["REBUILD_IMAGE"] = "true"
+        
     if not setup_docker_environment():
         return 1
 
@@ -598,12 +769,6 @@ Examples:
     if args.setup_only:
         print(colored("\nSetup complete!", "green"))
         return 0
-
-    # Require repo URL
-    if not args.repo:
-        print(colored("ERROR: --repo argument is required", "red"))
-        parser.print_help()
-        return 1
 
     # Run the agent
     exit_code = run_agent(

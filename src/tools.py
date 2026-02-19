@@ -48,8 +48,8 @@ class CommandValidator:
         r'^cmake\s+',
         r'^make\s+',
         r'^ninja\s+',
-        r'^./configure\s+',
-        r'^./autogen\.sh',
+        r'^./configure.*',
+        r'^./autogen\.sh.*',
         r'^cargo\s+',
         r'^npm\s+',
         r'^pip\s+',
@@ -94,6 +94,8 @@ class CommandValidator:
         r'^export\s+',
         r'^env\s+',
         r'^[A-Z_][A-Z0-9_.]*=.*',  # Environment variable assignments
+        r'^sh\s+',
+        r'^bash\s+',
         
         # System
         r'^touch\s+',
@@ -102,6 +104,32 @@ class CommandValidator:
         r'^diff\s+',
         r'^tar\s+',
         r'^unzip\s+',
+        r'^cp\s+',
+        r'^mv\s+',
+        r'^rm\s+(?!-rf\s+/)', # Allow rm but not rm -rf /
+        
+        # Discovery
+        r'^which\s+',
+        r'^uname\s+',
+        r'^test\s+',
+        r'^base64\s+',
+        
+        # Shell conditionals and control flow
+        r'^if\s+',
+        r'^\[\s+',           # [ test ]
+        r'^\[\[\s+',         # [[ test ]]
+        r'^then\s*',
+        r'^else\s*',
+        r'^elif\s+',
+        r'^fi\s*$',
+        r'^for\s+',
+        r'^while\s+',
+        r'^do\s*',
+        r'^done\s*$',
+        r'^case\s+',
+        r'^esac\s*$',
+        r'^\{\s*$',
+        r'^\}\s*$',
     }
     
     # Dangerous patterns to block (blacklist)
@@ -178,16 +206,16 @@ class DockerConfig:
 def execute_command(
     command: str,
     cwd: Optional[str] = None,
-    timeout: int = 300,
+    timeout: int = 1200,
     validate: bool = True,
-    use_docker: bool = True,  # NEW: Execute in Docker by default
+    use_docker: bool = True,
 ) -> CommandResult:
     """
     Execute a shell command safely.
     
     Args:
         command: Shell command to execute
-        cwd: Working directory (path inside container if use_docker=True)
+        cwd: Working directory (will be translated to container path if use_docker=True)
         timeout: Timeout in seconds
         validate: Whether to validate command safety
         use_docker: Whether to execute in Docker container (default: True)
@@ -195,8 +223,15 @@ def execute_command(
     Returns:
         CommandResult with output and status
     """
+    from src.config import _IN_DOCKER, WORKSPACE_ROOT
+    
     import time
     start_time = time.time()
+    
+    # If we are ALREADY in Docker, we cannot use docker exec normally
+    # and we don't need to.
+    if _IN_DOCKER:
+        use_docker = False
     
     # Validate command safety
     if validate:
@@ -231,8 +266,17 @@ def execute_command(
             
             # Add working directory if specified
             if cwd:
-                # Ensure we use the container path
-                container_cwd = cwd if cwd.startswith(DockerConfig.WORKSPACE_PATH) else cwd
+                # Translate host path to container path if necessary
+                container_cwd = cwd
+                if cwd.startswith(str(WORKSPACE_ROOT)):
+                    container_cwd = cwd.replace(str(WORKSPACE_ROOT), DockerConfig.WORKSPACE_PATH)
+                elif not cwd.startswith(DockerConfig.WORKSPACE_PATH):
+                    # If it's not relative and not in /workspace, it might be an absolute host path
+                    # try to see if it contains 'workspace'
+                    if 'workspace' in cwd:
+                        parts = cwd.split('workspace', 1)
+                        container_cwd = DockerConfig.WORKSPACE_PATH + parts[1]
+                
                 docker_cmd.extend(["-w", container_cwd])
             
             # Add container name and command
@@ -395,76 +439,6 @@ def file_exists(filepath: str, use_docker: bool = True) -> bool:
         return os.path.exists(filepath)
 
 
-def list_directory(dirpath: str, max_depth: int = 1, use_docker: bool = True) -> str:
-    """
-    List directory contents.
-    
-    Args:
-        dirpath: Directory path
-        max_depth: Maximum depth to traverse
-        use_docker: Whether to list in Docker container
-    
-    Returns:
-        Directory listing
-    """
-    result = execute_command(f"ls -la {dirpath}", use_docker=use_docker)
-    return result.stdout if result.success else result.stderr
-
-
-def get_file_tree(dirpath: str, max_depth: int = 3, use_docker: bool = True) -> str:
-    """
-    Get tree view of directory.
-    
-    Args:
-        dirpath: Directory path
-        max_depth: Maximum depth
-        use_docker: Whether to use Docker container
-    
-    Returns:
-        Tree view
-    """
-    # Try tree command first
-    result = execute_command(
-        f"tree -L {max_depth} -I '.git|node_modules|__pycache__|.venv' {dirpath}",
-        use_docker=use_docker
-    )
-    
-    if result.success:
-        return result.stdout
-    
-    # Fallback to find
-    result = execute_command(
-        f"find {dirpath} -maxdepth {max_depth} -type f | head -n 100",
-        use_docker=use_docker
-    )
-    return result.stdout
-
-
-# ============================================================================
-# GREP AND SEARCH
-# ============================================================================
-
-def grep_content(pattern: str, filepath: str, context_lines: int = 0, use_docker: bool = True) -> str:
-    """
-    Search for pattern in file.
-    
-    Args:
-        pattern: Regular expression pattern
-        filepath: Path to file
-        context_lines: Lines of context before/after match
-        use_docker: Whether to search in Docker container
-    
-    Returns:
-        Matching lines
-    """
-    cmd = f"grep -E '{pattern}' {filepath}"
-    if context_lines > 0:
-        cmd += f" -C {context_lines}"
-    
-    result = execute_command(cmd, use_docker=use_docker)
-    return result.stdout if result.success else ""
-
-
 # ============================================================================
 # PATCH OPERATIONS
 # ============================================================================
@@ -548,68 +522,13 @@ def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optiona
             return False
 
 
-# ============================================================================
-# DOCKER OPERATIONS
-# ============================================================================
-
-def docker_exec(container_name: str, command: str, cwd: Optional[str] = None, timeout: int = 300) -> CommandResult:
-    """
-    Execute command in Docker container.
-    
-    Args:
-        container_name: Name of Docker container
-        command: Command to execute
-        cwd: Working directory inside container
-        timeout: Timeout in seconds
-    
-    Returns:
-        CommandResult
-    """
-    # Save original container name
-    original_container = DockerConfig.CONTAINER_NAME
-    DockerConfig.CONTAINER_NAME = container_name
-    
-    try:
-        result = execute_command(command, cwd=cwd, timeout=timeout, use_docker=True)
-        return result
-    finally:
-        # Restore original container name
-        DockerConfig.CONTAINER_NAME = original_container
-
-
-def clone_repository(url: str, target_path: str) -> CommandResult:
-    """
-    Clone a git repository.
-    
-    Args:
-        url: Repository URL
-        target_path: Target directory (on host)
-    
-    Returns:
-        CommandResult
-    """
-    # Check if already exists (on host)
-    if file_exists(f"{target_path}/.git", use_docker=False):
-        logger.info(f"Repository already exists at {target_path}, pulling...")
-        return execute_command(f"cd {target_path} && git pull", use_docker=False)
-    
-    # Clone (on host, not in Docker)
-    logger.info(f"Cloning {url} to {target_path}...")
-    return execute_command(f"git clone --depth 1 {url} {target_path}", use_docker=False)
-
-
 # Export all functions
 __all__ = [
     "execute_command",
     "read_file",
     "write_file",
     "file_exists",
-    "list_directory",
-    "get_file_tree",
-    "grep_content",
     "apply_patch",
-    "docker_exec",
-    "clone_repository",
     "CommandValidator",
     "DockerConfig",
 ]

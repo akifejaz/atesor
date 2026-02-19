@@ -32,10 +32,10 @@ class TestScriptedOps(unittest.TestCase):
         self.assertEqual(info.type, "cargo")
         self.assertEqual(info.primary_file, "Cargo.toml")
 
-    @patch('src.scripted_ops.ScriptedOperations._execute_command')
+    @patch('src.scripted_ops.execute_command')
     def test_get_repository_info(self, mock_exec):
         # Mock git commands
-        def exec_side_effect(cmd):
+        def exec_side_effect(cmd, **kwargs):
             if "rev-parse" in cmd:
                 return CommandResult(cmd, 0, "abcdef123", "", 0.1)
             if "branch" in cmd:

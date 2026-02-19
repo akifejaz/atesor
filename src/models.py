@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models import BaseChatModel
 
-from src.state import AgentRole
+from .state import AgentRole
 
 logger = logging.getLogger(__name__)
 
@@ -51,83 +51,62 @@ MODEL_CONFIG = {
     },
 }
 
-# Cost tracking per model (USD per 1K tokens)
-COST_PER_1K_TOKENS = {
-    "gpt-4": 0.03,
-    "gpt-3.5-turbo": 0.001,
-    "gemini-pro": 0.0005,
-    "gemini-pro-free": 0.0,
-    "openrouter/free": 0.0,
-    "claude-3-sonnet": 0.003,
-}
-
-
-def create_llm(role: AgentRole, provider: Optional[str] = None) -> BaseChatModel:
-    """
-    Create an LLM for a specific agent role.
-    
-    Args:
-        role: The agent role (supervisor, scout, builder, etc.)
-        provider: Override default provider
-    
-    Returns:
-        Configured LLM instance
-    """
-    provider = provider or PROVIDER
-    config = MODEL_CONFIG[provider][role.value]
-    
-    logger.info(f"Creating LLM for {role.value}: provider={provider}, "
-               f"model={config['model']}, temp={config['temperature']}")
-    
-    if provider == "openai":
-        return ChatOpenAI(
-            model=config["model"],
-            temperature=config["temperature"],
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-        )
-    
-    elif provider == "gemini":
-        return ChatGoogleGenerativeAI(
-            model=config["model"],
-            temperature=config["temperature"],
-            google_api_key=os.getenv("GOOGLE_API_KEY"),
-        )
-    
-    elif provider == "openrouter":
-        return ChatOpenAI(
-            model=config["model"],
-            temperature=config["temperature"],
-            openai_api_key=os.getenv("OPENROUTER_API_KEY"),
-            openai_api_base="https://openrouter.ai/api/v1",
-        )
-    
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
-
-
 def check_api_keys() -> Tuple[bool, str, str]:
     """Verify required API keys are set for the selected provider."""
     provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
     
-    if provider == ModelProvider.GEMINI.value:
-        key = os.getenv("GOOGLE_API_KEY")
-        if not key:
-            return False, "GOOGLE_API_KEY not found in environment", provider
-        return True, "Found GOOGLE_API_KEY", provider
-    
-    elif provider == ModelProvider.OPENAI.value:
+    if provider == ModelProvider.OPENAI.value:
         key = os.getenv("OPENAI_API_KEY")
-        if not key:
+        if not key or key == "your_key_here":
             return False, "OPENAI_API_KEY not found in environment", provider
-        return True, "Found OPENAI_API_KEY", provider
+        return True, "OpenAI API key verified", provider
+        
+    elif provider == ModelProvider.GEMINI.value:
+        key = os.getenv("GOOGLE_API_KEY")
+        if not key or key == "your_key_here":
+            return False, "GOOGLE_API_KEY not found in environment", provider
+        return True, "Gemini API key verified (using GOOGLE_API_KEY)", provider
         
     elif provider == ModelProvider.OPENROUTER.value:
         key = os.getenv("OPENROUTER_API_KEY")
-        if not key:
+        if not key or key == "your_key_here":
             return False, "OPENROUTER_API_KEY not found in environment", provider
-        return True, "Found OPENROUTER_API_KEY", provider
+        return True, "OpenRouter API key verified", provider
         
     return False, f"Unknown provider: {provider}", provider
+
+
+def create_llm(role: AgentRole) -> BaseChatModel:
+    """Create an LLM instance for a specific agent role."""
+    provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
+    
+    if provider not in MODEL_CONFIG:
+        logger.warning(f"Unknown provider {provider}, falling back to Gemini")
+        provider = ModelProvider.GEMINI.value
+        
+    role_key = role.value if hasattr(role, 'value') else str(role)
+    if role_key not in MODEL_CONFIG[provider]:
+        logger.warning(f"Role {role_key} not found in {provider} config, using supervisor config")
+        role_key = "supervisor"
+        
+    config = MODEL_CONFIG[provider][role_key]
+    model_name = config["model"]
+    temperature = config["temperature"]
+    
+    if provider == ModelProvider.OPENAI.value:
+        return ChatOpenAI(model=model_name, temperature=temperature)
+    elif provider == ModelProvider.GEMINI.value:
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+    elif provider == ModelProvider.OPENROUTER.value:
+        # OpenRouter uses ChatOpenAI with a base_url
+        return ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+            openai_api_base="https://openrouter.ai/api/v1"
+        )
+    
+    raise ValueError(f"Unsupported provider: {provider}")
 
 
 def print_model_info():
@@ -139,127 +118,9 @@ def print_model_info():
         print(f"   Models: {config['supervisor']['model']} (S), {config['planner']['model']} (P), {config['builder']['model']} (B)")
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """
-    Estimate cost for a model invocation.
-    
-    Args:
-        model: Model name
-        input_tokens: Number of input tokens
-        output_tokens: Number of output tokens
-    
-    Returns:
-        Estimated cost in USD
-    """
-    total_tokens = input_tokens + output_tokens
-    cost_per_1k = COST_PER_1K_TOKENS.get(model, 0.001)  # Default fallback
-    return (total_tokens / 1000) * cost_per_1k
-
-
-class CostTrackingLLM(BaseChatModel):
-    """
-    Wrapper LLM that tracks costs automatically.
-    """
-    
-    def __init__(self, base_llm: BaseChatModel, role: AgentRole):
-        self.base_llm = base_llm
-        self.role = role
-        self.total_cost = 0.0
-        self.call_count = 0
-    
-    def invoke(self, messages, *args, **kwargs):
-        """Invoke with cost tracking."""
-        response = self.base_llm.invoke(messages, *args, **kwargs)
-        
-        # Track cost (rough estimate)
-        input_tokens = sum(len(m.content.split()) * 1.3 for m in messages)  # Rough
-        output_tokens = len(response.content.split()) * 1.3
-        
-        model_name = getattr(self.base_llm, 'model_name', getattr(self.base_llm, 'model', 'unknown'))
-        cost = estimate_cost(
-            model_name,
-            int(input_tokens),
-            int(output_tokens)
-        )
-        
-        self.total_cost += cost
-        self.call_count += 1
-        
-        logger.info(f"{self.role.value} LLM call #{self.call_count}: "
-                   f"~${cost:.4f} (total: ${self.total_cost:.4f})")
-        
-        return response
-    
-    @property
-    def _llm_type(self) -> str:
-        return self.base_llm._llm_type
-
-
-def create_cost_tracking_llm(role: AgentRole) -> CostTrackingLLM:
-    """Create an LLM with automatic cost tracking."""
-    base_llm = create_llm(role)
-    return CostTrackingLLM(base_llm, role)
-
-
-# Fallback strategy for API failures
-class LLMFallbackHandler:
-    """
-    Handle LLM API failures with graceful fallback.
-    """
-    
-    def __init__(self, preferred_provider: str = PROVIDER):
-        self.preferred_provider = preferred_provider
-        self.fallback_order = ["gemini", "openrouter", "openai"]
-        self.failed_providers = set()
-    
-    def get_llm(self, role: AgentRole) -> BaseChatModel:
-        """
-        Get LLM with fallback logic.
-        """
-        # Try preferred provider first
-        if self.preferred_provider not in self.failed_providers:
-            try:
-                return create_llm(role, self.preferred_provider)
-            except Exception as e:
-                logger.warning(f"Failed to create {self.preferred_provider} LLM: {e}")
-                self.failed_providers.add(self.preferred_provider)
-        
-        # Try fallbacks
-        for provider in self.fallback_order:
-            if provider in self.failed_providers:
-                continue
-            
-            try:
-                logger.info(f"Falling back to provider: {provider}")
-                return create_llm(role, provider)
-            except Exception as e:
-                logger.warning(f"Failed to create {provider} LLM: {e}")
-                self.failed_providers.add(provider)
-        
-        raise RuntimeError("All LLM providers failed!")
-    
-    def reset(self):
-        """Reset failure tracking."""
-        self.failed_providers.clear()
-
-
-# Global fallback handler
-_fallback_handler = LLMFallbackHandler()
-
-
-def get_llm_with_fallback(role: AgentRole) -> BaseChatModel:
-    """
-    Get LLM with automatic fallback to alternative providers.
-    """
-    return _fallback_handler.get_llm(role)
-
-
 # Export functions
 __all__ = [
     "create_llm",
-    "create_cost_tracking_llm",
-    "get_llm_with_fallback",
-    "estimate_cost",
     "AgentRole",
     "check_api_keys",
     "print_model_info",

@@ -5,14 +5,15 @@ Utilizes LangGraph to manage agent transitions and state.
 
 import json
 import logging
-from typing import Literal, Optional, List
+import os
+from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
 
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 
-from src.state import (
+from .state import (
     AgentState,
     BuildStatus,
     ErrorCategory,
@@ -26,10 +27,12 @@ from src.state import (
     BuildPhase,
     TaskPlan,
     TaskPhase,
+    FixAttempt,
 )
-from src.scripted_ops import ScriptedOperations, quick_analysis
-from src.models import create_llm
-from src.tools import execute_command, apply_patch
+from .scripted_ops import ScriptedOperations, quick_analysis
+from .models import create_llm
+from .tools import execute_command, apply_patch
+from .knowledge import get_system_knowledge_summary
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -57,6 +60,15 @@ def extract_content(content) -> str:
             for item in content
         ])
     return str(content)
+
+
+def extract_json_block(text: str) -> str:
+    """Safely extract the first JSON block from a string."""
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end >= start:
+        return text[start:end+1]
+    return text
 
 
 # ============================================================================
@@ -136,8 +148,15 @@ def init_node(state: AgentState) -> AgentState:
         # Store in context cache
         state.context_cache['quick_analysis'] = analysis
         
-        # Perform system audit (New: Identify missing tools early)
-        system_info = scripted_ops.get_system_info()
+        # Determine required tools based on analysis
+        required_tools = set(['gcc', 'make']) # Essentials
+        if state.build_system_info:
+            required_tools.add(state.build_system_info.type)
+        if state.dependencies:
+            required_tools.update(state.dependencies.build_tools)
+        
+        # Perform system audit (Identify ONLY relevant missing tools)
+        system_info = scripted_ops.get_system_info(tools=list(required_tools))
         missing_tools = [t for t, status in system_info.items() if status == "Not installed"]
         state.context_cache['system_info'] = system_info
         state.context_cache['missing_tools'] = missing_tools
@@ -145,7 +164,7 @@ def init_node(state: AgentState) -> AgentState:
         logger.info(f"Quick analysis complete: "
                    f"Build system: {state.build_system_info.type if state.build_system_info else 'unknown'}, "
                    f"Arch-specific code: {len(state.arch_specific_code)} instances. "
-                   f"Missing tools: {', '.join(missing_tools) if missing_tools else 'None'}")
+                   f"Relevant missing tools: {', '.join(missing_tools) if missing_tools else 'None'}")
         
     except Exception as e:
         logger.warning(f"Quick analysis failed: {e}")
@@ -255,8 +274,9 @@ def planner_node(state: AgentState) -> AgentState:
     if state.arch_specific_code:
         high_severity = [a for a in state.arch_specific_code if a.severity == 'high']
         if high_severity:
+            report_severity = high_severity[:5]
             arch_concerns = f"\n## Architecture Concerns:\n"
-            for concern in high_severity[:5]:
+            for concern in report_severity:
                 arch_concerns += f"- {concern.arch_type} in {concern.file}:{concern.line}\n"
     
     # System Environment summary
@@ -287,7 +307,7 @@ def planner_node(state: AgentState) -> AgentState:
         content = extract_content(response.content)
         
         # Parse JSON response
-        json_match = content[content.find('{'):content.rfind('}')+1]
+        json_match = extract_json_block(content)
         plan_data = json.loads(json_match)
         
         # Create TaskPlan
@@ -570,8 +590,18 @@ Review the available information and create a detailed build plan.
 # System Environment (Actual tools available)
 {system_info}
 
+# System Knowledge (Feb 2026)
+{system_knowledge}
+
 # Your Task
 Analyze the project and create a **Build Plan**.
+If the build system is Go:
+   - Do NOT just run 'go build .' unless you are sure the root contains package main.
+   - Look for 'cmd/' directory or use 'go build ./...' to build all packages.
+   - If 'go.mod' exists, check if 'cmd/amass' or similar exists.
+   - Correct command example: `go build -v -o amass ./cmd/amass` or `go build -v ./...`
+   - If the build fails with "no Go files", retry with a different path.
+
 If any required tools (like 'go', 'rustc', 'ninja') are listed as "Not installed" in the System Environment, your FIRST phase MUST be to install them using 'apk add <tool>'.
 The Build Plan MUST use only standard tools (gcc, cmake, make) without absolute paths unless they are standard (e.g., /usr/bin/gcc).
 DO NOT guess or hallucinate compiler paths like '/path/to/riscv64-gcc'. Just use 'gcc' or appropriate environment variables.
@@ -654,9 +684,10 @@ def scout_node(state: AgentState) -> AgentState:
     if state.file_content_cache:
         doc_files = [k for k in state.file_content_cache.keys() if any(d in k.upper() for d in ['README', 'INSTALL', 'BUILD'])]
         if doc_files:
+            report_docs = doc_files[:3]
             documentation = "\n\n".join([
                 f"## {Path(f).name}\n{state.file_content_cache[f][:2000]}"
-                for f in doc_files[:3]
+                for f in report_docs
             ])
     
     arch_concerns = "None detected"
@@ -675,9 +706,7 @@ def scout_node(state: AgentState) -> AgentState:
         }, indent=2)
     
     # Get system info
-    from src.scripted_ops import ScriptedOperations
-    ops = ScriptedOperations()
-    system_info_raw = ops.get_system_info()
+    system_info_raw = scripted_ops.get_system_info()
     system_info = "\n".join([f"- {k}: {v}" for k, v in system_info_raw.items()])
     
     # Create prompt
@@ -691,6 +720,7 @@ def scout_node(state: AgentState) -> AgentState:
         dependencies=dependencies.replace('{', '{{').replace('}', '}}'),
         repo_path=state.repo_path.replace('{', '{{').replace('}', '}}'),
         system_info=system_info.replace('{', '{{').replace('}', '}}'),
+        system_knowledge=get_system_knowledge_summary().replace('{', '{{').replace('}', '}}'),
         architecture=system_info_raw.get('architecture', 'riscv64').replace('{', '{{').replace('}', '}}')
     )
     
@@ -703,7 +733,7 @@ def scout_node(state: AgentState) -> AgentState:
         content = extract_content(response.content)
         
         # Parse JSON
-        json_match = content[content.find('{'):content.rfind('}')+1]
+        json_match = extract_json_block(content)
         plan_data = json.loads(json_match)
         
         # Create BuildPlan
@@ -725,6 +755,8 @@ def scout_node(state: AgentState) -> AgentState:
             total_estimated_duration=plan_data.get('total_estimated_duration', 'unknown'),
             notes=plan_data.get('notes', []),
         )
+        # Reset progress for new plan
+        state.last_successful_phase = 0
         
         # Validate plan
         is_valid, reason = validate_build_plan(state.build_plan)
@@ -858,6 +890,34 @@ def builder_node(state: AgentState) -> AgentState:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error: {result.stderr[:500]}")
                 
+                # Smart retry for Go VCS errors
+                is_go_build = 'go build' in command or 'go install' in command
+                is_vcs_error = any(pattern in result.stderr for pattern in [
+                    'dubious ownership',
+                    'error obtaining VCS status',
+                    'Use -buildvcs=false',
+                    'fatal: detected dubious ownership'
+                ])
+                
+                if is_go_build and is_vcs_error and '-buildvcs=false' not in command:
+                    logger.warning("Detected Go VCS error, retrying with -buildvcs=false")
+                    # Retry with -buildvcs=false flag
+                    retry_command = command.replace('go build', 'go build -buildvcs=false')
+                    retry_command = retry_command.replace('go install', 'go install -buildvcs=false')
+                    
+                    retry_result = execute_command(retry_command, cwd=state.repo_path)
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op()
+                    
+                    if retry_result.success:
+                        logger.info("Retry with -buildvcs=false succeeded!")
+                        # Update the build plan to use the working command
+                        phase.commands[phase.commands.index(command)] = retry_command
+                        continue
+                    else:
+                        logger.error(f"Retry also failed: {retry_result.stderr[:500]}")
+                        result = retry_result  # Use retry result for error reporting
+                
                 error = create_error_record(
                     message=result.stderr,
                     category=classify_error(result.stderr),
@@ -898,6 +958,9 @@ Failed Command: {failed_command}
 
 # Architecture-Specific Issues Found
 {arch_issues}
+
+# System Knowledge (Feb 2026)
+{system_knowledge}
 
 # Your Task
 1. Analyze the error
@@ -965,11 +1028,12 @@ def fixer_node(state: AgentState) -> AgentState:
         relevant = [
             a for a in state.arch_specific_code 
             if a.severity in ['high', 'critical']
-        ][:5]
-        if relevant:
+        ]
+        relevant_subset = relevant[:5]
+        if relevant_subset:
             arch_issues = "\n".join([
                 f"- {a.file}:{a.line} - {a.arch_type}"
-                for a in relevant
+                for a in relevant_subset
             ])
     
     failed_command = "Unknown"
@@ -987,6 +1051,7 @@ def fixer_node(state: AgentState) -> AgentState:
         previous_fixes=previous_fixes,
         arch_issues=arch_issues,
         repo_path=state.repo_path,
+        system_knowledge=get_system_knowledge_summary(),
     )
     
     try:
@@ -998,7 +1063,7 @@ def fixer_node(state: AgentState) -> AgentState:
         content = extract_content(response.content)
         
         # Parse JSON
-        json_match = content[content.find('{'):content.rfind('}')+1]
+        json_match = extract_json_block(content)
         fix_data = json.loads(json_match)
         
         # Get recommended strategy
@@ -1104,7 +1169,8 @@ Message: {state.last_error[:500] if state.last_error else 'N/A'}
     
     if state.arch_specific_code:
         high_priority = [a for a in state.arch_specific_code if a.severity in ['high', 'critical']]
-        for issue in high_priority[:5]:
+        report_issues = high_priority[:5]
+        for issue in report_issues:
             report += f"\n- {issue.file}:{issue.line} - {issue.arch_type}"
     
     report += f"""
@@ -1279,71 +1345,5 @@ def create_workflow() -> StateGraph:
     return workflow.compile()
 
 
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
-
-def run_porting_agent(repo_url: str, max_attempts: int = 5):
-    """
-    Run the complete porting workflow.
-    """
-    logger.info(f"Starting RISC-V porting agent for {repo_url}")
-    
-    # Create initial state
-    initial_state = create_initial_state(repo_url, max_attempts)
-    
-    # Create and run workflow
-    app = create_workflow()
-    
-    try:
-        final_state = None
-        for output in app.stream(initial_state):
-            node_name = list(output.keys())[0]
-            node_state = output[node_name]
-            logger.info(f"Completed node: {node_name}")
-            logger.info(f"Status: {node_state.build_status.value}")
-            logger.info(f"Progress: {node_state.get_progress_summary()}")
-            final_state = node_state
-        
-        # Print final results
-        logger.info("=" * 60)
-        logger.info("FINAL RESULTS")
-        logger.info("=" * 60)
-        logger.info(f"Status: {final_state.build_status.value}")
-        logger.info(f"Duration: {final_state.get_execution_duration():.1f}s")
-        logger.info(f"API Calls: {final_state.api_calls_made}")
-        logger.info(f"Scripted Ops: {final_state.scripted_ops_count}")
-        logger.info(f"Cost: ${final_state.api_cost_usd:.4f}")
-        logger.info(f"Cost Savings: {(final_state.scripted_ops_count / max(final_state.api_calls_made + final_state.scripted_ops_count, 1) * 100):.1f}%")
-        
-        if final_state.porting_recipe:
-            logger.info("\nPorting recipe generated successfully!")
-        
-        return final_state
-        
-    except Exception as e:
-        logger.error(f"Workflow failed: {e}", exc_info=True)
-        raise
-
-
 # Create global app instance
 app = create_workflow()
-
-
-if __name__ == "__main__":
-    # Example usage
-    import sys
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-    )
-    
-    repo_url = sys.argv[1] if len(sys.argv) > 1 else "https://github.com/madler/zlib"
-    
-    result = run_porting_agent(repo_url)
-    
-    if result.porting_recipe:
-        # Save recipe
-        with open(f"/workspace/output/{result.repo_name}_recipe.md", 'w') as f:
-            f.write(result.porting_recipe)
-        print(f"\nRecipe saved to {result.repo_name}_recipe.md")

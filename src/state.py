@@ -219,7 +219,6 @@ class AgentState:
     # ========== Task Planning ==========
     task_plan: Optional[TaskPlan] = None
     current_phase: str = "initialization"
-    current_phase_id: int = 0
     
     # ========== Build Information ==========
     build_system_info: Optional[BuildSystemInfo] = None
@@ -241,7 +240,6 @@ class AgentState:
     attempt_count: int = 0
     max_attempts: int = 5
     last_successful_phase: int = 0
-    checkpoint_data: Dict[str, Any] = field(default_factory=dict)
     
     # ========== Error Handling ==========
     last_error: Optional[str] = None
@@ -254,7 +252,6 @@ class AgentState:
     api_cost_usd: float = 0.0
     scripted_ops_count: int = 0
     execution_start_time: datetime = field(default_factory=datetime.now)
-    execution_time_seconds: float = 0.0
     
     # ========== Caching & Memory ==========
     context_cache: Dict[str, Any] = field(default_factory=dict)
@@ -263,11 +260,9 @@ class AgentState:
     
     # ========== Agent Communication ==========
     messages: List[BaseMessage] = field(default_factory=list)
-    agent_logs: Dict[str, List[str]] = field(default_factory=dict)
     
     # ========== Output Artifacts ==========
     patches_generated: List[str] = field(default_factory=list)
-    build_artifacts: List[str] = field(default_factory=list)
     porting_recipe: Optional[str] = None
     
     # ========== Debugging & Audit ==========

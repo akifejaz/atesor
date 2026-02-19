@@ -112,6 +112,17 @@ python3 main.py --repo https://github.com/madler/zlib --verbose
 
 ---
 
+## Development & Testing
+
+Run the automated unit tests to ensure system integrity:
+
+```bash
+# Run all tests
+PYTHONPATH=. pytest
+```
+
+---
+
 ## Configuration
 
 The system is environment-aware and supports multiple LLM providers:

@@ -53,43 +53,66 @@ class ScriptedOperations:
     
     def _to_host_path(self, path: str) -> str:
         """Translate container path to host path if necessary."""
-        if path.startswith("/workspace") and not os.path.exists("/workspace") and os.path.exists(self.workspace_root):
+        if path.startswith("/workspace") and not os.path.exists("/workspace"):
             return path.replace("/workspace", self.workspace_root)
+        return path
+
+    def _to_container_path(self, path: str) -> str:
+        """Translate host path to container path if necessary."""
+        if path.startswith(self.workspace_root):
+            return path.replace(self.workspace_root, "/workspace")
         return path
     def clone_or_update_repository(self, url: str, name: str) -> CommandResult:
         """
         Clone a repository or update if it already exists.
         This is a zero-cost operation.
-        """
-        repo_path = os.path.join(self.repos_dir, name)
         
-        # Check if already exists
-        if os.path.exists(os.path.join(repo_path, '.git')):
+        IMPORTANT: Clones inside Docker container to avoid ownership issues.
+        """
+        # Use container path
+        container_repo_path = f"/workspace/repos/{name}"
+        host_repo_path = os.path.join(self.repos_dir, name)
+        
+        # Check if already exists (check on host for speed)
+        if os.path.exists(os.path.join(host_repo_path, '.git')):
             logger.info(f"Repository {name} already exists, pulling latest...")
-            cmd = f"cd {repo_path} && git pull"
+            # Pull inside container to maintain ownership
+            cmd = f"cd {container_repo_path} && git pull"
+            result = execute_command(cmd, use_docker=True)
         else:
             logger.info(f"Cloning repository {url}...")
-            cmd = f"git clone --depth 1 {url} {repo_path}"
+            # Clone inside container
+            cmd = f"git clone --depth 1 {url} {container_repo_path}"
+            result = execute_command(cmd, use_docker=True)
         
-        return self._execute_command(cmd)
+        # Configure git safe.directory to prevent "dubious ownership" errors
+        # This is needed because the workspace is mounted from host
+        if result.success or os.path.exists(host_repo_path):
+            safe_dir_cmd = f"git config --global --add safe.directory {container_repo_path}"
+            safe_result = execute_command(safe_dir_cmd, use_docker=True)
+            if not safe_result.success:
+                logger.warning(f"Failed to add safe.directory: {safe_result.stderr}")
+        
+        return result
     
     def get_repository_info(self, repo_path: str) -> Dict[str, str]:
         """Get basic repository information."""
-        repo_path = self._to_host_path(repo_path)
+        # Use container path for git operations
+        container_path = self._to_container_path(repo_path)
         info = {}
         
         # Get current commit
-        result = self._execute_command(f"cd {repo_path} && git rev-parse HEAD")
+        result = execute_command(f"cd {container_path} && git rev-parse HEAD", use_docker=True)
         if result.success:
             info['commit'] = result.stdout.strip()
         
         # Get branch
-        result = self._execute_command(f"cd {repo_path} && git branch --show-current")
+        result = execute_command(f"cd {container_path} && git branch --show-current", use_docker=True)
         if result.success:
             info['branch'] = result.stdout.strip()
         
         # Count files
-        result = self._execute_command(f"find {repo_path} -type f | wc -l")
+        result = execute_command(f"find {container_path} -type f | wc -l", use_docker=True)
         if result.success:
             info['file_count'] = result.stdout.strip()
         
@@ -343,16 +366,19 @@ class ScriptedOperations:
             'inline_asm': [r'__asm__', r'asm\s*\(', r'__asm\s+volatile'],
         }
         
+        # Use container path for grep
+        target_path = self._to_container_path(repo_path)
+        
         for arch_type, pattern_list in patterns.items():
             for pattern in pattern_list:
                 # Use grep for fast searching
                 cmd = (
-                    f"grep -rn -E '{pattern}' {repo_path} "
+                    f"grep -rn -E '{pattern}' {target_path} "
                     f"--include='*.c' --include='*.cpp' --include='*.h' --include='*.hpp' "
                     f"2>/dev/null | head -n 20"
                 )
                 
-                result = self._execute_command(cmd)
+                result = execute_command(cmd, use_docker=True)
                 
                 if result.success and result.stdout.strip():
                     for line in result.stdout.strip().split('\n'):
@@ -394,16 +420,18 @@ class ScriptedOperations:
     
     def get_file_tree(self, repo_path: str, max_depth: int = 3) -> str:
         """Get a tree view of the repository."""
-        repo_path = self._to_host_path(repo_path)
-        cmd = f"tree -L {max_depth} -I '.git|node_modules|__pycache__|.venv' {repo_path}"
-        result = self._execute_command(cmd)
+        # Use container path for Docker execution
+        target_path = self._to_container_path(repo_path)
+        
+        cmd = f"tree -L {max_depth} -I '.git|node_modules|__pycache__|.venv' {target_path}"
+        result = execute_command(cmd, use_docker=True)
         
         if result.success:
             return result.stdout
         else:
             # Fallback to find if tree is not available
-            cmd = f"find {repo_path} -maxdepth {max_depth} -type f | head -n 100"
-            result = self._execute_command(cmd)
+            cmd = f"find {target_path} -maxdepth {max_depth} -type f | head -n 100"
+            result = execute_command(cmd, use_docker=True)
             return result.stdout
     
     def read_file(self, filepath: str, max_lines: int = 1000) -> str:
@@ -426,13 +454,15 @@ class ScriptedOperations:
     
     def search_files(self, repo_path: str, pattern: str, file_types: List[str] = None) -> List[str]:
         """Search for files matching a pattern."""
+        target_path = self._to_container_path(repo_path)
+        
         if file_types:
             type_args = ' '.join([f"-name '*.{ext}'" for ext in file_types])
-            cmd = f"find {repo_path} \\( {type_args} \\) -type f"
+            cmd = f"find {target_path} \\( {type_args} \\) -type f"
         else:
-            cmd = f"find {repo_path} -type f"
+            cmd = f"find {target_path} -type f"
         
-        result = self._execute_command(cmd)
+        result = execute_command(cmd, use_docker=True)
         
         if result.success:
             files = result.stdout.strip().split('\n')
@@ -447,6 +477,7 @@ class ScriptedOperations:
     
     def find_documentation(self, repo_path: str) -> List[str]:
         """Find common documentation files."""
+        target_path = self._to_container_path(repo_path)
         doc_patterns = [
             'README*',
             'INSTALL*',
@@ -460,8 +491,8 @@ class ScriptedOperations:
         
         found_docs = []
         for pattern in doc_patterns:
-            cmd = f"find {repo_path} -maxdepth 2 -iname '{pattern}' -type f"
-            result = self._execute_command(cmd)
+            cmd = f"find {target_path} -maxdepth 2 -iname '{pattern}' -type f"
+            result = execute_command(cmd, use_docker=True)
             
             if result.success and result.stdout.strip():
                 found_docs.extend(result.stdout.strip().split('\n'))
@@ -481,33 +512,12 @@ class ScriptedOperations:
         
         return sorted_docs[:10]  # Limit to top 10
     
-    # ========== Community Port Search ==========
-    
-    def search_community_ports(self, repo_url: str, repo_name: str) -> CommunityPortStatus:
-        """
-        Search for existing RISC-V ports or patches.
-        This uses simple heuristics and could be enhanced with web search.
-        """
-        status = CommunityPortStatus()
-        
-        # Check for RISC-V specific branches
-        cmd = f"git ls-remote --heads {repo_url} | grep -i riscv"
-        result = self._execute_command(cmd)
-        
-        if result.success and result.stdout.strip():
-            status.existing_port = True
-        
-        # This is a placeholder - in production, you'd want to:
-        # 1. Search GitHub issues for RISC-V mentions
-        # 2. Check package manager repos (Debian, Fedora, etc.)
-        # 3. Search RISC-V forums/mailing lists
-        
-        return status
-
-    def get_system_info(self) -> Dict[str, str]:
+    def get_system_info(self, tools: Optional[List[str]] = None) -> Dict[str, str]:
         """Get information about the system environment inside the CONTAINER."""
         info = {}
-        tools = ['gcc', 'g++', 'cmake', 'make', 'ninja', 'meson', 'automake', 'autoconf', 'python3', 'go', 'rustc', 'cargo']
+        if tools is None:
+            tools = ['gcc', 'g++', 'cmake', 'make', 'ninja', 'meson', 'automake', 'autoconf', 'python3', 'go', 'rustc', 'cargo']
+        
         for tool in tools:
             # Check availability INSIDE the container
             res = execute_command(f"which {tool}", use_docker=True)
@@ -523,56 +533,6 @@ class ScriptedOperations:
         return info
     
     # ========== Helper Methods ==========
-    
-    def _execute_command(
-        self,
-        command: str,
-        cwd: Optional[str] = None,
-        timeout: int = 300
-    ) -> CommandResult:
-        """Execute a shell command and return structured result."""
-        import time
-        start_time = time.time()
-        
-        try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            
-            duration = time.time() - start_time
-            
-            return CommandResult(
-                command=command,
-                exit_code=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                duration_seconds=duration,
-            )
-        
-        except subprocess.TimeoutExpired:
-            duration = time.time() - start_time
-            return CommandResult(
-                command=command,
-                exit_code=-1,
-                stdout="",
-                stderr=f"Command timed out after {timeout} seconds",
-                duration_seconds=duration,
-            )
-        
-        except Exception as e:
-            duration = time.time() - start_time
-            return CommandResult(
-                command=command,
-                exit_code=-1,
-                stdout="",
-                stderr=str(e),
-                duration_seconds=duration,
-            )
     
     def clear_cache(self):
         """Clear all cached data."""
