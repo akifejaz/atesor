@@ -112,6 +112,47 @@ python3 main.py --repo https://github.com/madler/zlib --verbose
 
 ---
 
+## Few-Shot Learning System
+
+Atesor AI includes a **lightweight memory system** that provides few-shot examples to agents, improving their accuracy without increasing API costs significantly.
+
+### How It Works
+
+1. **Example Dataset**: Curated examples stored in `data/examples/` for each agent type:
+   - `scout_examples.json` - Build plan generation patterns
+   - `fixer_examples.json` - Error resolution strategies
+   - `builder_examples.json` - Build execution examples
+
+2. **Smart Retrieval**: The system uses keyword-based matching to find relevant examples:
+   - Matches build system (go, cmake, make)
+   - Matches error patterns
+   - Considers project structure (main path, module directory)
+
+3. **Prompt Integration**: Selected examples are formatted and included in agent prompts, providing context without requiring full vector database infrastructure.
+
+### Adding New Examples
+
+To add examples from your successful porting sessions:
+
+```bash
+# Edit the appropriate examples file
+vim data/examples/scout_examples.json
+
+# Test the examples
+python -c "from src.memory import format_few_shot_examples; print(format_few_shot_examples('scout', {'build_system': 'go'}))"
+```
+
+See `data/examples/README.md` for detailed instructions on formatting examples.
+
+### Benefits
+
+- **10-15 examples per agent** provide significant accuracy improvement
+- **No vector DB required** - lightweight keyword matching
+- **~2000 chars per prompt** - minimal token overhead
+- **Easy to extend** - JSON format, no code changes needed
+
+---
+
 ## Development & Testing
 
 Run the automated unit tests to ensure system integrity:
@@ -140,6 +181,8 @@ The system is environment-aware and supports multiple LLM providers:
 - `src/scripted_ops.py`: Zero-cost analysis and repo management.
 - `src/state.py`: Global process tracking and data structures.
 - `src/tools.py`: Safe command execution and file utilities.
+- `src/memory.py`: Few-shot learning system for agent improvement.
+- `data/examples/`: Curated examples for each agent type.
 - `tests/`: Automated unit tests for engine logic.
 
 ---

@@ -1,0 +1,198 @@
+{
+  "version": "1.0",
+  "description": "Few-shot examples for Supervisor Agent - Routing Decisions",
+  "metadata": {
+    "source": "Extracted from successful RISC-V porting sessions",
+    "updated": "2026-02-20"
+  },
+  "general_guidelines": {
+    "routing_principles": [
+      "Use heuristic routing for cost optimization when API calls > 8",
+      "Always check escalation conditions before routing",
+      "Route to SCOUT when build plan is missing or invalid",
+      "Route to BUILDER when plan exists and status is PENDING",
+      "Route to FIXER when build has failed with fixable error",
+      "Route to ESCALATE for fundamental blockers or max attempts"
+    ],
+    "escalation_conditions": [
+      "Maximum attempts reached",
+      "Stuck in error loop (same error 3+ times)",
+      "License incompatibility",
+      "Hardware requirements",
+      "Architecture impossibility",
+      "Cost limit exceeded"
+    ]
+  },
+  "examples": [
+    {
+      "id": "supervisor-001",
+      "name": "Initial State - No Plan",
+      "tags": ["initial", "no-plan", "scout"],
+      "context": {
+        "build_status": "PENDING",
+        "build_plan": null,
+        "task_plan": null,
+        "attempt_count": 0,
+        "api_calls": 0
+      },
+      "expected_output": {
+        "action": "PLAN",
+        "reason": "No task plan exists - need strategic planning first"
+      },
+      "reasoning": "Fresh start requires planning phase before any other action"
+    },
+    {
+      "id": "supervisor-002",
+      "name": "Plan Exists, No Build Plan",
+      "tags": ["planned", "no-build-plan", "scout"],
+      "context": {
+        "build_status": "PENDING",
+        "build_plan": null,
+        "task_plan": "exists",
+        "attempt_count": 0,
+        "api_calls": 2
+      },
+      "expected_output": {
+        "action": "SCOUT",
+        "reason": "Task plan exists but build plan is missing"
+      },
+      "reasoning": "After planning, Scout needs to create detailed build plan"
+    },
+    {
+      "id": "supervisor-003",
+      "name": "Build Plan Ready - Execute",
+      "tags": ["ready", "execute", "builder"],
+      "context": {
+        "build_status": "PENDING",
+        "build_plan": "exists",
+        "last_successful_phase": 0,
+        "attempt_count": 0,
+        "api_calls": 3
+      },
+      "expected_output": {
+        "action": "BUILDER",
+        "reason": "Build plan ready, proceeding with execution"
+      },
+      "reasoning": "When plan exists and no errors, proceed to build"
+    },
+    {
+      "id": "supervisor-004",
+      "name": "Build Failed - Fixable Error",
+      "tags": ["failed", "fixable", "fixer"],
+      "context": {
+        "build_status": "FAILED",
+        "build_plan": "exists",
+        "last_error_category": "MISSING_TOOLS",
+        "attempt_count": 1,
+        "max_attempts": 5,
+        "api_calls": 4
+      },
+      "expected_output": {
+        "action": "SCOUT",
+        "reason": "Missing tools error - need to update build plan"
+      },
+      "reasoning": "MISSING_TOOLS is better handled by Scout updating the plan than Fixer patching"
+    },
+    {
+      "id": "supervisor-005",
+      "name": "Build Failed - Compilation Error",
+      "tags": ["failed", "compilation", "fixer"],
+      "context": {
+        "build_status": "FAILED",
+        "build_plan": "exists",
+        "last_error_category": "COMPILATION",
+        "attempt_count": 1,
+        "max_attempts": 5,
+        "api_calls": 4
+      },
+      "expected_output": {
+        "action": "FIXER",
+        "reason": "Compilation error - Fixer can analyze and patch"
+      },
+      "reasoning": "Compilation errors can often be fixed with patches"
+    },
+    {
+      "id": "supervisor-006",
+      "name": "Build Success",
+      "tags": ["success", "complete", "finish"],
+      "context": {
+        "build_status": "SUCCESS",
+        "build_plan": "exists",
+        "tests_run": false,
+        "attempt_count": 0,
+        "api_calls": 5
+      },
+      "expected_output": {
+        "action": "FINISH",
+        "reason": "Build succeeded, generating final report"
+      },
+      "reasoning": "Successful build means we can finish and generate documentation"
+    },
+    {
+      "id": "supervisor-007",
+      "name": "Error Loop Detection",
+      "tags": ["error-loop", "escalate", "stuck"],
+      "context": {
+        "build_status": "FAILED",
+        "last_error_category": "ARCHITECTURE",
+        "attempt_count": 4,
+        "max_attempts": 5,
+        "error_history": ["ARCHITECTURE", "ARCHITECTURE", "ARCHITECTURE"],
+        "api_calls": 10
+      },
+      "expected_output": {
+        "action": "ESCALATE",
+        "reason": "Stuck in error loop with same category - requires human intervention"
+      },
+      "reasoning": "When the same error persists despite fix attempts, escalate to human"
+    },
+    {
+      "id": "supervisor-008",
+      "name": "Max Attempts Reached",
+      "tags": ["max-attempts", "escalate", "limit"],
+      "context": {
+        "build_status": "FAILED",
+        "attempt_count": 5,
+        "max_attempts": 5,
+        "api_calls": 12
+      },
+      "expected_output": {
+        "action": "ESCALATE",
+        "reason": "Maximum attempts (5) reached"
+      },
+      "reasoning": "Safety limit to prevent infinite loops"
+    },
+    {
+      "id": "supervisor-009",
+      "name": "Cost Optimization Trigger",
+      "tags": ["cost", "optimization", "heuristic"],
+      "context": {
+        "build_status": "FAILED",
+        "attempt_count": 2,
+        "api_calls": 10,
+        "api_cost": 0.12
+      },
+      "expected_output": {
+        "action": "FIXER",
+        "reason": "Cost optimization heuristic - using recommendation system"
+      },
+      "reasoning": "When API calls exceed 8 or cost > $0.08, use heuristic routing instead of LLM"
+    },
+    {
+      "id": "supervisor-010",
+      "name": "Architecture Impossible",
+      "tags": ["architecture", "impossible", "escalate"],
+      "context": {
+        "build_status": "FAILED",
+        "last_error_category": "ARCHITECTURE_IMPOSSIBLE",
+        "attempt_count": 1,
+        "max_attempts": 5
+      },
+      "expected_output": {
+        "action": "ESCALATE",
+        "reason": "Fundamental blocker: code cannot be ported to RISC-V"
+      },
+      "reasoning": "Some architecture-specific code (x86 assembly without fallback) cannot be ported"
+    }
+  ]
+}
