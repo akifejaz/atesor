@@ -4,9 +4,11 @@ from src.state import (
     AgentState, 
     BuildStatus, 
     ErrorCategory, 
+    FailureSeverity,
     create_initial_state, 
     classify_error, 
     create_error_record,
+    infer_failure_severity,
     ErrorRecord
 )
 
@@ -27,6 +29,7 @@ class TestState(unittest.TestCase):
         
         self.assertEqual(self.state.last_error, "Permission denied")
         self.assertEqual(self.state.last_error_category, ErrorCategory.PERMISSION)
+        self.assertEqual(self.state.last_error_severity, FailureSeverity.HIGH)
         self.assertEqual(len(self.state.error_history), 1)
         self.assertEqual(self.state.attempt_count, 1)
 
@@ -50,6 +53,27 @@ class TestState(unittest.TestCase):
             self.state.add_error(create_error_record("Error", ErrorCategory.COMPILATION))
         
         self.assertTrue(self.state.is_in_error_loop())
+
+    def test_infer_failure_severity_levels(self):
+        self.assertEqual(
+            infer_failure_severity(ErrorCategory.MISSING_TOOLS, command="which ninja"),
+            FailureSeverity.LOW,
+        )
+        self.assertEqual(
+            infer_failure_severity(
+                ErrorCategory.NETWORK,
+                command="git clone --depth 1 https://example.com/repo.git /workspace/repos/repo",
+            ),
+            FailureSeverity.HIGH,
+        )
+        self.assertEqual(
+            infer_failure_severity(
+                ErrorCategory.COMPILATION,
+                command="make -j4",
+                message="error: undefined reference",
+            ),
+            FailureSeverity.MEDIUM,
+        )
 
 if __name__ == "__main__":
     unittest.main()

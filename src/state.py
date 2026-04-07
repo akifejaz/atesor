@@ -48,6 +48,14 @@ class ErrorCategory(str, Enum):
     ARCHITECTURE_IMPOSSIBLE = "ARCHITECTURE_IMPOSSIBLE"
 
 
+class FailureSeverity(str, Enum):
+    """Severity level for command and execution failures."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class AgentRole(str, Enum):
     """Roles of different agents in the system."""
 
@@ -102,6 +110,7 @@ class ErrorRecord:
 
     category: ErrorCategory
     message: str
+    severity: FailureSeverity = FailureSeverity.MEDIUM
     command: Optional[str] = None
     file: Optional[str] = None
     line: Optional[int] = None
@@ -266,6 +275,7 @@ class AgentState:
     # ========== Error Handling ==========
     last_error: Optional[str] = None
     last_error_category: Optional[ErrorCategory] = None
+    last_error_severity: Optional[FailureSeverity] = None
     error_history: List[ErrorRecord] = field(default_factory=list)
     fixes_attempted: List[FixAttempt] = field(default_factory=list)
 
@@ -304,6 +314,7 @@ class AgentState:
         self.error_history.append(error)
         self.last_error = error.message
         self.last_error_category = error.category
+        self.last_error_severity = error.severity
         self.attempt_count += 1
         self.update_timestamp()
 
@@ -584,19 +595,81 @@ def classify_error(error_message: str) -> ErrorCategory:
 def create_error_record(
     message: str,
     category: Optional[ErrorCategory] = None,
+    severity: Optional[FailureSeverity] = None,
     command: Optional[str] = None,
     attempt_number: int = 0,
 ) -> ErrorRecord:
     """Create an error record with automatic classification."""
     if category is None:
         category = classify_error(message)
+    if severity is None:
+        severity = infer_failure_severity(category, command=command, message=message)
 
     return ErrorRecord(
         category=category,
         message=message,
+        severity=severity,
         command=command,
         attempt_number=attempt_number,
     )
+
+
+def infer_failure_severity(
+    category: ErrorCategory,
+    command: Optional[str] = None,
+    message: str = "",
+) -> FailureSeverity:
+    """
+    Infer failure severity from category + command context.
+    Low: non-blocking probe failures.
+    Medium: standard build/config failures that should be fixed before continuing.
+    High: critical initialization/infrastructure blockers.
+    """
+    cmd = (command or "").strip().lower()
+    msg = (message or "").lower()
+
+    if cmd.startswith("which "):
+        return FailureSeverity.LOW
+
+    high_categories = {
+        ErrorCategory.LICENSE_INCOMPATIBLE,
+        ErrorCategory.REQUIRES_HARDWARE,
+        ErrorCategory.ARCHITECTURE_IMPOSSIBLE,
+        ErrorCategory.PERMISSION,
+        ErrorCategory.DISK_SPACE,
+    }
+    if category in high_categories:
+        return FailureSeverity.HIGH
+
+    if any(
+        pattern in cmd
+        for pattern in [
+            "git clone",
+            "git pull",
+            "apt-get update",
+            "apt update",
+            "apk update",
+            "apk add",
+        ]
+    ):
+        return FailureSeverity.HIGH
+
+    if category in {
+        ErrorCategory.CONFIGURATION,
+        ErrorCategory.DEPENDENCY,
+        ErrorCategory.COMPILATION,
+        ErrorCategory.LINKING,
+        ErrorCategory.NETWORK,
+        ErrorCategory.RATE_LIMIT,
+        ErrorCategory.MISSING_TOOLS,
+        ErrorCategory.ARCHITECTURE,
+    }:
+        return FailureSeverity.MEDIUM
+
+    if "not found" in msg and "which " in msg:
+        return FailureSeverity.LOW
+
+    return FailureSeverity.MEDIUM
 
 
 def should_escalate(state: AgentState) -> tuple[bool, str]:

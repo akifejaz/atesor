@@ -16,6 +16,7 @@ from .state import (
     AgentState,
     BuildStatus,
     ErrorCategory,
+    FailureSeverity,
     AgentRole,
     classify_error,
     create_initial_state,
@@ -74,6 +75,14 @@ def extract_json_block(text: str) -> str:
     return text
 
 
+def _build_command_error_message(result, fallback: str) -> str:
+    """Build a robust, human-readable error message from command output."""
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    detail = stderr or stdout or "No stderr/stdout output captured."
+    return f"{fallback} (exit {result.exit_code}) - {detail}"
+
+
 # ============================================================================
 # NODE WRAPPER
 # ============================================================================
@@ -123,22 +132,32 @@ def init_node(state: AgentState) -> AgentState:
     logger.info(f"Initializing workflow for {state.repo_url}")
 
     result = scripted_ops.clone_or_update_repository(state.repo_url, state.repo_name)
-    state.log_scripted_op()
+    state.log_scripted_op("clone_or_update_repository")
 
     if not result.success:
+        message = _build_command_error_message(
+            result, f"Repository clone/update failed for {state.repo_url}"
+        )
         error = create_error_record(
-            message=result.stderr,
+            message=message,
             category=ErrorCategory.NETWORK,
+            severity=FailureSeverity.HIGH,
             command=result.command,
         )
         state.add_error(error)
         state.build_status = BuildStatus.FAILED
+        state.current_phase = "escalate"
+        state.log_agent_decision(
+            AgentRole.SUPERVISOR,
+            "ESCALATE",
+            f"Critical init failure ({error.severity.value}): {error.message[:200]}",
+        )
         return state
 
     logger.info("Performing quick analysis with scripted operations...")
     try:
         analysis = quick_analysis(state.repo_path)
-        state.log_scripted_op()
+        state.log_scripted_op("quick_analysis")
 
         state.build_system_info = analysis.get("build_system")
         state.dependencies = analysis.get("dependencies")
@@ -150,7 +169,7 @@ def init_node(state: AgentState) -> AgentState:
         for doc_path in analysis.get("documentation", [])[:5]:
             content = scripted_ops.read_file(doc_path, max_lines=500)
             state.cache_file_content(doc_path, content)
-            state.log_scripted_op()
+            state.log_scripted_op("read_file")
 
         state.context_cache["quick_analysis"] = analysis
 
@@ -514,7 +533,7 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
 
     recommended_action = get_next_action_recommendation(state)
-    state.log_scripted_op()
+    state.log_scripted_op("supervisor_routing")
 
     if state.api_calls_made > 8 or state.api_cost_usd > 0.08:
         state.log_agent_decision(
@@ -1084,7 +1103,7 @@ def builder_node(state: AgentState) -> AgentState:
 
             result = execute_command(optimized_cmd, cwd=state.repo_path)
             state.cache_command_result(command, result)
-            state.log_scripted_op()
+            state.log_scripted_op("execute_build_command")
 
             if not result.success:
                 logger.error(f"Command failed: {command}")
@@ -1114,7 +1133,7 @@ def builder_node(state: AgentState) -> AgentState:
 
                     retry_result = execute_command(retry_command, cwd=state.repo_path)
                     state.cache_command_result(retry_command, retry_result)
-                    state.log_scripted_op()
+                    state.log_scripted_op("retry_build_command")
 
                     if retry_result.success:
                         logger.info("Retry with -buildvcs=false succeeded!")
@@ -1124,9 +1143,12 @@ def builder_node(state: AgentState) -> AgentState:
                         logger.error(f"Retry also failed: {retry_result.stderr[:500]}")
                         result = retry_result
 
+                error_message = _build_command_error_message(
+                    result, f"Build command failed: {command}"
+                )
                 error = create_error_record(
-                    message=result.stderr,
-                    category=classify_error(result.stderr),
+                    message=error_message,
+                    category=classify_error(error_message),
                     command=command,
                     attempt_number=state.attempt_count,
                 )
@@ -1502,6 +1524,7 @@ def escalate_node(state: AgentState) -> AgentState:
 
 ## Last Error
 Category: {state.last_error_category.value if state.last_error_category else "Unknown"}
+Severity: {state.last_error_severity.value if state.last_error_severity else "unknown"}
 Message: {state.last_error[:500] if state.last_error else "N/A"}
 
 ## Fixes Attempted
@@ -1530,6 +1553,17 @@ Message: {state.last_error[:500] if state.last_error else "N/A"}
 ## Recommendation
 {should_escalate(state)[1]}
 """
+
+    if state.error_history:
+        report += "\n\n## Recent Failures\n"
+        for err in state.error_history[-5:]:
+            timestamp = err.timestamp.strftime("%H:%M:%S")
+            command = err.command if err.command else "N/A"
+            msg = (err.message or "N/A").replace("\n", " ")
+            report += (
+                f"- [{timestamp}] severity={err.severity.value}, "
+                f"category={err.category.value}, command={command}, message={msg[:260]}\n"
+            )
 
     logger.info(report)
     state.context_cache["escalation_report"] = report
@@ -1625,6 +1659,14 @@ def route_next(state: AgentState) -> str:
     Enhanced with smart routing and cost optimization.
     """
     phase = state.current_phase.lower()
+
+    # Failed initialization is a hard blocker and must not continue to planning.
+    if (
+        phase in {"initialization", "initialized"}
+        and state.build_status == BuildStatus.FAILED
+    ):
+        logger.warning("Initialization failed; forcing escalation instead of planning")
+        return "escalate_node"
 
     routing_map = {
         "initialization": "planner",
