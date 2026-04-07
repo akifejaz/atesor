@@ -1,0 +1,354 @@
+{
+  "version": "1.0",
+  "description": "Few-shot examples for Scout Agent - Build Plan Generation (Real Data)",
+  "metadata": {
+    "source": "Extracted from successful RISC-V porting sessions",
+    "updated": "2026-02-20"
+  },
+  "general_guidelines": {
+    "always_include": [
+      "Use -buildvcs=false flag for all Go builds to avoid git ownership issues",
+      "Check system_info for pre-installed tools to skip redundant phases",
+      "Identify main package location from go_main_info, not assumptions",
+      "Set appropriate timeouts based on dependency count",
+      "ANALYZE architecture-specific build patterns BEFORE creating build plan"
+    ],
+    "never_do": [
+      "Use 'go build ./...' when module has multiple packages without main",
+      "Assume main is at root without checking go_main_info",
+      "Create directories or files to 'fix' path issues - fix the command instead"
+    ],
+    "arch_specific_detection": [
+      "Look for files named with arch suffixes: *_x64.mak, *_arm64.mak, *_x86.mk",
+      "Check for build directories organized by architecture",
+      "If arch-specific files exist but no RISC-V, plan to CREATE them"
+    ]
+  },
+  "examples": [
+    {
+      "id": "scout-000",
+      "name": "Complex C/C++ with Arch-Specific Makefiles",
+      "tags": ["cpp", "make", "arch-specific", "complex", "create-files"],
+      "context": {
+        "repo_name": "7zip",
+        "build_system": "unknown",
+        "has_main": true,
+        "arch_specific_files": ["cmpl_gcc_x64.mak", "cmpl_gcc_arm64.mak", "var_gcc_x64.mak"],
+        "riscv_support": false,
+        "files": 800,
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "custom_makefile",
+        "build_system_confidence": 0.90,
+        "has_arch_specific_build": true,
+        "riscv_support_exists": false,
+        "files_to_create": [
+          {
+            "source": "CPP/7zip/cmpl_gcc_x64.mak",
+            "target": "CPP/7zip/cmpl_gcc_riscv64.mak",
+            "content_template": "replace x64 with riscv64"
+          },
+          {
+            "source": "CPP/7zip/var_gcc_x64.mak",
+            "target": "CPP/7zip/var_gcc_riscv64.mak",
+            "content_template": "PLATFORM=riscv64, USE_ASM=disabled"
+          }
+        ],
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add build-base nasm"],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          },
+          {
+            "id": 2,
+            "name": "create_riscv_build_files",
+            "commands": [
+              "cat > CPP/7zip/cmpl_gcc_riscv64.mak << 'EOF'\\ninclude $(CURDIR)/../../var_gcc_riscv64.mak\\ninclude $(CURDIR)/../../warn_gcc.mak\\ninclude $(CURDIR)/makefile.gcc\\nEOF",
+              "cat > CPP/7zip/var_gcc_riscv64.mak << 'EOF'\\nPLATFORM = riscv64\\nO = b/g_$(PLATFORM)\\nUSE_ASM =\\nMY_ARCH ?=\\nCROSS_COMPILE ?=\\nCC = $(CROSS_COMPILE)gcc\\nCXX = $(CROSS_COMPILE)g++\\nEOF"
+            ],
+            "can_parallelize": false,
+            "expected_duration": "10s"
+          },
+          {
+            "id": 3,
+            "name": "build",
+            "commands": ["make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak -j$(nproc)"],
+            "can_parallelize": true,
+            "expected_duration": "5m"
+          }
+        ],
+        "total_estimated_duration": "7m",
+        "notes": ["Project uses custom architecture-specific makefiles", "RISC-V files need to be CREATED based on x64/arm64 patterns", "Disable USE_ASM for RISC-V (no assembly support yet)"]
+      },
+      "reasoning": "When a project has architecture-specific build files (cmpl_gcc_x64.mak, etc.), the Scout must detect the pattern and include file creation in the build plan. Replace arch identifiers and disable ASM."
+    },
+    {
+      "id": "scout-001",
+      "name": "Simple Go CLI - Single main.go at Root",
+      "tags": ["go", "simple", "root-main", "minimal-deps"],
+      "context": {
+        "repo_name": "shcopy",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": ".",
+        "module_dir": "",
+        "dependencies_count": 5,
+        "files": 5,
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add go"],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          },
+          {
+            "id": 2,
+            "name": "build",
+            "commands": ["go mod tidy", "go build -buildvcs=false -v -o shcopy ."],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          }
+        ],
+        "total_estimated_duration": "1m",
+        "notes": ["Simple Go project with main at root. Use 'go build .' with -buildvcs=false."]
+      },
+      "reasoning": "When main_path='.' and module_dir='', the go.mod and main.go are in the same directory. Build with '.' not './...'"
+    },
+    {
+      "id": "scout-002",
+      "name": "Go CLI with cmd/ Subdirectory Structure",
+      "tags": ["go", "cmd", "standard-layout", "subdirectory-main"],
+      "context": {
+        "repo_name": "shuffledns",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": "cmd/shuffledns",
+        "module_dir": "",
+        "dependencies_count": 15,
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add go"],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          },
+          {
+            "id": 2,
+            "name": "build",
+            "commands": ["go mod tidy", "go build -buildvcs=false -v -o shuffledns ./cmd/shuffledns"],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          }
+        ],
+        "total_estimated_duration": "2m",
+        "notes": ["Standard Go project layout. Main package in cmd/<name>/. Build path is ./cmd/<name> NOT ."]
+      },
+      "reasoning": "When main_path='cmd/shuffledns', use 'go build ./cmd/shuffledns'. NEVER use 'go build .' or 'go build ./...'"
+    },
+    {
+      "id": "scout-003",
+      "name": "Go Project with v2 Module Subdirectory",
+      "tags": ["go", "v2", "module-subdirectory", "nested"],
+      "context": {
+        "repo_name": "gogo",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": "cmd/gogo",
+        "module_dir": "v2",
+        "dependencies_count": 10,
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.90,
+        "module_dir": "v2",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add go"],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          },
+          {
+            "id": 2,
+            "name": "build",
+            "commands": ["cd v2 && go mod tidy", "cd v2 && go build -buildvcs=false -v -o ../gogo ./cmd/gogo"],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          }
+        ],
+        "total_estimated_duration": "2m",
+        "notes": ["go.mod is in v2/ subdirectory. ALL commands must start with 'cd v2 &&'. Output binary to parent directory."]
+      },
+      "reasoning": "When module_dir='v2', the go.mod is in v2/ directory. EVERY build command must cd into v2 first. NEVER assume root contains go.mod."
+    },
+    {
+      "id": "scout-004",
+      "name": "Complex Go Project with Non-Standard Main Location",
+      "tags": ["go", "complex", "nonstandard-main", "many-deps"],
+      "context": {
+        "repo_name": "sing-box",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": "constant/goos",
+        "module_dir": "",
+        "dependencies_count": 50,
+        "files": 1024,
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add go"],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          },
+          {
+            "id": 2,
+            "name": "build",
+            "commands": ["go mod tidy", "go build -buildvcs=false -v -o sing-box ./constant/goos"],
+            "can_parallelize": false,
+            "expected_duration": "5m"
+          }
+        ],
+        "total_estimated_duration": "6m",
+        "notes": ["Non-standard main location. Use exact main_path from go_main_info. go mod tidy may take 2-3 minutes for many deps."]
+      },
+      "reasoning": "Large projects may have main in unusual locations. Trust go_main_info.main_path, not assumptions about where main should be."
+    },
+    {
+      "id": "scout-005",
+      "name": "CMake C/C++ Project",
+      "tags": ["cmake", "c", "c++", "native"],
+      "context": {
+        "repo_name": "native-project",
+        "build_system": "cmake",
+        "has_main": false,
+        "dependencies": ["gcc", "make"],
+        "arch_specific": false
+      },
+      "expected_output": {
+        "build_system": "cmake",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add build-base cmake"],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          },
+          {
+            "id": 2,
+            "name": "configure",
+            "commands": ["mkdir -p build", "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"],
+            "can_parallelize": false,
+            "expected_duration": "30s"
+          },
+          {
+            "id": 3,
+            "name": "build",
+            "commands": ["cd build && make -j$(nproc)"],
+            "can_parallelize": true,
+            "expected_duration": "2m"
+          }
+        ],
+        "total_estimated_duration": "4m",
+        "notes": ["Standard CMake workflow: configure in build/, then make. Use -j$(nproc) for parallel builds."]
+      },
+      "reasoning": "CMake projects need out-of-source builds. Create build/ directory, run cmake from there, then make."
+    },
+    {
+      "id": "scout-006",
+      "name": "Go Already Installed - Skip Dependency Phase",
+      "tags": ["go", "pre-installed", "optimized"],
+      "context": {
+        "repo_name": "project",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": ".",
+        "module_dir": "",
+        "go_installed": true
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "build",
+            "commands": ["go mod tidy", "go build -buildvcs=false -v -o project ."],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          }
+        ],
+        "total_estimated_duration": "1m",
+        "notes": ["Go already available in environment. Skip dependency installation phase for faster builds."]
+      },
+      "reasoning": "Check system_info before adding install phase. If 'go: Available in PATH', skip 'apk add go'."
+    },
+    {
+      "id": "scout-007",
+      "name": "CGO Project with SQLite/External C Library",
+      "tags": ["go", "cgo", "sqlite", "c-dependencies", "build-base"],
+      "context": {
+        "repo_name": "cgo-project",
+        "build_system": "go",
+        "has_main": true,
+        "main_path": ".",
+        "has_cgo": true,
+        "c_dependencies": ["sqlite3"]
+      },
+      "expected_output": {
+        "build_system": "go",
+        "build_system_confidence": 0.95,
+        "module_dir": "",
+        "phases": [
+          {
+            "id": 1,
+            "name": "install_dependencies",
+            "commands": ["apk update", "apk add go build-base sqlite-dev"],
+            "can_parallelize": false,
+            "expected_duration": "1m"
+          },
+          {
+            "id": 2,
+            "name": "build",
+            "commands": ["go mod tidy", "CGO_ENABLED=1 go build -buildvcs=false -v -o project ."],
+            "can_parallelize": false,
+            "expected_duration": "3m"
+          }
+        ],
+        "total_estimated_duration": "5m",
+        "notes": ["CGO project requires build-base (gcc/g++) and any C library dev packages. Set CGO_ENABLED=1 explicitly."]
+      },
+      "reasoning": "Projects using CGO (go-sqlite3, etc.) need gcc available. Install build-base and relevant -dev packages."
+    }
+  ]
+}
