@@ -67,11 +67,41 @@ def extract_content(content) -> str:
 
 
 def extract_json_block(text: str) -> str:
-    """Safely extract the first JSON block from a string."""
+    """Safely extract the first JSON block from a string.
+
+    This improved version handles cases where the LLM outputs explanatory text
+    BEFORE the JSON block (which happens frequently with fixer's response).
+    """
+    text = text.strip()
+
+    # First try: find first { and last } (original logic)
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end >= start:
         return text[start : end + 1]
+
+    # Second try: Look for JSON block after markdown code fences
+    # The LLM often outputs: "Here is the fix: ```json {...} ```"
+    code_block_match = text.find("```json")
+    if code_block_match != -1:
+        start = text.find("{", code_block_match)
+        # Find the closing ``` after the JSON
+        end = text.rfind("}")
+        if end != -1 and end >= start:
+            return text[start : end + 1]
+
+    # Third try: Look for ``` after any language marker
+    code_start = text.find("```")
+    if code_start != -1:
+        # Skip past the ``` and any language specifier
+        search_start = text.find("\n", code_start)
+        if search_start != -1:
+            start = text.find("{", search_start)
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end >= start:
+                return text[start : end + 1]
+
+    # Last resort: return original text for downstream error handling
     return text
 
 
@@ -751,6 +781,10 @@ CPP/7zip/var_gcc_x64.mak     -> Create var_gcc_riscv64.mak
 ```
 Build command: `make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak`
 
+**IMPORTANT**: 7zip uses **custom makefiles** (*.mak files), NOT CMake or standard configure scripts.
+- NEVER use `cmake`, `configure`, or other build system generators for 7zip
+- ALWAYS use the pattern: `make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak`
+
 ### Standard Build Systems
 - **Go**: Use build_system_metadata. Add `-buildvcs=false` flag.
 - **CMake**: Create build/, run cmake, then make
@@ -1252,9 +1286,33 @@ If the error is "No such file or directory" for a build file:
 {{
   "type": "create_file",
   "path": "CPP/7zip/cmpl_gcc_riscv64.mak",
-  "content": "include $(CURDIR)/../../var_gcc_riscv64.mak\\ninclude $(CURDIR)/../../warn_gcc.mak\\ninclude $(CURDIR)/makefile.gcc"
+  "content": "include ../../var_gcc_riscv64.mak\\ninclude ../../warn_gcc.mak\\ninclude makefile.gcc"
 }}
 ```
+
+### CORRECT Content Templates for 7zip-style builds
+For cmpl_gcc_riscv64.mak, use:
+```
+include ../../var_gcc_riscv64.mak
+include ../../warn_gcc.mak
+include makefile.gcc
+```
+
+For var_gcc_riscv64.mak, use:
+```
+PLATFORM=riscv64
+O=b/g_$(PLATFORM)
+IS_X64=
+IS_X86=
+IS_ARM64=
+CROSS_COMPILE=
+MY_ARCH=
+USE_ASM=
+CC=$(CROSS_COMPILE)gcc
+CXX=$(CROSS_COMPILE)g++
+```
+
+**IMPORTANT**: Do NOT use $(CURDIR) in include paths - use relative paths like `../../` instead!
 
 ## Fix Strategy Guidelines
 
@@ -1266,6 +1324,33 @@ If the error is "No such file or directory" for a build file:
 - **LINKING**: Install missing libraries, fix library paths
 - **ARCHITECTURE**: Add RISC-V conditional compilation or scalar fallbacks
 - **CONFIGURATION**: Fix build system configuration, flags, paths
+
+### 7zip-Specific Compilation Errors
+If you encounter conversion errors like "conversion from 'X' to 'Y' may change value [-Werror=conversion]":
+- This is caused by strict GCC warning flags (-Werror)
+- The fix is to add explicit casts to satisfy the compiler
+- Example fix for System.h line ~159:
+  ```json
+  {{
+    "type": "patch",
+    "file": "CPP/Windows/System.h",
+    "content": "--- a/CPP/Windows/System.h\n+++ b/CPP/Windows/System.h\n@@ -156,7 +156,7 @@ class CProcessAffinity\n \n   int IsCpuSet(unsigned cpuIndex) const \n   {{ \n-    return CpuSet_IsSet(&cpu_set, cpuIndex); \n+    return CpuSet_IsSet(&cpu_set, (long unsigned int)cpuIndex); \n   }}\n   \n   bool IsEqual(const CProcessAffinity &a) const {{ return CpuSet_IsEqual(&cpu_set, &a.cpu_set); }}\n"
+  }}
+  ```
+
+### CRITICAL: NEVER Try to Install 7zip!
+When porting 7zip, you are **building** 7zip from source, NOT installing it:
+- **NEVER** run `apk add 7zip` or `apk add 7zip-cli`
+- **NEVER** try to use `apt install 7zip` or any package manager
+- The goal is to **compile** 7zip from source code, not use a pre-built package
+
+### CRITICAL: Understanding "asmc: No such file ordirectory" Errors
+When the build fails with "make: asmc: No such file ordirectory":
+- **DO NOT** create an empty file called "asmc"
+- asmc is an **executable tool** (assembler compiler) used by 7zip's build system
+- The fix is to **disable assembly** in the build configuration:
+- Edit var_gcc_riscv64.mak and set: `USE_ASM=` (empty, no value)
+- Then the build will use C implementations instead of assembly
 
 ### By Build System
 - **Custom Makefiles**: Look for arch patterns, create RISC-V equivalents
@@ -1386,9 +1471,23 @@ def fixer_node(state: AgentState) -> AgentState:
 
         content = extract_content(response.content)
 
-        # Parse JSON
-        json_match = extract_json_block(content)
-        fix_data = json.loads(json_match)
+        # Parse JSON with better error handling
+        try:
+            json_match = extract_json_block(content)
+            fix_data = json.loads(json_match)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse fix JSON: {e}")
+            logger.error(f"Content preview: {content[:500]}...")
+
+            # Try to recover by looking for specific patterns
+            if "strategies" in content:
+                # Try extracting just the actions part
+                logger.warning("Attempting recovery from partial JSON parse")
+                state.build_status = BuildStatus.FAILED
+                return state
+
+            state.build_status = BuildStatus.FAILED
+            return state
 
         # Get recommended strategy
         recommended_id = fix_data.get("recommended_strategy_id", 1)
@@ -1405,6 +1504,35 @@ def fixer_node(state: AgentState) -> AgentState:
         )
 
         logger.info(f"Applying fix strategy: {strategy['description']}")
+
+        # PRE-APPLY VALIDATION: Check if this fix makes sense for 7zip's custom makefile system
+        actions = strategy.get("actions", [])
+
+        # Validate actions against known bad patterns for 7zip
+        for action in actions:
+            action_type = action.get("type", "")
+            action_str = str(action).lower()
+
+            # Block CMake-related fixes for 7zip (it's not a CMake project)
+            if action_type == "create_file" and action.get("path", "").endswith(
+                "CMakeLists.txt"
+            ):
+                logger.error(
+                    "BLOCKED: Refusing to create CMakeLists.txt for 7zip (not a CMake project)"
+                )
+                logger.error("7zip uses custom makefiles (*.mak), not CMake")
+                state.build_status = BuildStatus.FAILED
+                return state
+
+            # Block installation of 7zip packages (we're building from source)
+            if action_type == "command" and (
+                "apk add 7zip" in action_str or "apt install 7zip" in action_str
+            ):
+                logger.error(
+                    "BLOCKED: Refusing to install 7zip package (we're building from source)"
+                )
+                state.build_status = BuildStatus.FAILED
+                return state
 
         # Apply fix actions
         changes_made = []

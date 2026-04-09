@@ -193,6 +193,10 @@ def setup_docker_environment() -> bool:
             break
         except docker.errors.NotFound:
             continue
+        except docker.errors.APIError as e:
+            print(colored(f"ERROR: Failed to create or start container", "red"))
+            print(colored(f"{e}", "yellow"))
+            return False
 
     if container is None or container.status != "running":
         print(colored(f"ERROR: Failed to start container after 2 attempts", "red"))
@@ -293,6 +297,16 @@ def setup_docker_environment() -> bool:
                 if exec_result.exit_code == 0:
                     print(colored("Container is responsive after recreation", "green"))
                     return True
+            except docker.errors.APIError as recreate_error:
+                print(
+                    colored(f"   Recreation attempt failed: {recreate_error}", "yellow")
+                )
+                if container:
+                    try:
+                        container.stop()
+                        container.remove()
+                    except:
+                        pass
             except Exception as recreate_error:
                 print(
                     colored(f"   Recreation attempt failed: {recreate_error}", "yellow")
