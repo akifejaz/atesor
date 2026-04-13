@@ -1,4 +1,7 @@
 import unittest
+import json
+import os
+import tempfile
 from src.tools import CommandValidator
 
 class TestTools(unittest.TestCase):
@@ -36,6 +39,16 @@ class TestTools(unittest.TestCase):
         is_safe, reason = self.validator.is_safe("nmap -sP 192.168.1.0/24")
         self.assertFalse(is_safe)
         self.assertEqual(reason, "Unknown command pattern (not in whitelist)")
+
+    def test_external_policy_append(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy_path = os.path.join(tmpdir, "policy.json")
+            with open(policy_path, "w", encoding="utf-8") as f:
+                json.dump({"allow": ["^nmap\\s+"], "deny": []}, f)
+
+            validator = CommandValidator(policy_path=policy_path)
+            is_safe, _ = validator.is_safe("nmap -sP 192.168.1.0/24")
+            self.assertTrue(is_safe)
 
 if __name__ == "__main__":
     unittest.main()

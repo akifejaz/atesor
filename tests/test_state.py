@@ -9,7 +9,9 @@ from src.state import (
     classify_error, 
     create_error_record,
     infer_failure_severity,
-    ErrorRecord
+    evaluate_state_invariants,
+    ErrorRecord,
+    CommandResult,
 )
 
 class TestState(unittest.TestCase):
@@ -74,6 +76,30 @@ class TestState(unittest.TestCase):
             ),
             FailureSeverity.MEDIUM,
         )
+
+    def test_command_cache_invalidation(self):
+        result = CommandResult(
+            command="make",
+            exit_code=0,
+            stdout="ok",
+            stderr="",
+            duration_seconds=0.1,
+        )
+        self.state.cache_command_result("make", result, cwd="/workspace/repos/repo")
+        cached = self.state.get_cached_command_result("make", cwd="/workspace/repos/repo")
+        self.assertIsNotNone(cached)
+
+        self.state.invalidate_command_cache("test mutation")
+        self.assertIsNone(
+            self.state.get_cached_command_result("make", cwd="/workspace/repos/repo")
+        )
+        self.assertGreater(self.state.command_cache_generation, 0)
+
+    def test_state_invariants(self):
+        self.state.current_phase = "builder"
+        self.state.build_plan = None
+        issues = evaluate_state_invariants(self.state)
+        self.assertTrue(any("build plan" in i.lower() for i in issues))
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from langchain_core.messages import BaseMessage
+from .runtime import get_runtime_settings
 
 
 # ============================================================================
@@ -289,6 +290,7 @@ class AgentState:
     context_cache: Dict[str, Any] = field(default_factory=dict)
     file_content_cache: Dict[str, str] = field(default_factory=dict)
     command_results_cache: Dict[str, CommandResult] = field(default_factory=dict)
+    command_cache_generation: int = 0
 
     # ========== Agent Communication ==========
     messages: List[BaseMessage] = field(default_factory=list)
@@ -300,6 +302,7 @@ class AgentState:
     # ========== Debugging & Audit ==========
     audit_trail: List[Dict[str, Any]] = field(default_factory=list)
     current_agent: Optional[AgentRole] = None
+    feedback_notes: List[str] = field(default_factory=list)
 
     # ========== Metadata ==========
     created_at: datetime = field(default_factory=datetime.now)
@@ -345,6 +348,9 @@ class AgentState:
                 "data": data,
             }
         )
+        max_events = get_runtime_settings().max_audit_events
+        if len(self.audit_trail) > max_events:
+            self.audit_trail = self.audit_trail[-max_events:]
         self.update_timestamp()
 
     def log_agent_decision(self, agent: AgentRole, action: str, reason: str):
@@ -353,15 +359,19 @@ class AgentState:
             "decision", {"agent": agent.value, "action": action, "reason": reason}
         )
 
-    def cache_command_result(self, command: str, result: CommandResult):
+    def cache_command_result(
+        self, command: str, result: CommandResult, cwd: Optional[str] = None
+    ):
         """Cache a command result for reuse."""
-        cache_key = self._generate_cache_key(command)
+        cache_key = self._generate_cache_key(command, cwd)
         self.command_results_cache[cache_key] = result
         self.update_timestamp()
 
-    def get_cached_command_result(self, command: str) -> Optional[CommandResult]:
+    def get_cached_command_result(
+        self, command: str, cwd: Optional[str] = None
+    ) -> Optional[CommandResult]:
         """Retrieve cached command result if available."""
-        cache_key = self._generate_cache_key(command)
+        cache_key = self._generate_cache_key(command, cwd)
         return self.command_results_cache.get(cache_key)
 
     def cache_file_content(self, filepath: str, content: str):
@@ -373,11 +383,24 @@ class AgentState:
         """Retrieve cached file content if available."""
         return self.file_content_cache.get(filepath)
 
-    def _generate_cache_key(self, command: str) -> str:
+    def _generate_cache_key(self, command: str, cwd: Optional[str] = None) -> str:
         """Generate a cache key for a command."""
         import hashlib
 
-        return hashlib.md5(command.encode()).hexdigest()
+        key_material = (
+            f"{self.command_cache_generation}|{cwd or ''}|{command}".encode("utf-8")
+        )
+        return hashlib.sha256(key_material).hexdigest()
+
+    def invalidate_command_cache(self, reason: str = "unknown") -> None:
+        """Invalidate command cache when workspace mutations happen."""
+        self.command_cache_generation += 1
+        self.command_results_cache.clear()
+        self.log_event(
+            "cache_invalidation",
+            {"reason": reason, "generation": self.command_cache_generation},
+        )
+        self.update_timestamp()
 
     def get_execution_duration(self) -> float:
         """Get total execution time in seconds."""
@@ -695,12 +718,37 @@ def should_escalate(state: AgentState) -> tuple[bool, str]:
     if state.last_error_category in fundamental_categories:
         return True, f"Fundamental blocker: {state.last_error_category.value}"
 
-    # Cost limit (if set)
-    cost_limit = 1.0  # $1 USD limit
+    # Cost limit
+    cost_limit = get_runtime_settings().max_total_cost_usd
     if state.api_cost_usd > cost_limit:
         return True, f"API cost limit (${cost_limit}) exceeded"
 
     return False, ""
+
+
+def evaluate_state_invariants(state: AgentState) -> List[str]:
+    """
+    Evaluate consistency rules for the shared agent state.
+    Returns human-readable issues for a feedback loop.
+    """
+    issues: List[str] = []
+
+    if state.build_status == BuildStatus.SUCCESS and not state.build_plan:
+        issues.append("Build status is SUCCESS but build plan is missing.")
+
+    if state.current_phase in {"builder", "building"} and not state.build_plan:
+        issues.append("Builder phase active without a build plan.")
+
+    if state.build_status == BuildStatus.FAILED and not state.last_error:
+        issues.append("Build status is FAILED but last_error is empty.")
+
+    if state.last_successful_phase > 0 and not state.build_plan:
+        issues.append("last_successful_phase is set without build plan context.")
+
+    if state.current_phase in {"fixer", "fixing"} and not state.error_history:
+        issues.append("Fixer phase active without an error history.")
+
+    return issues
 
 
 def get_next_action_recommendation(state: AgentState) -> Action:

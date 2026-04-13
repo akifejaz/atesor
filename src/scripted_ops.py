@@ -6,6 +6,7 @@ Handles repository cloning, build system detection, and dependency extraction.
 import os
 import re
 import json
+from datetime import datetime
 import subprocess
 from typing import List, Dict, Optional, Any
 import logging
@@ -78,8 +79,13 @@ class ScriptedOperations:
         # Check if already exists (check on host for speed)
         if os.path.exists(os.path.join(host_repo_path, ".git")):
             logger.info(f"Repository {name} already exists, pulling latest...")
-            # Pull inside container to maintain ownership
-            cmd = f"cd {container_repo_path} && git pull"
+            # Ensure a clean workspace before pulling to avoid cross-run contamination.
+            cmd = (
+                f"cd {container_repo_path} "
+                f"&& git reset --hard HEAD "
+                f"&& git clean -fd "
+                f"&& git pull --ff-only"
+            )
             result = execute_command(cmd, use_docker=True)
         else:
             logger.info(f"Cloning repository {url}...")
@@ -170,6 +176,20 @@ class ScriptedOperations:
                             confidence_scores.get(build_sys, 0) + 0.3
                         )
 
+        # Generic custom-make detection for projects using *.mak/*.mk without top-level Makefile.
+        if not any(sys_name == "make" for sys_name, _ in detected):
+            import glob
+
+            mak_files = glob.glob(os.path.join(repo_path, "**", "*.mak"), recursive=True)
+            mak_files.extend(
+                glob.glob(os.path.join(repo_path, "**", "*.mk"), recursive=True)
+            )
+            mak_files = [f for f in mak_files if ".git/" not in f]
+            if mak_files:
+                primary = os.path.relpath(sorted(mak_files)[0], repo_path)
+                detected.append(("custom_make", primary))
+                confidence_scores["custom_make"] = 0.85
+
         if not detected:
             for build_sys in ["go", "cargo"]:
                 for root, dirs, files in os.walk(repo_path):
@@ -241,7 +261,7 @@ class ScriptedOperations:
             deps = self._extract_npm_dependencies(repo_path)
         elif build_system == "go":
             deps = self._extract_go_dependencies(repo_path)
-        elif build_system == "make":
+        elif build_system in {"make", "custom_make"}:
             deps = self._extract_make_dependencies(repo_path)
 
         return deps
@@ -761,21 +781,226 @@ class ScriptedOperations:
                 "cargo",
             ]
 
-        for tool in tools:
-            # Check availability INSIDE the container
-            res = execute_command(f"which {tool}", use_docker=True)
-            if res.success:
-                info[tool] = "Available in PATH"
+        # Attempt to load cached tools snapshot first
+        snapshot_path = os.path.join(self.cache_dir, "tools_snapshot.json")
+
+        def load_snapshot() -> Optional[Dict[str, Any]]:
+            try:
+                if os.path.exists(snapshot_path):
+                    with open(snapshot_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception:
+                logger.debug("Failed to load tools snapshot, will probe system")
+            return None
+
+        def save_snapshot(payload: Dict[str, Any]) -> None:
+            try:
+                with open(snapshot_path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2)
+            except Exception:
+                logger.debug("Failed to save tools snapshot")
+
+        # Allow forcing a refresh via env var
+        refresh = os.getenv("ATESOR_REFRESH_TOOL_SNAPSHOT", "0").strip() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        snapshot = None if refresh else load_snapshot()
+
+        # Validate snapshot TTL and os-release
+        ttl_hours = 24
+        try:
+            ttl_hours = int(os.getenv("ATESOR_TOOL_SNAPSHOT_TTL_HOURS", "24"))
+        except Exception:
+            pass
+
+        valid_snapshot = False
+        if snapshot and isinstance(snapshot, dict):
+            created_at = snapshot.get("created_at")
+            try:
+                if created_at:
+                    then = datetime.fromisoformat(created_at)
+                    age_hours = (datetime.now() - then).total_seconds() / 3600.0
+                    if age_hours <= ttl_hours:
+                        valid_snapshot = True
+                    else:
+                        logger.debug("Tools snapshot expired by TTL")
+                else:
+                    logger.debug("Tools snapshot missing created_at; will refresh")
+                    valid_snapshot = False
+            except Exception:
+                logger.debug("Invalid snapshot timestamp; will refresh")
+                valid_snapshot = False
+
+        # If snapshot is valid so far, also verify os-release matches current container
+        if valid_snapshot:
+            snapshot_os = snapshot.get("os_release")
+            # probe current os-release inside container
+            os_res = execute_command("cat /etc/os-release 2>/dev/null || true", use_docker=True)
+            current_os = os_res.stdout.strip() if os_res and os_res.success else None
+            if snapshot_os and current_os and snapshot_os == current_os:
+                # Ensure snapshot covers requested tools
+                missing_in_snapshot = [t for t in tools if t not in snapshot.get("tools", {})]
+                if not missing_in_snapshot:
+                    # Use snapshot
+                    for t in tools:
+                        info[t] = snapshot["tools"].get(t, "Not installed")
+                    info["architecture"] = snapshot.get("architecture")
+                    logger.debug(f"Using cached tools snapshot: {snapshot_path}")
+                    return info
+                else:
+                    logger.debug("Tools missing in snapshot; will probe")
             else:
-                info[tool] = "Not installed"
+                logger.debug("OS mismatch or unable to probe OS; will refresh tools snapshot")
+
+        # No valid snapshot found (or incomplete) — probe system and build snapshot
+        tools_status: Dict[str, str] = {}
+        for tool in tools:
+            # Check availability INSIDE the container; record which output if available
+            res = execute_command(f"which {tool} 2>/dev/null || true", use_docker=True)
+            if res and res.success and res.stdout.strip():
+                tools_status[tool] = res.stdout.strip()
+            else:
+                tools_status[tool] = "Not installed"
 
         # Architecture check
         arch_res = execute_command("uname -m", use_docker=True)
-        info["architecture"] = (
-            arch_res.stdout.strip() if arch_res.success else "unknown"
-        )
+        arch_val = arch_res.stdout.strip() if arch_res and arch_res.success else "unknown"
+
+        # capture os-release for snapshot fingerprinting
+        os_res = execute_command("cat /etc/os-release 2>/dev/null || true", use_docker=True)
+        os_release_val = os_res.stdout.strip() if os_res and os_res.success else ""
+
+        # Save snapshot for future runs (best-effort)
+        snapshot_payload = {
+            "tools": tools_status,
+            "architecture": arch_val,
+            "os_release": os_release_val,
+            "created_at": datetime.now().isoformat(),
+        }
+        try:
+            save_snapshot(snapshot_payload)
+            logger.debug(f"Saved tools snapshot to {snapshot_path}")
+        except Exception:
+            pass
+
+        # Build return structure
+        info.update(tools_status)
+        info["architecture"] = arch_val
 
         return info
+
+    def install_missing_tools(self, missing_tools: List[str]) -> Dict[str, str]:
+        """
+        Attempt to install missing tools inside the container using the
+        container's package manager. Best-effort and gated by the
+        ATESOR_AUTO_INSTALL_TOOLS environment variable.
+
+        Returns a mapping tool -> installation result (path or 'Not installed').
+        """
+        results: Dict[str, str] = {}
+
+        auto_install = os.getenv("ATESOR_AUTO_INSTALL_TOOLS", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if not auto_install:
+            logger.info("Auto-install disabled (ATESOR_AUTO_INSTALL_TOOLS not set)")
+            return {t: "Not attempted" for t in missing_tools}
+
+        # Probe package manager availability inside container
+        pm_probe = {
+            "apk": execute_command("which apk 2>/dev/null || true", use_docker=True),
+            "apt": execute_command("which apt-get 2>/dev/null || true", use_docker=True),
+            "yum": execute_command("which yum 2>/dev/null || true", use_docker=True),
+            "dnf": execute_command("which dnf 2>/dev/null || true", use_docker=True),
+        }
+
+        pkg_mgr = None
+        for name, res in pm_probe.items():
+            if res and res.success and res.stdout.strip():
+                pkg_mgr = name
+                break
+
+        if not pkg_mgr:
+            logger.warning("No supported package manager detected in container; cannot auto-install")
+            return {t: "No package manager" for t in missing_tools}
+
+        # Candidate package names per manager (best-effort)
+        candidates = {
+            "apk": {
+                "riscv64-gcc": ["riscv64-gcc", "gcc-riscv64", "riscv64-unknown-linux-gnu-gcc"],
+                "gcc": ["gcc"],
+                "g++": ["g++", "gcc"],
+                "cmake": ["cmake"],
+                "make": ["make"],
+                "ninja": ["ninja"],
+                "meson": ["meson"],
+                "python3": ["python3"],
+                "go": ["go"],
+                "rustc": ["rustc"],
+                "cargo": ["cargo"],
+            },
+            "apt": {
+                "riscv64-gcc": ["gcc-riscv64-linux-gnu", "riscv64-unknown-linux-gnu-gcc"],
+                "gcc": ["gcc"],
+                "g++": ["g++"],
+                "cmake": ["cmake"],
+                "make": ["make"],
+                "ninja": ["ninja-build", "ninja"],
+                "meson": ["meson"],
+                "python3": ["python3"],
+                "go": ["golang-go", "golang"],
+                "rustc": ["rustc"],
+                "cargo": ["cargo"],
+            },
+            "yum": {
+                "riscv64-gcc": ["gcc-riscv64-linux-gnu"],
+                "gcc": ["gcc"],
+                "g++": ["gcc-c++"],
+                "cmake": ["cmake"],
+                "make": ["make"],
+                "ninja": ["ninja-build", "ninja"],
+                "meson": ["meson"],
+                "python3": ["python3"],
+                "go": ["golang"],
+                "rustc": ["rustc"],
+                "cargo": ["cargo"],
+            },
+            "dnf": {},
+        }
+
+        # Install command templates
+        install_commands = {
+            "apk": lambda pkg: f"apk update && apk add --no-cache {pkg}",
+            "apt": lambda pkg: f"apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}",
+            "yum": lambda pkg: f"yum install -y {pkg}",
+            "dnf": lambda pkg: f"dnf install -y {pkg}",
+        }
+
+        for tool in missing_tools:
+            installed = "Not installed"
+            tried = candidates.get(pkg_mgr, {}).get(tool, [tool])
+            for pkg in tried:
+                cmd = install_commands[pkg_mgr](pkg)
+                logger.info(f"Attempting to install {pkg} for tool {tool} using {pkg_mgr}")
+                res = execute_command(cmd, use_docker=True)
+                if res and res.success:
+                    # Verify tool is now present
+                    chk = execute_command(f"which {tool} 2>/dev/null || true", use_docker=True)
+                    if chk and chk.success and chk.stdout.strip():
+                        installed = chk.stdout.strip()
+                        logger.info(f"Installed {tool} -> {installed}")
+                        break
+                else:
+                    logger.debug(f"Install attempt failed for {pkg}: {res.stderr if res else 'no result'}")
+
+            results[tool] = installed
+
+        return results
 
     # ========== Helper Methods ==========
 

@@ -22,6 +22,7 @@ from .state import (
     create_initial_state,
     should_escalate,
     get_next_action_recommendation,
+    evaluate_state_invariants,
     create_error_record,
     BuildPlan,
     BuildPhase,
@@ -34,12 +35,14 @@ from .models import create_llm
 from .tools import execute_command, apply_patch
 from .knowledge import get_system_knowledge_summary
 from .memory import format_few_shot_examples
+from .runtime import get_runtime_settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Initialize scripted operations
 scripted_ops = ScriptedOperations()
+SETTINGS = get_runtime_settings()
 
 
 # ============================================================================
@@ -111,6 +114,26 @@ def _build_command_error_message(result, fallback: str) -> str:
     stdout = (result.stdout or "").strip()
     detail = stderr or stdout or "No stderr/stdout output captured."
     return f"{fallback} (exit {result.exit_code}) - {detail}"
+
+
+def _build_system_tool_hints(build_system: str) -> set[str]:
+    """Map detected build system names to actual executable tool hints."""
+    normalized = (build_system or "").strip().lower()
+    mapping = {
+        "cmake": {"cmake", "make"},
+        "autotools": {"autoconf", "automake", "libtool", "make", "gcc"},
+        "make": {"make", "gcc"},
+        "custom_make": {"make", "gcc"},
+        "meson": {"meson", "ninja"},
+        "cargo": {"cargo", "rustc"},
+        "npm": {"node", "npm"},
+        "pip": {"python3", "pip"},
+        "go": {"go"},
+        "gradle": {"java"},
+        "maven": {"java", "mvn"},
+        "bazel": {"bazel"},
+    }
+    return mapping.get(normalized, set())
 
 
 # ============================================================================
@@ -218,7 +241,7 @@ def init_node(state: AgentState) -> AgentState:
 
         required_tools = set(["gcc", "make"])
         if state.build_system_info:
-            required_tools.add(state.build_system_info.type)
+            required_tools.update(_build_system_tool_hints(state.build_system_info.type))
         if state.dependencies:
             required_tools.update(state.dependencies.build_tools)
 
@@ -277,8 +300,7 @@ Create a strategic plan that:
 4. Estimates complexity and potential blockers
 
 # Output Format
-Provide your plan in this JSON format:
-```json
+Return ONLY a valid JSON object in this format (no markdown fences, no commentary):
 {{
   "phases": [
     {{
@@ -315,7 +337,6 @@ Provide your plan in this JSON format:
   "estimated_total_time": "3-5 minutes",
   "potential_blockers": ["list any major concerns"]
 }}
-```
 
 Repository path: {repo_path}
 """
@@ -544,6 +565,7 @@ Before recommending an action:
 # Output Format
 ACTION: [SCOUT|BUILDER|FIXER|ESCALATE|FINISH]
 REASON: [Brief justification in one sentence]
+Return exactly two lines and no extra text.
 """
 
 
@@ -562,14 +584,42 @@ def supervisor_node(state: AgentState) -> AgentState:
         state.current_phase = "escalate"
         return state
 
+    # Deterministic feedback loop to catch inconsistent states before routing.
+    feedback_issues = evaluate_state_invariants(state)
+    if feedback_issues:
+        bounded_issues = feedback_issues[: SETTINGS.max_feedback_issues]
+        state.feedback_notes.extend(bounded_issues)
+        state.log_event(
+            "feedback",
+            {"source": "supervisor", "issues": bounded_issues},
+        )
+        state.context_cache["feedback_issues"] = bounded_issues
+        logger.warning(f"State invariant issues detected: {bounded_issues}")
+
+        if any("build plan" in issue.lower() for issue in bounded_issues):
+            state.log_agent_decision(
+                AgentRole.SUPERVISOR,
+                "SCOUT",
+                "Feedback loop requested build-plan recovery.",
+            )
+            state.current_phase = "scout"
+            return state
+
     recommended_action = get_next_action_recommendation(state)
     state.log_scripted_op("supervisor_routing")
 
-    if state.api_calls_made > 8 or state.api_cost_usd > 0.08:
+    if (
+        state.api_calls_made > SETTINGS.routing_api_call_threshold
+        or state.api_cost_usd > SETTINGS.routing_cost_threshold
+    ):
         state.log_agent_decision(
             AgentRole.SUPERVISOR,
             recommended_action.value,
-            "Cost optimization heuristic (API calls > 8 or cost > $0.08)",
+            (
+                "Cost optimization heuristic "
+                f"(API calls > {SETTINGS.routing_api_call_threshold} or "
+                f"cost > ${SETTINGS.routing_cost_threshold:.2f})"
+            ),
         )
         logger.info(f"Using cost-optimized routing: {recommended_action.value}")
         state.current_phase = recommended_action.value.lower()
@@ -694,7 +744,6 @@ def supervisor_node(state: AgentState) -> AgentState:
             "FINISH": "finish",
         }
 
-        decision_reason = f"LLM Routing: {action_str}"
         state.log_agent_decision(
             AgentRole.SUPERVISOR, action_str, content.split("\n")[-1]
         )
@@ -740,7 +789,7 @@ SCOUT_PROMPT = """You are the **Scout Agent**, expert at analyzing software proj
 # System Environment (Actual tools available)
 {system_info}
 
-# System Knowledge (Feb 2026)
+# System Knowledge ({knowledge_snapshot})
 {system_knowledge}
 
 # Your Task
@@ -773,17 +822,12 @@ If the project has architecture-specific build files but NO RISC-V support:
 
 ## Build System Specific Guidelines
 
-### Custom Makefiles (like 7zip pattern)
-Many projects use custom makefile patterns:
-```
-CPP/7zip/cmpl_gcc_x64.mak    -> Create cmpl_gcc_riscv64.mak
-CPP/7zip/var_gcc_x64.mak     -> Create var_gcc_riscv64.mak
-```
-Build command: `make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak`
-
-**IMPORTANT**: 7zip uses **custom makefiles** (*.mak files), NOT CMake or standard configure scripts.
-- NEVER use `cmake`, `configure`, or other build system generators for 7zip
-- ALWAYS use the pattern: `make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak`
+### Custom Makefile Projects
+For projects with `.mak`/`.mk` architecture variants:
+- Prefer existing architecture-specific templates as source files.
+- Create RISC-V variants via minimal token replacement (`x64/amd64/arm64 -> riscv64`).
+- Preserve include-path style already used by the project.
+- If assembly toolchain steps fail (missing assembler/compiler helpers), disable ASM paths and use C/C++ fallback paths where supported by existing make variables.
 
 ### Standard Build Systems
 - **Go**: Use build_system_metadata. Add `-buildvcs=false` flag.
@@ -793,8 +837,7 @@ Build command: `make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak`
 - **Meson**: Setup build dir with meson, compile with ninja
 
 ## Output Format
-Provide a JSON object with:
-```json
+Return ONLY a valid JSON object with:
 {{
   "build_system": "<detected_build_system>",
   "build_system_confidence": <0.0-1.0>,
@@ -834,7 +877,6 @@ Provide a JSON object with:
   "total_estimated_duration": "<estimate>",
   "notes": ["<important_observations>"]
 }}
-```
 
 ## Target Architecture
 Use the system architecture: {architecture}.
@@ -956,6 +998,7 @@ def scout_node(state: AgentState) -> AgentState:
         dependencies=dependencies.replace("{", "{{").replace("}", "}}"),
         repo_path=state.repo_path.replace("{", "{{").replace("}", "}}"),
         system_info=system_info.replace("{", "{{").replace("}", "}}"),
+        knowledge_snapshot=SETTINGS.knowledge_snapshot_label,
         system_knowledge=get_system_knowledge_summary()
         .replace("{", "{{")
         .replace("}", "}}"),
@@ -1005,6 +1048,11 @@ def scout_node(state: AgentState) -> AgentState:
         is_valid, reason = validate_build_plan(state.build_plan)
         if not is_valid:
             logger.warning(f"Plan validation failed: {reason}")
+            state.feedback_notes.append(f"Invalid build plan rejected: {reason}")
+            state.log_event(
+                "feedback",
+                {"source": "scout_plan_validation", "issues": [reason]},
+            )
             state.add_error(
                 create_error_record(
                     message=f"Invalid build plan: {reason}. Please avoid absolute paths and placeholders.",
@@ -1108,6 +1156,33 @@ def builder_node(state: AgentState) -> AgentState:
         )
         return state
 
+    # Attempt automatic installation of missing tools based on cached snapshot
+    try:
+        auto_install = os.getenv("ATESOR_AUTO_INSTALL_TOOLS", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if auto_install:
+            required_tools = set(["gcc", "make"])
+            if state.build_plan and getattr(state.build_plan, "build_system", None):
+                required_tools.update(_build_system_tool_hints(state.build_plan.build_system))
+            if state.dependencies:
+                required_tools.update(state.dependencies.build_tools)
+
+            system_info = scripted_ops.get_system_info(tools=list(required_tools))
+            missing_tools = [t for t, status in system_info.items() if status == "Not installed"]
+            if missing_tools:
+                logger.info(f"Auto-install enabled; attempting to install missing tools: {missing_tools}")
+                install_results = scripted_ops.install_missing_tools(missing_tools)
+                logger.info(f"Auto-install results: {install_results}")
+                # Refresh system info after install attempts
+                refreshed = scripted_ops.get_system_info(tools=list(required_tools))
+                state.context_cache["system_info"] = refreshed
+                state.context_cache["missing_tools"] = [t for t, v in refreshed.items() if v == "Not installed"]
+    except Exception as e:
+        logger.warning(f"Auto-install helper failed: {e}")
+
     predictions = predict_build_issues(state)
     if predictions:
         logger.info(f"Proactively identified {len(predictions)} potential issues")
@@ -1120,7 +1195,9 @@ def builder_node(state: AgentState) -> AgentState:
         logger.info(f"Executing phase {phase.id}: {phase.name}")
 
         for command in phase.commands:
-            cached_result = state.get_cached_command_result(command)
+            cached_result = state.get_cached_command_result(
+                command, cwd=state.repo_path
+            )
             if cached_result and cached_result.success:
                 logger.info(f"Using cached result for: {command[:50]}...")
                 continue
@@ -1136,7 +1213,7 @@ def builder_node(state: AgentState) -> AgentState:
                         break
 
             result = execute_command(optimized_cmd, cwd=state.repo_path)
-            state.cache_command_result(command, result)
+            state.cache_command_result(command, result, cwd=state.repo_path)
             state.log_scripted_op("execute_build_command")
 
             if not result.success:
@@ -1166,7 +1243,9 @@ def builder_node(state: AgentState) -> AgentState:
                     )
 
                     retry_result = execute_command(retry_command, cwd=state.repo_path)
-                    state.cache_command_result(retry_command, retry_result)
+                    state.cache_command_result(
+                        retry_command, retry_result, cwd=state.repo_path
+                    )
                     state.log_scripted_op("retry_build_command")
 
                     if retry_result.success:
@@ -1234,7 +1313,7 @@ def validate_fix_command(command: str) -> tuple[bool, str]:
     return True, "Command is safe"
 
 
-FIXER_PROMPT = """You are the **Fixer Agent**, expert at debugging RISC-V porting issues with REFLECTION capabilities.
+FIXER_PROMPT = """You are the **Fixer Agent**, expert at debugging RISC-V porting issues using explicit reflection.
 
 # Error Information
 Category: {error_category}
@@ -1249,146 +1328,53 @@ Failed Command: {failed_command}
 # Architecture-Specific Issues Found
 {arch_issues}
 
-# System Knowledge (Feb 2026)
+# System Knowledge ({knowledge_snapshot})
 {system_knowledge}
 
 {few_shot_examples}
 
-# Your Task - REFLECTION PATTERN
-You MUST follow this 4-step reflection process:
-1. ANALYZE: Deep dive into the root cause - is this a missing file, wrong command, or configuration issue?
-2. HYPOTHESIZE: Generate 2-3 potential fixes with pros/cons
-3. SELF-CRITIQUE: For each fix, ask "Will this actually work? What are the risks?"
-4. SELECT: Choose the minimal, safest fix
+# Required Reasoning Process
+1. ANALYZE root cause from the failing command and message.
+2. HYPOTHESIZE 2-3 candidate fixes.
+3. SELF-CRITIQUE each fix for risk and reversibility.
+4. SELECT the smallest safe fix likely to work.
 
-## CRITICAL: Understanding the Real Problem
+# Strategy Guidance
+- For missing build files, derive new files from existing architecture variants and keep edits minimal.
+- For missing assembler/toolchain helpers in custom make projects, prefer disabling ASM paths or using existing C/C++ fallbacks when supported by make variables.
+- For compilation type/conversion issues, prefer semantically correct code changes over broad warning suppression.
+- Do not install the target project via package manager when the goal is source build validation.
 
-### Missing Build Files
-If the error is "No such file or directory" for a build file:
-- The project likely has architecture-specific build files
-- You need to CREATE RISC-V equivalents based on existing patterns
-- Look for files like `cmpl_gcc_x64.mak`, `cmpl_gcc_arm64.mak`
-- Create `cmpl_gcc_riscv64.mak` based on the template
-
-### Pattern for Creating Build Files
-1. Find existing arch-specific file (x64 or arm64 variant)
-2. Read its content
-3. Replace architecture identifiers:
-   - `x64` → `riscv64`
-   - `x86_64` → `riscv64`
-   - `arm64` → `riscv64`
-   - `X64` → `RISCV64`
-4. Set `USE_ASM = ` (empty, disable assembly for RISC-V)
-5. Write the new file
-
-### Common File Creation Patterns
-```json
-{{
-  "type": "create_file",
-  "path": "CPP/7zip/cmpl_gcc_riscv64.mak",
-  "content": "include ../../var_gcc_riscv64.mak\\ninclude ../../warn_gcc.mak\\ninclude makefile.gcc"
-}}
-```
-
-### CORRECT Content Templates for 7zip-style builds
-For cmpl_gcc_riscv64.mak, use:
-```
-include ../../var_gcc_riscv64.mak
-include ../../warn_gcc.mak
-include makefile.gcc
-```
-
-For var_gcc_riscv64.mak, use:
-```
-PLATFORM=riscv64
-O=b/g_$(PLATFORM)
-IS_X64=
-IS_X86=
-IS_ARM64=
-CROSS_COMPILE=
-MY_ARCH=
-USE_ASM=
-CC=$(CROSS_COMPILE)gcc
-CXX=$(CROSS_COMPILE)g++
-```
-
-**IMPORTANT**: Do NOT use $(CURDIR) in include paths - use relative paths like `../../` instead!
-
-## Fix Strategy Guidelines
-
-### By Error Category
-- **MISSING_TOOLS**: Install the missing tool using apk add
-- **DEPENDENCY**: Install required libraries and dev packages
-- **FILE_NOT_FOUND**: Create the missing file based on existing patterns
-- **COMPILATION**: Fix syntax errors, type mismatches, missing includes
-- **LINKING**: Install missing libraries, fix library paths
-- **ARCHITECTURE**: Add RISC-V conditional compilation or scalar fallbacks
-- **CONFIGURATION**: Fix build system configuration, flags, paths
-
-### 7zip-Specific Compilation Errors
-If you encounter conversion errors like "conversion from 'X' to 'Y' may change value [-Werror=conversion]":
-- This is caused by strict GCC warning flags (-Werror)
-- The fix is to add explicit casts to satisfy the compiler
-- Example fix for System.h line ~159:
-  ```json
-  {{
-    "type": "patch",
-    "file": "CPP/Windows/System.h",
-    "content": "--- a/CPP/Windows/System.h\n+++ b/CPP/Windows/System.h\n@@ -156,7 +156,7 @@ class CProcessAffinity\n \n   int IsCpuSet(unsigned cpuIndex) const \n   {{ \n-    return CpuSet_IsSet(&cpu_set, cpuIndex); \n+    return CpuSet_IsSet(&cpu_set, (long unsigned int)cpuIndex); \n   }}\n   \n   bool IsEqual(const CProcessAffinity &a) const {{ return CpuSet_IsEqual(&cpu_set, &a.cpu_set); }}\n"
-  }}
-  ```
-
-### CRITICAL: NEVER Try to Install 7zip!
-When porting 7zip, you are **building** 7zip from source, NOT installing it:
-- **NEVER** run `apk add 7zip` or `apk add 7zip-cli`
-- **NEVER** try to use `apt install 7zip` or any package manager
-- The goal is to **compile** 7zip from source code, not use a pre-built package
-
-### CRITICAL: Understanding "asmc: No such file ordirectory" Errors
-When the build fails with "make: asmc: No such file ordirectory":
-- **DO NOT** create an empty file called "asmc"
-- asmc is an **executable tool** (assembler compiler) used by 7zip's build system
-- The fix is to **disable assembly** in the build configuration:
-- Edit var_gcc_riscv64.mak and set: `USE_ASM=` (empty, no value)
-- Then the build will use C implementations instead of assembly
-
-### By Build System
-- **Custom Makefiles**: Look for arch patterns, create RISC-V equivalents
-- **Go**: Check CGO requirements, module paths, use -buildvcs=false
-- **C/C++**: Check for missing headers, ASM code that needs porting
-- **CMake**: Check for missing dependencies, configuration errors
-
-# CRITICAL: Forbidden Actions
-- NEVER create empty source files (touch *.go, *.c, etc.)
-- NEVER delete files unless absolutely necessary
-- NEVER create directories to "fix" missing paths - analyze the pattern instead
+# Forbidden Actions
+- Do not create empty source files.
+- Do not use destructive commands (`rm -rf`, hard resets, etc.).
+- Do not output markdown fences or explanatory prose.
 
 # Output Format
-```json
+Return ONLY a valid JSON object:
 {{
-  "analysis": "Deep analysis of root cause - is this a missing file, wrong command, or config issue?",
+  "analysis": "Root-cause analysis",
   "reflection": {{
-    "previous_attempts_failed_because": "Why previous fixes didn't work",
-    "this_time_will_be_different_because": "Why this approach will succeed"
+    "previous_attempts_failed_because": "Why previous fixes failed",
+    "this_time_will_be_different_because": "Why this fix is better"
   }},
   "strategies": [
     {{
       "id": 1,
-      "description": "Strategy description",
+      "description": "Strategy summary",
       "confidence": 0.8,
-      "risks": ["potential issue 1"],
-      "self_critique": "This might fail if X happens",
+      "risks": ["risk 1"],
+      "self_critique": "Main risk and mitigation",
       "actions": [
         {{"type": "create_file", "path": "path/to/file", "content": "file content"}},
-        {{"type": "patch", "file": "src/file.c", "content": "patch content"}},
-        {{"type": "command", "command": "apk add libfoo"}}
+        {{"type": "patch", "file": "src/file.c", "content": "unified diff"}},
+        {{"type": "command", "command": "build or dependency command"}}
       ]
     }}
   ],
   "recommended_strategy_id": 1,
-  "fallback_if_fails": "What to try if this doesn't work"
+  "fallback_if_fails": "Next best approach"
 }}
-```
 
 Repository: {repo_path}
 """
@@ -1459,6 +1445,7 @@ def fixer_node(state: AgentState) -> AgentState:
         previous_fixes=previous_fixes,
         arch_issues=arch_issues,
         repo_path=state.repo_path,
+        knowledge_snapshot=SETTINGS.knowledge_snapshot_label,
         system_knowledge=get_system_knowledge_summary(),
         few_shot_examples=few_shot_examples,
     )
@@ -1504,35 +1491,6 @@ def fixer_node(state: AgentState) -> AgentState:
         )
 
         logger.info(f"Applying fix strategy: {strategy['description']}")
-
-        # PRE-APPLY VALIDATION: Check if this fix makes sense for 7zip's custom makefile system
-        actions = strategy.get("actions", [])
-
-        # Validate actions against known bad patterns for 7zip
-        for action in actions:
-            action_type = action.get("type", "")
-            action_str = str(action).lower()
-
-            # Block CMake-related fixes for 7zip (it's not a CMake project)
-            if action_type == "create_file" and action.get("path", "").endswith(
-                "CMakeLists.txt"
-            ):
-                logger.error(
-                    "BLOCKED: Refusing to create CMakeLists.txt for 7zip (not a CMake project)"
-                )
-                logger.error("7zip uses custom makefiles (*.mak), not CMake")
-                state.build_status = BuildStatus.FAILED
-                return state
-
-            # Block installation of 7zip packages (we're building from source)
-            if action_type == "command" and (
-                "apk add 7zip" in action_str or "apt install 7zip" in action_str
-            ):
-                logger.error(
-                    "BLOCKED: Refusing to install 7zip package (we're building from source)"
-                )
-                state.build_status = BuildStatus.FAILED
-                return state
 
         # Apply fix actions
         changes_made = []
@@ -1603,6 +1561,24 @@ def fixer_node(state: AgentState) -> AgentState:
                 else:
                     logger.error(f"Fix command failed: {result.stderr}")
 
+        if not changes_made:
+            failure_msg = (
+                "Fixer produced no effective changes; refusing rebuild loop. "
+                "Review fix strategy generation or patch format."
+            )
+            logger.error(failure_msg)
+            state.feedback_notes.append(failure_msg)
+            state.log_event("feedback", {"source": "fixer", "issues": [failure_msg]})
+            state.add_error(
+                create_error_record(
+                    message=failure_msg,
+                    category=ErrorCategory.CONFIGURATION,
+                    attempt_number=state.attempt_count,
+                )
+            )
+            state.build_status = BuildStatus.FAILED
+            return state
+
         # Record fix attempt
         fix_attempt = FixAttempt(
             error_category=state.last_error_category,
@@ -1613,6 +1589,9 @@ def fixer_node(state: AgentState) -> AgentState:
         state.add_fix_attempt(fix_attempt)
 
         logger.info(f"Fix applied: {len(changes_made)} changes")
+
+        if changes_made:
+            state.invalidate_command_cache("fixer_mutation_applied")
 
         # Reset to pending so supervisor can try building again
         state.build_status = BuildStatus.PENDING
@@ -1681,6 +1660,11 @@ Message: {state.last_error[:500] if state.last_error else "N/A"}
 ## Recommendation
 {should_escalate(state)[1]}
 """
+
+    if state.feedback_notes:
+        report += "\n## Feedback Loop Findings\n"
+        for note in state.feedback_notes[-SETTINGS.max_feedback_issues :]:
+            report += f"- {note}\n"
 
     if state.error_history:
         report += "\n\n## Recent Failures\n"

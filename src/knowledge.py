@@ -1,7 +1,8 @@
 """
 Static knowledge base for RISC-V porting, tool installation, and architecture-specific fixes.
-Updated as of Feb 2026.
 """
+
+from .runtime import get_runtime_settings
 
 # Alpine Linux (riscv64) Package Knowledge
 # Based on Alpine 3.23+ which has robust riscv64 support
@@ -37,7 +38,8 @@ def get_install_command(tool: str) -> str:
 
 def get_system_knowledge_summary() -> str:
     """Get a summary of installation knowledge for the agent."""
-    summary = "## RISC-V Tool Installation Knowledge (Feb 2026)\n"
+    snapshot = get_runtime_settings().knowledge_snapshot_label
+    summary = f"## RISC-V Tool Installation Knowledge ({snapshot})\n"
     summary += "For Alpine Linux (riscv64), use 'apk add <package>'.\n"
     summary += "Common Tool mappings:\n"
     for tool, pkg in ALPINE_TOOL_MAP.items():

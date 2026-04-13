@@ -32,6 +32,19 @@ class TestScriptedOps(unittest.TestCase):
         self.assertEqual(info.type, "cargo")
         self.assertEqual(info.primary_file, "Cargo.toml")
 
+    @patch('glob.glob')
+    @patch('os.path.exists')
+    def test_detect_build_system_custom_make(self, mock_exists, mock_glob):
+        mock_exists.return_value = False
+        mock_glob.side_effect = [
+            ["/workspace/repo/CPP/lib/cmpl_gcc_x64.mak"],
+            [],
+        ]
+
+        info = self.ops.detect_build_system("/workspace/repo")
+        self.assertEqual(info.type, "custom_make")
+        self.assertIn("cmpl_gcc_x64.mak", info.primary_file)
+
     @patch('src.scripted_ops.execute_command')
     def test_get_repository_info(self, mock_exec):
         # Mock git commands

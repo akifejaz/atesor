@@ -21,6 +21,8 @@ load_dotenv()
 
 from src.models import check_api_keys, print_model_info, ModelProvider
 from src.state import AgentState, AgentRole, BuildStatus
+from src.persistence import SessionStore
+from src.runtime import get_runtime_settings
 
 from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
 from src.tools import execute_command, DockerConfig as DC
@@ -463,16 +465,27 @@ def generate_detailed_report(state: dict) -> str:
                 report += f"*Truncated (full patch available in separate file)*\n\n"
 
     # Error history
-    error_log = state.get("error_log", [])
+    error_log = state.get("error_history", [])
     if error_log:
         report += f"---\n\n## Error Resolution History\n\n"
 
         for i, error in enumerate(error_log, 1):
-            category = getattr(error, "category", "Unknown")
-            message = getattr(error, "message", "N/A")
+            if isinstance(error, dict):
+                category = error.get("category", "Unknown")
+                message = error.get("message", "N/A")
+            else:
+                category = getattr(error, "category", "Unknown")
+                message = getattr(error, "message", "N/A")
 
             report += f"### Error {i}: {category}\n\n"
             report += f"```\n{message[:300]}\n```\n\n"
+
+    feedback_notes = state.get("feedback_notes", [])
+    if feedback_notes:
+        report += f"---\n\n## Feedback Loop Findings\n\n"
+        for note in feedback_notes[-10:]:
+            report += f"- {note}\n"
+        report += "\n"
 
     # Recommendations
     report += "---\n\n## Recommendations\n\n"
@@ -558,30 +571,69 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
     print(colored(f"   Max attempts: {max_attempts}", "white"))
     print(colored("-" * 60, "cyan"))
 
+    settings = get_runtime_settings()
+    session_store = None
+    session_id = None
+    if settings.persist_sessions:
+        try:
+            session_store = SessionStore(settings.session_db_path)
+            session_id = session_store.create_session(repo_url, max_attempts)
+            logger.info(f"Session ID: {session_id}")
+            print(colored(f"   Session ID: {session_id}", "white"))
+        except Exception as persistence_error:
+            logger.warning(f"Session persistence unavailable: {persistence_error}")
+            session_store = None
+            session_id = None
+
     initial_state = create_initial_state(repo_url, max_attempts=max_attempts)
+    if session_id:
+        initial_state.context_cache["session_id"] = session_id
     initial_state.messages = [
         HumanMessage(
             content=f"Port this repository to RISC-V: {repo_url}. The repository is cloned at {initial_state.repo_path}"
         )
     ]
 
+    final_state = initial_state
+    step_count = 0
+    last_persisted_event_index = 0
+
+    def persist_step(node_name: str) -> None:
+        nonlocal last_persisted_event_index
+        if not session_store or not session_id:
+            return
+        try:
+            session_store.save_snapshot(session_id, step_count, node_name, final_state)
+            new_events = final_state.audit_trail[last_persisted_event_index:]
+            if new_events:
+                session_store.save_events(session_id, step_count, new_events)
+                last_persisted_event_index = len(final_state.audit_trail)
+        except Exception as persistence_error:
+            logger.warning(f"Failed to persist workflow step: {persistence_error}")
+
+    def finalize(exit_code: int) -> int:
+        if session_store and session_id:
+            try:
+                session_store.finish_session(session_id, final_state, exit_code)
+            except Exception as persistence_error:
+                logger.warning(f"Failed to finalize session record: {persistence_error}")
+        return exit_code
+
     # Run the workflow
     try:
-        final_state = initial_state
-        step_count = 0
-
         for output in app.stream(initial_state):
             for node_name, state_update in output.items():
                 step_count += 1
 
                 # In LangGraph, state_update can be a dict of updates
                 if isinstance(state_update, dict):
-                    # Update final_state fields from dict
                     for k, v in state_update.items():
                         if hasattr(final_state, k):
                             setattr(final_state, k, v)
                 elif isinstance(state_update, AgentState):
                     final_state = state_update
+
+                persist_step(node_name)
 
                 # Print progress
                 status = getattr(
@@ -608,7 +660,6 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                 )
                 print(colored(f"   Status: {status}", status_color), flush=True)
 
-                # Print messages if verbose
                 if (
                     verbose
                     and hasattr(state_update, "messages")
@@ -620,7 +671,6 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
                         logger.debug(f"[{role}] {content}")
 
-                        # Style the roles
                         role_color = "magenta" if role == "Supervisor" else "cyan"
                         if role == "Scout":
                             role_color = "blue"
@@ -632,39 +682,30 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                         print(
                             colored(f"   [{role}]", role_color, attrs=["bold"]), end=" "
                         )
-
-                        # Handle long content
-                        display_content = content
-                        if not verbose:
-                            if len(display_content) > 500:
-                                display_content = display_content[:500] + "..."
-
-                        print(colored(display_content, "white"), flush=True)
+                        print(colored(content, "white"), flush=True)
                 elif not verbose and node_name != "Supervisor":
-                    # Minimal feedback for non-verbose mode
-                    status = (
+                    compact_status = (
                         final_state.build_status.value
                         if hasattr(final_state, "build_status")
                         else "ACTIVE"
                     )
                     print(
-                        colored(f"   Working... ({status})", "white"),
+                        colored(f"   Working... ({compact_status})", "white"),
                         end="\r",
                         flush=True,
                     )
 
-        # Save and print results
         logger.info("=" * 60)
-
         print(colored("\n" + "=" * 60, "cyan"))
 
         save_porting_outputs(final_state, OUTPUT_DIR)
 
         final_status = final_state.build_status
-
         if final_status == BuildStatus.SUCCESS:
             logger.info("PORTING SUCCESSFUL!")
-            logger.info(f"Recipe generated at: {OUTPUT_DIR}/{final_state.repo_name}_recipe.md")
+            logger.info(
+                f"Recipe generated at: {OUTPUT_DIR}/{final_state.repo_name}_recipe.md"
+            )
 
             print(colored("\nPORTING SUCCESSFUL!", "green", attrs=["bold"]))
             print(
@@ -673,70 +714,72 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                     "white",
                 )
             )
-            return 0
-        else:
-            logger.info("PORTING STOPPED / FAILED")
-            logger.info(f"Final Status: {final_status.value}")
+            return finalize(0)
 
-            print(colored("\nPORTING STOPPED / FAILED", "red", attrs=["bold"]))
-            print(colored(f"   Final Status: {final_status.value}", "white"))
+        logger.info("PORTING STOPPED / FAILED")
+        logger.info(f"Final Status: {final_status.value}")
 
-            if final_state.last_error:
-                logger.info("Last Error Capture:")
-                logger.info(f"Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}")
-                logger.info(f"Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}")
-                logger.info(f"{final_state.last_error[:500]}")
+        print(colored("\nPORTING STOPPED / FAILED", "red", attrs=["bold"]))
+        print(colored(f"   Final Status: {final_status.value}", "white"))
 
-                print(colored("\nLast Error Capture:", "red", attrs=["bold"]))
-                print(
-                    colored(
-                        f"   Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}",
-                        "yellow",
-                    )
+        if final_state.last_error:
+            logger.info("Last Error Capture:")
+            logger.info(
+                f"Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}"
+            )
+            logger.info(
+                f"Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}"
+            )
+            logger.info(f"{final_state.last_error[:500]}")
+
+            print(colored("\nLast Error Capture:", "red", attrs=["bold"]))
+            print(
+                colored(
+                    f"   Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}",
+                    "yellow",
                 )
-                print(
-                    colored(
-                        f"   Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}",
-                        "yellow",
-                    )
+            )
+            print(
+                colored(
+                    f"   Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}",
+                    "yellow",
                 )
-                print(colored(f"   {final_state.last_error[:500]}", "white"))
+            )
+            print(colored(f"   {final_state.last_error[:500]}", "white"))
 
-            # Print audit trail for transparency
-            if final_state.audit_trail:
-                logger.info("Agent Decision Audit:")
-                print(colored("\nAgent Decision Audit:", "cyan", attrs=["bold"]))
-                for event in final_state.get_last_audit_events(10):
-                    ts = event["timestamp"].split("T")[-1][:8]
-                    agent = event.get("agent", "system")
-                    etype = event.get("event")
-                    data = event.get("data", {})
+        if final_state.audit_trail:
+            logger.info("Agent Decision Audit:")
+            print(colored("\nAgent Decision Audit:", "cyan", attrs=["bold"]))
+            for event in final_state.get_last_audit_events(10):
+                ts = event["timestamp"].split("T")[-1][:8]
+                agent = event.get("agent", "system")
+                etype = event.get("event")
+                data = event.get("data", {})
 
-                    msg = ""
-                    if etype == "decision":
-                        msg = f"Decided to {data.get('action')} - {data.get('reason')}"
-                    elif etype == "scripted_op":
-                        msg = f"Ran scripted op: {data.get('operation')}"
-                    elif etype == "error":
-                        msg = f"ERROR: {data.get('message')[:100]}..."
+                msg = ""
+                if etype == "decision":
+                    msg = f"Decided to {data.get('action')} - {data.get('reason')}"
+                elif etype == "scripted_op":
+                    msg = f"Ran scripted op: {data.get('operation')}"
+                elif etype == "feedback":
+                    msg = f"Feedback: {data.get('issues')}"
+                elif etype == "error":
+                    msg = f"ERROR: {data.get('message')[:100]}..."
 
-                    logger.info(f"[{ts}] {agent:12} | {etype:10} | {msg}")
+                logger.info(f"[{ts}] {agent:12} | {etype:10} | {msg}")
+                print(colored(f"   [{ts}] {agent:12} | {etype:10} | {msg}", "white"))
 
-                    print(
-                        colored(f"   [{ts}] {agent:12} | {etype:10} | {msg}", "white")
-                    )
-
-            return 1
+        return finalize(1)
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         print(colored("\n\nInterrupted by user", "yellow"))
-        return 130
+        return finalize(130)
     except Exception as e:
         logger.error(f"Unexpected error during agent execution: {e}")
         print(colored(f"\nERROR: {e}", "red"))
         logger.exception("Unexpected error during agent execution")
-        return 1
+        return finalize(1)
 
     finally:
         # Ensure logs are flushed
