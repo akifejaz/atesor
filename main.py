@@ -23,7 +23,7 @@ from src.models import check_api_keys, print_model_info, ModelProvider
 from src.state import AgentState, AgentRole, BuildStatus
 
 from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
-from src.tools import execute_command, DockerConfig as DC
+from src.tools import execute_command
 
 # Configure logging
 def configure_logging(verbose: bool):
@@ -493,31 +493,6 @@ def generate_detailed_report(state: dict) -> str:
     return report
 
 
-def format_build_plan(build_plan) -> str:
-    """Format build plan as markdown."""
-    content = f"""# Build Plan
-
-**Build System**: {getattr(build_plan, "build_system", "Unknown")}
-
-## Phases
-
-"""
-
-    phases = getattr(build_plan, "phases", [])
-    for i, phase in enumerate(phases, 1):
-        phase_name = getattr(phase, "name", f"Phase {i}")
-        content += f"### {i}. {phase_name}\n\n"
-
-        commands = getattr(phase, "commands", [])
-        if commands:
-            content += "```bash\n"
-            for cmd in commands:
-                content += f"{cmd}\n"
-            content += "```\n\n"
-
-    return content
-
-
 def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> int:
     """
     Run the RISC-V porting agent on a repository.
@@ -917,6 +892,9 @@ Examples:
     parser.add_argument(
         "--rebuild", action="store_true", help="Force rebuild of the Docker image"
     )
+    parser.add_argument(
+        "--force", action="store_true", help="Skip recipe cache and re-run full pipeline"
+    )
 
     args = parser.parse_args()
 
@@ -959,6 +937,19 @@ Examples:
     if args.setup_only:
         print(colored("\nSetup complete!", "green"))
         return 0
+
+    # Check recipe cache (skip with --force)
+    if not args.force:
+        from src.memory import get_cached_recipe
+        repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
+        cached = get_cached_recipe(repo_name)
+        if cached:
+            print(colored(f"\n✓ Found cached recipe for '{repo_name}'", "green", attrs=["bold"]))
+            print(colored(f"  Build system: {cached.get('build_system', '?')}", "white"))
+            print(colored(f"  Last built: {cached.get('last_built', '?')}", "white"))
+            print(colored(f"  Recipe file: {cached.get('recipe_file', '?')}", "white"))
+            print(colored(f"  Use --force to re-run the full pipeline.", "yellow"))
+            return 0
 
     # Run the agent
     exit_code = run_agent(

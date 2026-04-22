@@ -21,8 +21,6 @@ class ModelProvider(str, Enum):
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
 
-PROVIDER = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value)  # openai, gemini, openrouter
-
 # Model configurations per provider
 MODEL_CONFIG = {
     "openai": {

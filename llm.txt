@@ -1,0 +1,65 @@
+# Atesor AI (RISC-V Porting Multi-Agent System)
+
+> Atesor AI is a LangGraph-based, multi-agent orchestration system that ports upstream software projects to RISC-V inside a Dockerized Alpine/riscv64 sandbox, combining deterministic scripted analysis with LLM-guided planning, build execution, fixing, and escalation.
+
+Atesor has two execution layers: deterministic scripted ops (clone/update, detection, dependency extraction, environment probing) and agentic orchestration (planner/supervisor/scout/builder/fixer/summarizer). For implementation work, state (`AgentState`) is the system contract and routing decisions in the graph should stay consistent with error severity and escalation behavior.
+
+Important current behavior:
+
+
+## Core Docs
+
+- [README.md](./README.md): Architecture overview, quickstart, usage, and project structure.
+- [ROADMAP.md](./ROADMAP.md): Planned capabilities and current priorities.
+- [LICENSE](./LICENSE): MIT license.
+
+## Entrypoints
+
+- [main.py](./main.py): CLI entrypoint, Docker setup/cleanup, workflow execution, reporting.
+- [batch_test.py](./batch_test.py): Batch runner for multiple repositories.
+- [Dockerfile](./Dockerfile): Alpine/riscv64 sandbox image definition.
+- [requirements.txt](./requirements.txt): Runtime and dev dependencies.
+
+## Orchestration
+
+- [src/graph.py](./src/graph.py): LangGraph nodes, prompts, routing, escalation and finish behavior.
+- [src/models.py](./src/models.py): LLM provider/model selection and API-key checks.
+- [src/memory.py](./src/memory.py): Few-shot retrieval and formatting for prompts.
+- [src/knowledge.py](./src/knowledge.py): Static Alpine/RISC-V knowledge injected into prompts.
+
+## State And Routing Contracts
+
+- [src/state.py](./src/state.py): Shared datamodel (`AgentState`), error taxonomy, severity inference, escalation checks.
+- [tests/test_state.py](./tests/test_state.py): State and error behavior tests, including severity expectations.
+- [tests/test_graph_routing.py](./tests/test_graph_routing.py): Guardrail test for failed init -> escalation routing.
+
+## Scripted Ops Layer
+
+- [src/scripted_ops.py](./src/scripted_ops.py): Deterministic repo analysis, build-system/dependency detection, system probing.
+- [src/build_analyzer.py](./src/build_analyzer.py): Arch-specific build file analysis and RISC-V file generation helpers.
+- [src/tools.py](./src/tools.py): Safe command execution, Docker command wrapper, file I/O, patch application.
+- [src/config.py](./src/config.py): Environment detection and workspace path configuration.
+- [tests/test_scripted_ops.py](./tests/test_scripted_ops.py): Scripted operation tests.
+- [tests/test_tools.py](./tests/test_tools.py): Command safety validator tests.
+
+## Few-Shot Data
+
+- [data/examples/README.md](./data/examples/README.md): Example schema and authoring guidelines.
+- [data/examples/scout_examples.json](./data/examples/scout_examples.json): Build plan generation examples.
+- [data/examples/fixer_examples.json](./data/examples/fixer_examples.json): Error-resolution examples.
+- [data/examples/builder_examples.json](./data/examples/builder_examples.json): Execution-phase examples.
+- [data/examples/supervisor_examples.json](./data/examples/supervisor_examples.json): Supervisor routing examples.
+- [tests/test_memory.py](./tests/test_memory.py): Memory loading, ranking, and formatting tests.
+
+## Runtime Locations
+
+- [workspace/repos](./workspace/repos): Cloned target repositories (runtime artifacts).
+- [workspace/output](./workspace/output): Reports, recipes, and patch outputs.
+- [workspace/logs/agent.log](./workspace/logs/agent.log): Primary execution log.
+- [workspace/.cache](./workspace/.cache): Cache used by scripted ops.
+
+## Optional
+
+- [.gitignore](./.gitignore): Ignore policy for runtime artifacts and local env files.
+- [src/__init__.py](./src/__init__.py): Package marker for source module.
+

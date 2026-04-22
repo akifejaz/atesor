@@ -1,10 +1,6 @@
 {
-  "version": "1.0",
-  "description": "Few-shot examples for Fixer Agent - Error Resolution (Real Data)",
-  "metadata": {
-    "source": "Extracted from RISC-V porting error logs",
-    "updated": "2026-02-20"
-  },
+  "version": "2.0",
+  "description": "Few-shot examples for Fixer Agent - Error Resolution",
   "general_guidelines": {
     "analysis_steps": [
       "1. Read the error message carefully - identify the category",
@@ -21,12 +17,11 @@
     ],
     "file_creation_allowed": [
       "CREATE build configuration files when the project has arch-specific patterns",
-      "CREATE RISC-V equivalents of existing x64/arm64 build files",
-      "Example: If cmpl_gcc_x64.mak exists, create cmpl_gcc_riscv64.mak"
+      "CREATE RISC-V equivalents of existing x64/arm64 build files"
     ],
     "alpine_specific": {
       "package_manager": "apk",
-      "dev_packages_suffix": "-dev (e.g., openssl-dev, sqlite-dev)",
+      "dev_packages_suffix": "-dev",
       "build_tools": "build-base (includes gcc, g++, make)",
       "c_library_pattern": "apk add <lib>-dev for header files"
     }
@@ -36,108 +31,71 @@
       "id": "fixer-000",
       "name": "Missing Architecture-Specific Build File",
       "tags": ["make", "arch-specific", "create-file", "build-pattern"],
-      "error_context": {
-        "category": "DEPENDENCY",
-        "error_message": "make: ../Build.mak: No such file or directory\nmake: *** No rule to make target '../Build.mak'. Stop.",
-        "failed_command": "cd C && make -f ../Build.mak PLATFORM=riscv64"
-      },
-      "solution": {
-        "analysis": "The project has architecture-specific build files (cmpl_gcc_x64.mak, cmpl_gcc_arm64.mak) but NO RISC-V equivalent. The build is trying to use a non-existent file. We need to CREATE the RISC-V build files based on existing patterns.",
-        "strategy": "Analyze existing arch-specific build files, create RISC-V equivalents with proper modifications",
+      "build_system": "custom_makefile",
+      "source": "manual",
+      "repo_name": "7zip",
+      "error_pattern": "No such file or directory.*\\.mak",
+      "fix": {
+        "analysis": "The project has architecture-specific build files but NO RISC-V equivalent.",
+        "strategy": "Analyze existing arch-specific build files, create RISC-V equivalents",
         "actions": [
-          {
-            "type": "command",
-            "command": "find . -name 'cmpl_gcc_*.mak' -o -name 'var_gcc_*.mak'"
-          },
-          {
-            "type": "command",
-            "command": "cat CPP/7zip/cmpl_gcc_x64.mak"
-          },
-          {
-            "type": "create_file",
-            "path": "CPP/7zip/cmpl_gcc_riscv64.mak",
-            "content": "include $(CURDIR)/../../var_gcc_riscv64.mak\ninclude $(CURDIR)/../../warn_gcc.mak\ninclude $(CURDIR)/makefile.gcc"
-          },
-          {
-            "type": "create_file",
-            "path": "CPP/7zip/var_gcc_riscv64.mak",
-            "content": "PLATFORM = riscv64\nO = b/g_$(PLATFORM)\nUSE_ASM =\nMY_ARCH ?=\nCROSS_COMPILE ?=\nCC = $(CROSS_COMPILE)gcc\nCXX = $(CROSS_COMPILE)g++"
-          }
+          {"type": "command", "command": "find . -name 'cmpl_gcc_*.mak' -o -name 'var_gcc_*.mak'"},
+          {"type": "command", "command": "cat CPP/7zip/cmpl_gcc_x64.mak"},
+          {"type": "create_file", "path": "CPP/7zip/cmpl_gcc_riscv64.mak", "content": "include $(CURDIR)/../../var_gcc_riscv64.mak\ninclude $(CURDIR)/../../warn_gcc.mak\ninclude $(CURDIR)/makefile.gcc"},
+          {"type": "create_file", "path": "CPP/7zip/var_gcc_riscv64.mak", "content": "PLATFORM = riscv64\nO = b/g_$(PLATFORM)\nUSE_ASM =\nMY_ARCH ?=\nCROSS_COMPILE ?=\nCC = $(CROSS_COMPILE)gcc\nCXX = $(CROSS_COMPILE)g++"}
         ],
         "corrected_build_command": "make -C CPP/7zip/Bundles/Alone -f ../../cmpl_gcc_riscv64.mak -j$(nproc)"
       },
-      "reasoning": "When a project has architecture-specific build files (cmpl_gcc_x64.mak, cmpl_gcc_arm64.mak), the agent must recognize the pattern and CREATE the RISC-V equivalent. Replace x64/arm64 with riscv64, disable USE_ASM for RISC-V."
+      "reasoning": "When a project has arch-specific build files, CREATE the RISC-V equivalent. Disable USE_ASM for RISC-V."
     },
     {
       "id": "fixer-001",
       "name": "Directory Not Found - Wrong Build Path",
       "tags": ["go", "path-error", "directory", "cd-fail"],
-      "error_context": {
-        "category": "DEPENDENCY",
-        "error_message": "bash: line 1: cd: v2: No such file or directory",
-        "failed_command": "cd v2 && go build ."
-      },
-      "solution": {
-        "analysis": "The build plan incorrectly assumes a v2/ subdirectory exists. The go.mod is at root, not in v2/. The fixer should NOT create the directory - the build command is wrong.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "cd:.*No such file or directory",
+      "fix": {
+        "analysis": "Build plan incorrectly assumes a subdirectory exists. The build command path is wrong.",
         "strategy": "Fix the build command to use the correct path, not create missing directories",
         "actions": [
-          {
-            "type": "command",
-            "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"
-          }
+          {"type": "command", "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"}
         ],
-        "corrected_command": "go build -buildvcs=false -o {binary} .",
-        "reason_for_failure": "Build plan assumed v2/ structure based on incorrect detection"
+        "corrected_command": "go build -buildvcs=false -o {binary} ."
       },
-      "reasoning": "When 'cd X' fails because X doesn't exist, the problem is the build command, not the missing directory. NEVER create empty directories to 'fix' this - update the build path."
+      "reasoning": "When 'cd X' fails, the problem is the build command. NEVER create directories to fix this."
     },
     {
       "id": "fixer-002",
       "name": "No Go Files - Empty/Invalid Build Path",
       "tags": ["go", "no-files", "invalid-path"],
-      "error_context": {
-        "category": "UNKNOWN",
-        "error_message": "no Go files in /workspace/repos/project/v2",
-        "failed_command": "cd v2 && go build ."
-      },
-      "solution": {
-        "analysis": "The directory v2 exists but contains no .go files. This means either: (1) v2 is not a module directory, or (2) the build path is wrong.",
-        "strategy": "Find where go.mod and main package actually are, then update build command",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "no Go files in",
+      "fix": {
+        "analysis": "The directory exists but contains no .go files. Build path is wrong.",
+        "strategy": "Find where go.mod and main package actually are",
         "actions": [
-          {
-            "type": "command",
-            "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"
-          },
-          {
-            "type": "command",
-            "command": "find /workspace/repos/{repo_name} -name 'main.go' -type f"
-          }
+          {"type": "command", "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"},
+          {"type": "command", "command": "find /workspace/repos/{repo_name} -name 'main.go' -type f"}
         ],
         "corrected_command": "Use path from find results, do NOT create files"
       },
-      "reasoning": "Empty file error means wrong directory. NEVER create placeholder files - find and use the correct path."
+      "reasoning": "Empty file error means wrong directory. Find and use the correct path."
     },
     {
       "id": "fixer-003",
       "name": "Empty File Created - Build Parsing Error",
       "tags": ["go", "empty-file", "parse-error"],
-      "error_context": {
-        "category": "UNKNOWN",
-        "error_message": "main.go:1:1: expected 'package', found 'EOF'",
-        "failed_command": "go build ."
-      },
-      "solution": {
-        "analysis": "An empty main.go file was created (by touch or echo). Go cannot parse empty files. This was likely caused by a previous fix attempt that incorrectly created an empty file.",
-        "strategy": "Remove empty files and fix the root cause - wrong build path",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "expected 'package', found 'EOF'",
+      "fix": {
+        "analysis": "An empty .go file was created by a previous fix attempt. Go cannot parse it.",
+        "strategy": "Remove empty files and fix the root cause",
         "actions": [
-          {
-            "type": "command",
-            "command": "find /workspace/repos/{repo_name} -name '*.go' -empty -delete"
-          },
-          {
-            "type": "command",
-            "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"
-          }
+          {"type": "command", "command": "find /workspace/repos/{repo_name} -name '*.go' -empty -delete"},
+          {"type": "command", "command": "find /workspace/repos/{repo_name} -name 'go.mod' -type f"}
         ],
         "corrected_command": "Build from directory containing actual go.mod and main package"
       },
@@ -147,21 +105,16 @@
       "id": "fixer-004",
       "name": "Go Build Pattern Error - No Main in Path",
       "tags": ["go", "pattern-error", "no-main"],
-      "error_context": {
-        "category": "UNKNOWN",
-        "error_message": "pattern ./...: directory prefix . does not contain main module or its selected dependencies",
-        "failed_command": "go build ./..."
-      },
-      "solution": {
-        "analysis": "Using './...' tries to build ALL packages including those without main. Many projects have internal packages without main.",
-        "strategy": "Build only the specific main package, not all packages",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "pattern \\./\\.\\.\\..*does not contain main module",
+      "fix": {
+        "analysis": "Using './...' tries to build ALL packages including those without main.",
+        "strategy": "Build only the specific main package",
         "actions": [
-          {
-            "type": "command",
-            "command": "grep -r 'package main' /workspace/repos/{repo_name} --include='*.go' | head -n 5"
-          }
+          {"type": "command", "command": "grep -r 'package main' /workspace/repos/{repo_name} --include='*.go' | head -n 5"}
         ],
-        "corrected_command": "go build -buildvcs=false -o {binary} ./cmd/{name} or go build ."
+        "corrected_command": "go build -buildvcs=false -o {binary} ./cmd/{name}"
       },
       "reasoning": "NEVER use 'go build ./...' for projects with multiple packages. Build only the main package."
     },
@@ -169,120 +122,92 @@
       "id": "fixer-005",
       "name": "Missing Go Command",
       "tags": ["go", "missing-tool", "command-not-found"],
-      "error_context": {
-        "category": "MISSING_TOOLS",
-        "error_message": "bash: line 1: go: command not found",
-        "failed_command": "go build ."
-      },
-      "solution": {
-        "analysis": "Go is not installed in the Alpine container. This should have been caught in the dependency phase.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "go: command not found",
+      "fix": {
+        "analysis": "Go is not installed in the container.",
         "strategy": "Install Go using apk",
         "actions": [
-          {
-            "type": "command",
-            "command": "apk update && apk add go"
-          }
+          {"type": "command", "command": "apk update && apk add go"}
         ]
       },
-      "reasoning": "Alpine packages: go is just 'apk add go'. Always check and install before building."
+      "reasoning": "Alpine packages: go is just 'apk add go'. Always install before building."
     },
     {
       "id": "fixer-006",
       "name": "CGO Compilation - Missing GCC",
       "tags": ["go", "cgo", "gcc", "build-base"],
-      "error_context": {
-        "category": "COMPILATION",
-        "error_message": "# runtime/cgo\ngcc: not found",
-        "failed_command": "go build ."
-      },
-      "solution": {
-        "analysis": "The project uses CGO (C bindings) but gcc is not available. Common with go-sqlite3, Kubernetes client, etc.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "gcc:? not found|runtime/cgo",
+      "fix": {
+        "analysis": "The project uses CGO (C bindings) but gcc is not available.",
         "strategy": "Install build-base which includes gcc, g++, make",
         "actions": [
-          {
-            "type": "command",
-            "command": "apk add build-base"
-          }
+          {"type": "command", "command": "apk add build-base"}
         ],
         "updated_command": "CGO_ENABLED=1 go build -buildvcs=false -o {binary} ."
       },
-      "reasoning": "CGO requires C compiler. Alpine's build-base includes gcc, g++, make. CGO builds take longer."
+      "reasoning": "CGO requires C compiler. Alpine's build-base includes gcc, g++, make."
     },
     {
       "id": "fixer-007",
       "name": "Git Dubious Ownership",
       "tags": ["git", "ownership", "vcs"],
-      "error_context": {
-        "category": "UNKNOWN",
-        "error_message": "fatal: detected dubious ownership in repository at /workspace/repos/project",
-        "failed_command": "git status"
-      },
-      "solution": {
-        "analysis": "Git complains about ownership because the repository was cloned inside Docker but user doesn't match host.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "dubious ownership in repository",
+      "fix": {
+        "analysis": "Git ownership mismatch inside Docker container.",
         "strategy": "Add directory to git's safe.directory list",
         "actions": [
-          {
-            "type": "command",
-            "command": "git config --global --add safe.directory /workspace/repos/{repo_name}"
-          },
-          {
-            "type": "command",
-            "command": "git config --global --add safe.directory *"
-          }
+          {"type": "command", "command": "git config --global --add safe.directory '*'"}
         ]
       },
-      "reasoning": "Container-mounted repos have different ownership. Add to safe.directory or use -buildvcs=false for Go."
+      "reasoning": "Container-mounted repos have different ownership. Use safe.directory or -buildvcs=false."
     },
     {
       "id": "fixer-008",
       "name": "Build Timeout - Complex Dependencies",
       "tags": ["go", "timeout", "slow", "many-deps"],
-      "error_context": {
-        "category": "UNKNOWN",
-        "error_message": "Command timed out after 300 seconds",
-        "failed_command": "go mod tidy"
-      },
-      "solution": {
-        "analysis": "Large projects with many dependencies can exceed default timeouts. go mod tidy downloads and verifies all transitive deps.",
-        "strategy": "Increase timeout for dependency resolution, reduce parallelism if needed",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "timed? out after \\d+ seconds",
+      "fix": {
+        "analysis": "Large projects with many dependencies exceed default timeouts.",
+        "strategy": "Increase timeout for dependency resolution",
         "actions": [],
         "recommendation": "Increase timeout to 600s for projects with 50+ dependencies"
       },
-      "reasoning": "Complex projects (sing-box, k8s clients) need longer timeouts. Consider GOPROXY settings for faster downloads."
+      "reasoning": "Complex projects need longer timeouts. Consider GOPROXY settings for faster downloads."
     },
     {
       "id": "fixer-009",
       "name": "SQLite CGO Dependency Missing",
       "tags": ["go", "cgo", "sqlite", "library"],
-      "error_context": {
-        "category": "ARCHITECTURE",
-        "error_message": "github.com/mattn/go-sqlite3\n# github.com/mattn/go-sqlite3\nsqlite3-binding.c: fatal error: sqlite3.h: No such file",
-        "failed_command": "go build ."
-      },
-      "solution": {
-        "analysis": "go-sqlite3 is a CGO library that requires SQLite headers. Alpine separates runtime and development packages.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "sqlite3\\.h.*No such file|go-sqlite3",
+      "fix": {
+        "analysis": "go-sqlite3 requires SQLite headers. Alpine separates runtime and -dev packages.",
         "strategy": "Install SQLite development package",
         "actions": [
-          {
-            "type": "command",
-            "command": "apk add sqlite-dev build-base"
-          }
+          {"type": "command", "command": "apk add sqlite-dev build-base"}
         ],
         "updated_command": "CGO_ENABLED=1 go build -buildvcs=false -o {binary} ."
       },
-      "reasoning": "Alpine pattern: runtime is 'sqlite', headers are 'sqlite-dev'. CGO projects need both build-base and specific -dev packages."
+      "reasoning": "Alpine: runtime is 'sqlite', headers are 'sqlite-dev'. CGO needs both build-base and -dev packages."
     },
     {
       "id": "fixer-010",
       "name": "Go Version Mismatch",
       "tags": ["go", "version", "toolchain"],
-      "error_context": {
-        "category": "CONFIGURATION",
-        "error_message": "go: go.mod file indicates go 1.22, but maximum supported version is 1.21",
-        "failed_command": "go build ."
-      },
-      "solution": {
-        "analysis": "The go.mod specifies a newer Go version than available. This is usually a soft requirement - most code works on older versions.",
+      "build_system": "go",
+      "source": "manual",
+      "error_pattern": "go\\.mod.*indicates go \\d+\\.\\d+.*maximum supported",
+      "fix": {
+        "analysis": "The go.mod specifies a newer Go version than available.",
         "strategy": "Override version check with GOTOOLCHAIN=auto",
         "actions": [],
         "updated_command": "GOTOOLCHAIN=auto go build -buildvcs=false -o {binary} ."
@@ -293,22 +218,17 @@
       "id": "fixer-011",
       "name": "Missing CMake",
       "tags": ["cmake", "missing-tool", "c++"],
-      "error_context": {
-        "category": "DEPENDENCY",
-        "error_message": "cmake: command not found",
-        "failed_command": "cmake .."
-      },
-      "solution": {
-        "analysis": "CMake is not installed. C/C++ projects commonly use CMake for build configuration.",
+      "build_system": "cmake",
+      "source": "manual",
+      "error_pattern": "cmake:? command not found",
+      "fix": {
+        "analysis": "CMake is not installed.",
         "strategy": "Install cmake and build essentials",
         "actions": [
-          {
-            "type": "command",
-            "command": "apk add cmake build-base"
-          }
+          {"type": "command", "command": "apk add cmake build-base"}
         ]
       },
-      "reasoning": "Alpine cmake package is just 'cmake'. build-base provides gcc, g++, make for actual compilation."
+      "reasoning": "Alpine cmake package is 'cmake'. build-base provides gcc, g++, make."
     }
   ]
 }

@@ -296,6 +296,7 @@ class AgentState:
     # ========== Output Artifacts ==========
     patches_generated: List[str] = field(default_factory=list)
     porting_recipe: Optional[str] = None
+    build_artifacts: List[Dict[str, Any]] = field(default_factory=list)  # Track built binaries/libraries
 
     # ========== Debugging & Audit ==========
     audit_trail: List[Dict[str, Any]] = field(default_factory=list)
@@ -369,10 +370,6 @@ class AgentState:
         self.file_content_cache[filepath] = content
         self.update_timestamp()
 
-    def get_cached_file_content(self, filepath: str) -> Optional[str]:
-        """Retrieve cached file content if available."""
-        return self.file_content_cache.get(filepath)
-
     def _generate_cache_key(self, command: str) -> str:
         """Generate a cache key for a command."""
         import hashlib
@@ -394,18 +391,16 @@ class AgentState:
 
         return len(set(categories)) == 1  # All same category
 
-    def get_progress_summary(self) -> str:
-        """Get a human-readable progress summary."""
-        duration = self.get_execution_duration()
-        return (
-            f"Status: {self.build_status.value}\n"
-            f"Attempt: {self.attempt_count}/{self.max_attempts}\n"
-            f"API Calls: {self.api_calls_made}\n"
-            f"Scripted Ops: {self.scripted_ops_count}\n"
-            f"Cost: ${self.api_cost_usd:.4f}\n"
-            f"Duration: {duration:.1f}s\n"
-            f"Phase: {self.current_phase}"
-        )
+    def add_build_artifact(self, filepath: str, artifact_type: str, architecture: Optional[str] = None):
+        """Record a build artifact that was successfully created."""
+        artifact = {
+            "filepath": filepath,
+            "type": artifact_type,  # e.g., "library", "binary", "test", "header"
+            "architecture": architecture,  # e.g., "RISC-V", "x86_64"
+            "timestamp": datetime.now().isoformat(),
+        }
+        self.build_artifacts.append(artifact)
+        self.update_timestamp()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to a dictionary for serialization."""

@@ -86,7 +86,7 @@ def print_config():
 
 __all__ = [
     'is_running_in_docker', 'get_workspace_root', 'get_output_dir',
-    'get_repos_dir', 'get_cache_dir', 'get_logs_dir', 
+    'get_repos_dir', 'get_cache_dir', 'get_logs_dir',
     'WORKSPACE_ROOT', 'OUTPUT_DIR', 'REPOS_DIR', 'CACHE_DIR', 'LOGS_DIR',
-    'print_config', 'CONTAINER_NAME', 'IMAGE_NAME',
+    'print_config', 'CONTAINER_NAME', 'IMAGE_NAME', '_IN_DOCKER',
 ]
