@@ -36,9 +36,10 @@ Important current behavior:
 ## Scripted Ops Layer
 
 - [src/scripted_ops.py](./src/scripted_ops.py): Deterministic repo analysis, build-system/dependency detection, system probing.
-- [src/build_analyzer.py](./src/build_analyzer.py): Arch-specific build file analysis and RISC-V file generation helpers.
+- [src/artifact_scanner.py](./src/artifact_scanner.py): Build artifact detection, RISC-V architecture verification.
 - [src/tools.py](./src/tools.py): Safe command execution, Docker command wrapper, file I/O, patch application.
 - [src/config.py](./src/config.py): Environment detection and workspace path configuration.
+- [src/llm_logger.py](./src/llm_logger.py): LLM call audit logging and tracking.
 - [tests/test_scripted_ops.py](./tests/test_scripted_ops.py): Scripted operation tests.
 - [tests/test_tools.py](./tests/test_tools.py): Command safety validator tests.
 

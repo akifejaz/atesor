@@ -8,9 +8,10 @@ Creates agent-call.log in the workspace/logs directory.
 import json
 import logging
 import os
+from collections import deque
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional, List
+import threading
 import uuid
 
 # Configure logging for this module
@@ -24,11 +25,14 @@ class LLMCallLogger:
     """
 
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(LLMCallLogger, cls).__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(LLMCallLogger, cls).__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
@@ -36,8 +40,9 @@ class LLMCallLogger:
             return
 
         self._initialized = True
+        self._write_lock = threading.Lock()
         self.log_file = None
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: deque = deque(maxlen=1000)
         self._ensure_log_file()
 
     def _ensure_log_file(self):
@@ -104,31 +109,32 @@ class LLMCallLogger:
 
         # Write to file immediately
         if self.log_file:
-            try:
-                with open(self.log_file, 'a') as f:
-                    f.write("\n" + "=" * 80 + "\n")
-                    f.write(f"CALL: {call_id}\n")
-                    f.write(f"TIMESTAMP: {timestamp}\n")
-                    f.write(f"AGENT: {agent_role}\n")
-                    f.write(f"MODEL: {model}\n")
-                    f.write(f"COST: ${cost_usd:.6f}\n")
+            with self._write_lock:
+                try:
+                    with open(self.log_file, 'a') as f:
+                        f.write("\n" + "=" * 80 + "\n")
+                        f.write(f"CALL: {call_id}\n")
+                        f.write(f"TIMESTAMP: {timestamp}\n")
+                        f.write(f"AGENT: {agent_role}\n")
+                        f.write(f"MODEL: {model}\n")
+                        f.write(f"COST: ${cost_usd:.6f}\n")
 
-                    if metadata:
-                        f.write(f"METADATA: {json.dumps(metadata, indent=2)}\n")
+                        if metadata:
+                            f.write(f"METADATA: {json.dumps(metadata, indent=2)}\n")
 
-                    f.write("\n--- PROMPT ---\n")
-                    f.write(prompt[:10000])  # First 10k chars
-                    if len(prompt) > 10000:
-                        f.write(f"\n[... truncated {len(prompt) - 10000} characters ...]\n")
+                        f.write("\n--- PROMPT ---\n")
+                        f.write(prompt[:10000])  # First 10k chars
+                        if len(prompt) > 10000:
+                            f.write(f"\n[... truncated {len(prompt) - 10000} characters ...]\n")
 
-                    f.write("\n--- RESPONSE ---\n")
-                    f.write(response[:10000])  # First 10k chars
-                    if len(response) > 10000:
-                        f.write(f"\n[... truncated {len(response) - 10000} characters ...]\n")
+                        f.write("\n--- RESPONSE ---\n")
+                        f.write(response[:10000])  # First 10k chars
+                        if len(response) > 10000:
+                            f.write(f"\n[... truncated {len(response) - 10000} characters ...]\n")
 
-                    f.write("\n" + "=" * 80 + "\n\n")
-            except Exception as e:
-                logger.error(f"Failed to write LLM call log: {e}")
+                        f.write("\n" + "=" * 80 + "\n\n")
+                except Exception as e:
+                    logger.error(f"Failed to write LLM call log: {e}")
 
         return call_id
 

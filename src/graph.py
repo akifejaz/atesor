@@ -3,10 +3,12 @@ Core orchestration logic defining the multi-agent state machine and workflow nod
 Utilizes LangGraph to manage agent transitions and state.
 """
 
+import base64
 import json
 import logging
 import os
 import re
+import shlex
 from typing import List, Dict
 from pathlib import Path
 
@@ -1502,6 +1504,12 @@ def scout_node(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error(f"Scout failed: {e}")
         logger.info("Using fallback build plan due to LLM parsing error")
+        state.add_error(
+            create_error_record(
+                message=f"Scout LLM failed: {e}",
+                category=ErrorCategory.UNKNOWN,
+            )
+        )
         state.build_plan = create_fallback_build_plan(state)
 
     state.build_status = BuildStatus.PENDING
@@ -2334,13 +2342,15 @@ def fixer_node(state: AgentState) -> AgentState:
                 dir_path = os.path.dirname(full_file_path)
                 if dir_path:
                     mkdir_result = execute_command(
-                        f"mkdir -p {dir_path}", cwd=state.repo_path, use_docker=True
+                        f"mkdir -p {shlex.quote(dir_path)}", cwd=state.repo_path, use_docker=True
                     )
                     if not mkdir_result.success:
                         logger.warning(f"Failed to create directory: {dir_path}")
 
+                # Use base64 encoding to safely transfer LLM-generated content
+                encoded = base64.b64encode(file_content.encode()).decode()
                 write_result = execute_command(
-                    f"cat > {full_file_path} << 'ATESOR_EOF'\n{file_content}\nATESOR_EOF",
+                    f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(full_file_path)}",
                     cwd=state.repo_path,
                     use_docker=True,
                 )
