@@ -680,29 +680,6 @@ class ScriptedOperations:
         except Exception as e:
             return f"Error reading file: {e}"
 
-    def search_files(
-        self, repo_path: str, pattern: str, file_types: List[str] = None
-    ) -> List[str]:
-        """Search for files matching a pattern."""
-        target_path = self._to_container_path(repo_path)
-
-        if file_types:
-            type_args = " ".join([f"-name '*.{ext}'" for ext in file_types])
-            cmd = f"find {target_path} \\( {type_args} \\) -type f"
-        else:
-            cmd = f"find {target_path} -type f"
-
-        result = execute_command(cmd, use_docker=True)
-
-        if result.success:
-            files = result.stdout.strip().split("\n")
-            # Filter by pattern
-            if pattern:
-                files = [f for f in files if re.search(pattern, f, re.IGNORECASE)]
-            return files
-
-        return []
-
     # ========== Documentation Search ==========
 
     def find_documentation(self, repo_path: str) -> List[str]:
@@ -827,14 +804,6 @@ class ScriptedOperations:
                         )
 
         return result
-
-    def clear_cache(self):
-        """Clear all cached data."""
-        import shutil
-
-        if os.path.exists(self.cache_dir):
-            shutil.rmtree(self.cache_dir)
-        os.makedirs(self.cache_dir, exist_ok=True)
 
 
 # ============================================================================

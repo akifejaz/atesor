@@ -30,11 +30,6 @@ ALPINE_TOOL_MAP = {
     "git": "git",
 }
 
-def get_install_command(tool: str) -> str:
-    """Get the apk add command for a given tool/language."""
-    pkg = ALPINE_TOOL_MAP.get(tool.lower(), tool.lower())
-    return f"apk add --no-cache {pkg}"
-
 def get_system_knowledge_summary() -> str:
     """Get a summary of installation knowledge for the agent."""
     summary = "## RISC-V Tool Installation Knowledge (Feb 2026)\n"
@@ -43,22 +38,3 @@ def get_system_knowledge_summary() -> str:
     for tool, pkg in ALPINE_TOOL_MAP.items():
         summary += f"- {tool}: {pkg}\n"
     return summary
-
-# Architecture-Specific Code Patterns & Solutions
-ARCH_PATTERNS = {
-    "x86_simd": {
-        "patterns": [r"__SSE\d?__", r"__AVX\d?__", r"_mm_\w+"],
-        "solution": "Replace with RISC-V Vector (RVV) intrinsics or generic scalar fallback.",
-        "severity": "high"
-    },
-    "arm_simd": {
-        "patterns": [r"__ARM_NEON", r"vld\d", r"vst\d"],
-        "solution": "Replace with RVV intrinsics or generic scalar fallback.",
-        "severity": "high"
-    },
-    "inline_asm": {
-        "patterns": [r"__asm__", r"asm\s*\("],
-        "solution": "Rewrite assembly in C or provide RISC-V assembly variant.",
-        "severity": "critical"
-    }
-}

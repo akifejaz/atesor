@@ -1,0 +1,844 @@
+{
+  "version": "1.0",
+  "packages": {
+    "simplehttpserver": {
+      "repo_url": "https://github.com/projectdiscovery/simplehttpserver",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:22:57.075967",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 61.5,
+      "recipe_file": "output/simplehttpserver_recipe.md"
+    },
+    "sing-box": {
+      "repo_url": "https://github.com/SagerNet/sing-box",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-17T12:41:47.795453",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 440.2,
+      "recipe_file": "output/sing-box_recipe.md"
+    },
+    "sj": {
+      "repo_url": "https://github.com/BishopFox/sj",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:34:12.974481",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 62.3,
+      "recipe_file": "output/sj_recipe.md"
+    },
+    "zlib": {
+      "repo_url": "https://github.com/madler/zlib",
+      "build_system": "cmake",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:17:33.125697",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/miniunzipstatic"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/minizipstatic"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_test_build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_test_build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_test_build/test_example_static"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_wrong_components_test_build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_wrong_components_test_build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/CMakeFiles/CheckTypeSize/OFF64_T.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/minizip/miniunzipstatic"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/minizip/minizipstatic"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_test_build/test_example_static"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_no_components_test_build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/findpackage_no_components_test_build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_exclude_test_build/CMakeFiles/CheckTypeSize/OFF64_T.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_exclude_test_build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_exclude_test_build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/contrib/minizip/test/add_subdirectory_exclude_test_build/test_example_static"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/zlib/build/CMakeFiles/CheckTypeSize/OFF64_T.bin"
+        }
+      ],
+      "build_duration_seconds": 68.7,
+      "recipe_file": "output/zlib_recipe.md"
+    },
+    "shcopy": {
+      "repo_url": "https://github.com/aymanbagabas/shcopy",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:14:14.056068",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/shcopy"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shcopy/.git/hooks/sendemail-validate.sample"
+        }
+      ],
+      "build_duration_seconds": 53.4,
+      "recipe_file": "output/shcopy_recipe.md"
+    },
+    "shell2http": {
+      "repo_url": "https://github.com/msoap/shell2http",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:15:12.837866",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/shell2http"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shell2http/.git/hooks/sendemail-validate.sample"
+        }
+      ],
+      "build_duration_seconds": 55.8,
+      "recipe_file": "output/shell2http_recipe.md"
+    },
+    "shellz": {
+      "repo_url": "https://github.com/evilsocket/shellz",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:16:21.345996",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/.git/hooks/sendemail-validate.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/shellz"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shellz/release.stork"
+        }
+      ],
+      "build_duration_seconds": 65.5,
+      "recipe_file": "output/shellz_recipe.md"
+    },
+    "sh": {
+      "repo_url": "https://github.com/mvdan/sh",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:18:36.076049",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/shcopy/shfmt"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/shcopy/gosh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/shfmt"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/.git/hooks/sendemail-validate.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/gosh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/sh/cmd/shfmt/docker-entrypoint.sh"
+        }
+      ],
+      "build_duration_seconds": 59.9,
+      "recipe_file": "output/sh_recipe.md"
+    },
+    "shortscan": {
+      "repo_url": "https://github.com/bitquark/shortscan",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:19:38.564054",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/.git/hooks/sendemail-validate.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shortscan/shortscan"
+        }
+      ],
+      "build_duration_seconds": 59.4,
+      "recipe_file": "output/shortscan_recipe.md"
+    },
+    "shuffledns": {
+      "repo_url": "https://github.com/projectdiscovery/shuffledns",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:20:40.960090",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/shuffledns"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/shuffledns/.git/hooks/sendemail-validate.sample"
+        }
+      ],
+      "build_duration_seconds": 59.5,
+      "recipe_file": "output/shuffledns_recipe.md"
+    },
+    "siegfried": {
+      "repo_url": "https://github.com/richardlehane/siegfried",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-22T14:21:52.287032",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/roy"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/siegfried"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/sf"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-receive.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/applypatch-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-merge-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-rebase.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/push-to-checkout.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-commit.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-push.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/pre-applypatch.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/prepare-commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/commit-msg.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/post-update.sample"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/siegfried/.git/hooks/sendemail-validate.sample"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/siegfried/cmd/sf/testdata/skeleton-suite/fmt/fmt-1835-signature-id-2173.a"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/siegfried/cmd/sf/testdata/skeleton-suite/fmt/fmt-1559-signature-id-1903.son"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/siegfried/cmd/sf/testdata/skeleton-suite/fmt/fmt-1672-signature-id-2006.so"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/siegfried/cmd/sf/testdata/skeleton-suite/fmt/fmt-1250-signature-id-1626.sos"
+        }
+      ],
+      "build_duration_seconds": 68.3,
+      "recipe_file": "output/siegfried_recipe.md"
+    }
+  }
+}

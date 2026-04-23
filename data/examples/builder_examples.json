@@ -1,10 +1,6 @@
 {
-  "version": "1.0", 
+  "version": "2.0",
   "description": "Few-shot examples for Builder Agent - Build Execution Guidelines",
-  "metadata": {
-    "source": "Real execution data from RISC-V builds",
-    "updated": "2026-02-20"
-  },
   "general_guidelines": {
     "execution_rules": [
       "Execute phases sequentially - each phase depends on previous success",
@@ -19,7 +15,7 @@
     },
     "timeout_guidelines": {
       "simple_go": "60s (5 deps)",
-      "moderate_go": "180s (15 deps)", 
+      "moderate_go": "180s (15 deps)",
       "complex_go": "600s (50+ deps, CGO)",
       "c_cmake": "300s",
       "dependency_install": "60s"
@@ -35,129 +31,432 @@
     {
       "id": "builder-001",
       "name": "Simple Go Build - All Phases Succeed",
-      "tags": ["go", "simple", "success"],
-      "context": {
-        "repo_name": "shcopy",
-        "build_system": "go",
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk update", "apk add go"]},
-          {"id": 2, "name": "build", "commands": ["go mod tidy", "go build -buildvcs=false -v -o shcopy ."]}
-        ]
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "7s", "output": "OK: 1234 packages\n(1/1) Installing go"},
-        "phase_2": {"success": true, "duration": "26s", "output": "go: downloading 5 deps\ngithub.com/aymanbagabas/shcopy"}
-      },
-      "success_verification": ["Binary exists: shcopy", "File is ELF RISC-V executable", "Exit code: 0"],
-      "notes": "Simple project, fast build. Total time ~33 seconds."
+      "tags": [
+        "go",
+        "simple",
+        "success"
+      ],
+      "build_system": "go",
+      "source": "manual",
+      "repo_name": "shcopy",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o shcopy ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "60s",
+      "reasoning": "Simple project, fast build. Total time ~33 seconds."
     },
     {
       "id": "builder-002",
       "name": "Go Build with cmd/ Subdirectory",
-      "tags": ["go", "cmd", "subdirectory"],
-      "context": {
-        "repo_name": "shuffledns",
-        "build_system": "go",
-        "main_path": "cmd/shuffledns",
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk update", "apk add go"]},
-          {"id": 2, "name": "build", "commands": ["go mod tidy", "go build -buildvcs=false -v -o shuffledns ./cmd/shuffledns"]}
-        ]
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "10s"},
-        "phase_2": {"success": true, "duration": "33s", "output": "github.com/projectdiscovery/shuffledns"}
-      },
-      "success_verification": ["Binary exists: shuffledns", "Size: ~15MB", "File type: ELF 64-bit RISC-V"],
-      "notes": "Standard cmd/ structure. Build path is ./cmd/shuffledns not ."
+      "tags": [
+        "go",
+        "cmd",
+        "subdirectory"
+      ],
+      "build_system": "go",
+      "source": "manual",
+      "repo_name": "shuffledns",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o shuffledns ./cmd/shuffledns"
+          ]
+        }
+      ],
+      "timeout_recommendation": "180s",
+      "reasoning": "Standard cmd/ structure. Build path is ./cmd/shuffledns not ."
     },
     {
       "id": "builder-003",
       "name": "Complex Go Build - Many Dependencies",
-      "tags": ["go", "complex", "many-deps", "slow"],
-      "context": {
-        "repo_name": "sing-box",
-        "build_system": "go",
-        "main_path": "constant/goos",
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk update", "apk add go"]},
-          {"id": 2, "name": "build", "commands": ["go mod tidy", "go build -buildvcs=false -v -o sing-box ./constant/goos"]}
-        ],
-        "dependency_count": 50
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "10s"},
-        "phase_2": {
-          "success": true,
-          "duration": "158s total (157s for go mod tidy, 1s for build)",
-          "output": "go: downloading 50+ packages...\ngithub.com/sagernet/sing-box"
+      "tags": [
+        "go",
+        "complex",
+        "many-deps",
+        "slow"
+      ],
+      "build_system": "go",
+      "source": "manual",
+      "repo_name": "sing-box",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o sing-box ./constant/goos"
+          ]
         }
-      },
-      "notes": "Complex projects need longer timeouts. go mod tidy alone took 157 seconds.",
-      "timeout_recommendation": 600
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Complex projects need longer timeouts. go mod tidy alone took 157 seconds."
     },
     {
       "id": "builder-004",
       "name": "Go Module in v2 Subdirectory",
-      "tags": ["go", "v2", "module-subdirectory", "cd"],
-      "context": {
-        "repo_name": "gogo",
-        "build_system": "go",
-        "module_dir": "v2",
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk update", "apk add go"]},
-          {"id": 2, "name": "build", "commands": ["cd v2 && go mod tidy", "cd v2 && go build -buildvcs=false -v -o ../gogo ./cmd/gogo"]}
-        ]
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "8s"},
-        "phase_2": {
-          "success": true,
-          "duration": "15s",
-          "output": "go: downloading deps from v2/go.mod\nBinary output to parent directory"
+      "tags": [
+        "go",
+        "v2",
+        "module-subdirectory",
+        "cd"
+      ],
+      "build_system": "go",
+      "source": "manual",
+      "repo_name": "gogo",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd v2 && go mod tidy",
+            "cd v2 && go build -buildvcs=false -v -o ../gogo ./cmd/gogo"
+          ]
         }
-      },
-      "notes": "When module_dir='v2', ALL commands in phase must start with 'cd v2 &&'. Output binary to parent with '../binary'."
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "When module_dir='v2', ALL commands must start with 'cd v2 &&'. Output binary to parent."
     },
     {
       "id": "builder-005",
       "name": "CGO Build with SQLite",
-      "tags": ["go", "cgo", "sqlite", "gcc"],
-      "context": {
-        "repo_name": "project-with-sqlite",
-        "build_system": "go",
-        "has_cgo": true,
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk update", "apk add go build-base sqlite-dev"]},
-          {"id": 2, "name": "build", "commands": ["go mod tidy", "CGO_ENABLED=1 go build -buildvcs=false -v -o project ."]}
-        ]
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "15s", "output": "Installing gcc, g++, sqlite headers"},
-        "phase_2": {"success": true, "duration": "45s", "output": "Compiling C code for sqlite3\nLinking with CGO"}
-      },
-      "notes": "CGO builds need build-base (gcc/g++) and -dev packages. Set CGO_ENABLED=1 explicitly. Longer build time."
+      "tags": [
+        "go",
+        "cgo",
+        "sqlite",
+        "gcc"
+      ],
+      "build_system": "go",
+      "source": "manual",
+      "repo_name": "project-with-sqlite",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk update",
+            "apk add go build-base sqlite-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "CGO_ENABLED=1 go build -buildvcs=false -v -o project ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "300s",
+      "reasoning": "CGO builds need build-base and -dev packages. Set CGO_ENABLED=1 explicitly. Longer build time."
     },
     {
       "id": "builder-006",
       "name": "CMake Build - Configure and Make",
-      "tags": ["cmake", "c", "c++", "configure"],
-      "context": {
-        "repo_name": "native-project",
-        "build_system": "cmake",
-        "phases": [
-          {"id": 1, "name": "install", "commands": ["apk add cmake build-base"]},
-          {"id": 2, "name": "configure", "commands": ["mkdir -p build", "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"]},
-          {"id": 3, "name": "build", "commands": ["cd build && make -j$(nproc)"]}
-        ]
-      },
-      "execution": {
-        "phase_1": {"success": true, "duration": "15s"},
-        "phase_2": {"success": true, "duration": "5s", "output": "-- Configuring done\n-- Generating done\n-- Build files written"},
-        "phase_3": {"success": true, "duration": "60s", "output": "[ 25%] Building...\n[ 50%] Building...\n[100%] Built target project"}
-      },
-      "success_verification": ["Build files in build/", "'Built target' in output", "Binary in build/"],
-      "notes": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
+      "tags": [
+        "cmake",
+        "c",
+        "c++",
+        "configure"
+      ],
+      "build_system": "cmake",
+      "source": "manual",
+      "repo_name": "native-project",
+      "phases": [
+        {
+          "name": "install",
+          "commands": [
+            "apk add cmake build-base"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "300s",
+      "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
+    },
+    {
+      "name": "Auto: simplehttpserver build execution",
+      "tags": [
+        "go",
+        "simplehttpserver"
+      ],
+      "build_system": "go",
+      "repo_name": "simplehttpserver",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from simplehttpserver.",
+      "id": "builder-auto-001",
+      "source": "auto",
+      "timestamp": "2026-04-17"
+    },
+    {
+      "name": "Auto: zlib build execution",
+      "tags": [
+        "cmake",
+        "zlib"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zlib.",
+      "id": "builder-auto-002",
+      "source": "auto",
+      "timestamp": "2026-04-20"
+    },
+    {
+      "name": "Auto: zlib build execution",
+      "tags": [
+        "go",
+        "zlib"
+      ],
+      "build_system": "go",
+      "repo_name": "zlib",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add build-base cmake go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && cmake .. && make"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from zlib.",
+      "id": "builder-auto-003",
+      "source": "auto",
+      "timestamp": "2026-04-20"
+    },
+    {
+      "name": "Auto: shell2http build execution",
+      "tags": [
+        "go",
+        "shell2http"
+      ],
+      "build_system": "go",
+      "repo_name": "shell2http",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o shell2http ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from shell2http.",
+      "id": "builder-auto-004",
+      "source": "auto",
+      "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: shellz build execution",
+      "tags": [
+        "go",
+        "shellz"
+      ],
+      "build_system": "go",
+      "repo_name": "shellz",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -o shellz ./cmd/shellz"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from shellz.",
+      "id": "builder-auto-005",
+      "source": "auto",
+      "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: sh build execution",
+      "tags": [
+        "go",
+        "sh"
+      ],
+      "build_system": "go",
+      "repo_name": "sh",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o shfmt ./cmd/shfmt",
+            "go build -buildvcs=false -v -o gosh ./cmd/gosh"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from sh.",
+      "id": "builder-auto-006",
+      "source": "auto",
+      "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: shortscan build execution",
+      "tags": [
+        "go",
+        "shortscan"
+      ],
+      "build_system": "go",
+      "repo_name": "shortscan",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o shortscan ./cmd/shortscan"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from shortscan.",
+      "id": "builder-auto-007",
+      "source": "auto",
+      "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: siegfried build execution",
+      "tags": [
+        "go",
+        "siegfried"
+      ],
+      "build_system": "go",
+      "repo_name": "siegfried",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -v -o siegfried ./cmd/roy"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from siegfried.",
+      "id": "builder-auto-008",
+      "source": "auto",
+      "timestamp": "2026-04-22"
     }
   ]
 }
