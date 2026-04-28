@@ -169,7 +169,6 @@ def setup_docker_environment() -> bool:
                     },
                     mem_limit="8g",
                     cpu_quota=-1,
-                    privileged=True,
                 )
                 print(colored(f"Container created and started", "green"))
                 time.sleep(5)
@@ -186,8 +185,8 @@ def setup_docker_environment() -> bool:
                 try:
                     container.stop()
                     container.remove()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Cleanup failed: {e}")
                 continue
 
             break
@@ -248,8 +247,8 @@ def setup_docker_environment() -> bool:
         try:
             container.stop()
             container.remove()
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Cleanup failed: {e}")
 
         # Retry setup
         container = None
@@ -279,7 +278,6 @@ def setup_docker_environment() -> bool:
                     },
                     mem_limit="8g",
                     cpu_quota=-1,
-                    privileged=True,
                 )
                 print(colored(f"Container created and started", "green"))
                 time.sleep(5)
@@ -301,8 +299,8 @@ def setup_docker_environment() -> bool:
                     try:
                         container.stop()
                         container.remove()
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Cleanup failed: {e}")
 
         return False
 
@@ -841,7 +839,7 @@ def cleanup_container(remove_image: bool = False):
 def main():
     """Main entry point with CLI argument parsing."""
     parser = argparse.ArgumentParser(
-        description="RISC-V Porting Foundry - Automated software porting agent",
+        description="ATESOR AI - Automated software porting agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

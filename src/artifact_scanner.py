@@ -5,6 +5,8 @@ Scans build directories for artifacts and verifies RISC-V architecture.
 
 import logging
 import os
+import shlex
+import tempfile
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -15,14 +17,6 @@ logger = logging.getLogger(__name__)
 
 class ArtifactScanner:
     """Scans for and verifies build artifacts."""
-
-    ARTIFACT_PATTERNS = {
-        "library_static": ["*.a", "*.lib"],
-        "library_shared": ["*.so*", "*.dll", "*.dylib"],
-        "binary": ["*", "!*.a", "!*.o", "!*.c", "!*.h"],
-        "test": ["*test*", "*_test"],
-        "header": ["*.h", "*.hpp"],
-    }
 
     def __init__(self, build_dir: str, cwd: Optional[str] = None):
         """
@@ -46,7 +40,7 @@ class ArtifactScanner:
         self.artifacts = []
 
         # Find executable binaries
-        find_cmd = f"find {self.build_dir} -type f -executable 2>/dev/null | grep -v '.so' | head -20"
+        find_cmd = f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -type f -executable -print 2>/dev/null | grep -v '.so' | head -20"
         binaries_result = execute_command(find_cmd, cwd=self.cwd)
         if binaries_result.success and binaries_result.stdout.strip():
             for binary_path in binaries_result.stdout.strip().split("\n"):
@@ -54,7 +48,7 @@ class ArtifactScanner:
 
         # Find static libraries
         libs_result = execute_command(
-            f"find {self.build_dir} -name '*.a' 2>/dev/null | head -20", cwd=self.cwd
+            f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -name '*.a' -print 2>/dev/null | head -20", cwd=self.cwd
         )
         if libs_result.success and libs_result.stdout.strip():
             for lib_path in libs_result.stdout.strip().split("\n"):
@@ -62,7 +56,7 @@ class ArtifactScanner:
 
         # Find shared libraries
         shared_result = execute_command(
-            f"find {self.build_dir} -name '*.so*' 2>/dev/null | head -20", cwd=self.cwd
+            f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -name '*.so*' -print 2>/dev/null | head -20", cwd=self.cwd
         )
         if shared_result.success and shared_result.stdout.strip():
             for lib_path in shared_result.stdout.strip().split("\n"):
@@ -79,7 +73,7 @@ class ArtifactScanner:
             filepath: Path to the artifact
             artifact_type: Type of artifact (binary, library_static, etc.)
         """
-        file_result = execute_command(f"file '{filepath}'", cwd=self.cwd)
+        file_result = execute_command(f"file {shlex.quote(filepath)}", cwd=self.cwd)
         if not file_result.success:
             logger.warning(f"Could not get file info for {filepath}")
             return
@@ -141,13 +135,19 @@ class ArtifactScanner:
         Returns:
             Architecture string or None
         """
+        tmp_dir = None
         try:
-            extract_cmd = f"cd /tmp && ar x '{archive_path}' 2>/dev/null && file *.o | head -1"
-            result = execute_command(extract_cmd, cwd="/tmp")
+            tmp_dir = tempfile.mkdtemp(prefix="atesor_ar_")
+            extract_cmd = f"cd {shlex.quote(tmp_dir)} && ar x {shlex.quote(archive_path)} 2>/dev/null && file *.o | head -1"
+            result = execute_command(extract_cmd, cwd=tmp_dir)
             if result.success and result.stdout:
                 return self._detect_architecture(result.stdout)
         except Exception as e:
             logger.debug(f"Failed to check archive architecture: {e}")
+        finally:
+            if tmp_dir:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
         return None
 
@@ -155,7 +155,7 @@ class ArtifactScanner:
         """Get file size in bytes."""
         try:
             size_result = execute_command(
-                f"stat -c %s '{filepath}' 2>/dev/null || stat -f %z '{filepath}'",
+                f"stat -c %s {shlex.quote(filepath)} 2>/dev/null || stat -f %z {shlex.quote(filepath)}",
                 cwd=self.cwd,
             )
             if size_result.success:

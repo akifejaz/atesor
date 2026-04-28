@@ -96,7 +96,7 @@ cd atesor-ai
 pip install -r requirements.txt
 
 # Set up environment variables
-cp .env.example .env
+cp .env-example .env
 # Edit .env and add your API keys
 ```
 
@@ -108,7 +108,18 @@ python3 main.py --setup-only
 
 # 2. Start Porting a Package
 python3 main.py --repo https://github.com/madler/zlib --verbose
+
+# 3. Force a clean rebuild with custom attempt limit
+python3 main.py --repo https://github.com/madler/zlib --force --max-attempts 8
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo URL` | *required* | GitHub repository URL to port |
+| `--verbose` | `false` | Enable DEBUG logging to console |
+| `--setup-only` | `false` | Initialize sandbox without porting |
+| `--max-attempts` | `5` | Maximum fix attempts before escalation |
+| `--force` | `false` | Force fresh clone and rebuild |
 
 ---
 
@@ -146,10 +157,42 @@ See `data/examples/README.md` for detailed instructions on formatting examples.
 
 ### Benefits
 
-- **10-15 examples per agent** provide significant accuracy improvement
+- **Up to 100 examples per agent** with automatic pruning of oldest entries
 - **No vector DB required** - lightweight keyword matching
 - **~2000 chars per prompt** - minimal token overhead
 - **Easy to extend** - JSON format, no code changes needed
+- **Auto-learning** - successful porting runs save novel patterns back to examples automatically
+
+---
+
+## Artifact Scanning & Verification
+
+After each build, the `ArtifactScanner` (`src/artifact_scanner.py`) automatically:
+- Discovers executables, static libraries (`.a`), and shared libraries (`.so`) in the build directory
+- Runs `file` on each artifact to verify it is a genuine **RISC-V ELF** binary
+- For static archives, extracts object files and checks their architecture
+- Reports a pass/fail summary used by the supervisor to decide next steps
+
+---
+
+## LLM Call Audit Logging
+
+Every LLM invocation is logged to `workspace/logs/agent-call.log` via the `LLMCallLogger` singleton (`src/llm_logger.py`). Each entry includes:
+- Call ID, timestamp, agent role, model name
+- Cost estimate and prompt/response lengths
+- First 10k characters of prompt and response
+
+This provides a full audit trail for debugging and cost analysis.
+
+---
+
+## Error Classification & Severity
+
+The system categorizes build errors into structured types (`ErrorCategory` in `src/state.py`):
+
+`DEPENDENCY` · `COMPILATION` · `LINKING` · `ARCHITECTURE` · `NETWORK` · `CONFIGURATION` · `MISSING_TOOLS` · `PERMISSION` · `ARCHITECTURE_IMPOSSIBLE` · and more
+
+Each error is assigned a `FailureSeverity` (LOW / MEDIUM / HIGH). The supervisor uses error history and loop detection (3+ same-category errors) to decide whether to retry, fix, or escalate.
 
 ---
 
@@ -160,6 +203,12 @@ Run the automated unit tests to ensure system integrity:
 ```bash
 # Run all tests
 PYTHONPATH=. pytest
+
+# Run a single test file
+PYTHONPATH=. pytest tests/test_graph_routing.py
+
+# Run a single test case
+PYTHONPATH=. pytest tests/test_state.py::TestState::test_add_error
 ```
 
 ---
@@ -172,17 +221,43 @@ The system is environment-aware and supports multiple LLM providers:
 - **Models**: `src/models.py` manages model selection and cost tracking.
 - **Security**: Commands are validated against a whitelist in `src/tools.py` before execution.
 
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|  
+| `LLM_PROVIDER` | `gemini` (default), `openai`, or `openrouter` |
+| `GOOGLE_API_KEY` | Required for Gemini |
+| `OPENAI_API_KEY` | Required for OpenAI |
+| `OPENROUTER_API_KEY` | Required for OpenRouter |
+| `LANGCHAIN_API_KEY` | Optional — LangSmith tracing |
+| `LANGCHAIN_TRACING_V2` | Set to `true` to activate tracing |
+
+### Output Locations
+
+| Path | Content |
+|------|---------|  
+| `workspace/output/{repo}_report_*.md` | Markdown porting guide |
+| `workspace/output/{repo}_state_*.json` | Full state snapshot |
+| `workspace/logs/agent.log` | DEBUG-level agent log |
+| `workspace/logs/agent-call.log` | LLM call audit trail |
+
 ---
 
 ## Project Structure
 
 - `main.py`: Entry point for CLI and Docker management.
-- `src/graph.py`: The core LangGraph state machine.
+- `src/graph.py`: The core LangGraph state machine (all agent nodes + routing).
 - `src/scripted_ops.py`: Zero-cost analysis and repo management.
-- `src/state.py`: Global process tracking and data structures.
+- `src/state.py`: Global process tracking, error classification, and data structures.
 - `src/tools.py`: Safe command execution and file utilities.
-- `src/memory.py`: Few-shot learning system for agent improvement.
-- `data/examples/`: Curated examples for each agent type.
+- `src/memory.py`: Few-shot learning system with auto-learning.
+- `src/config.py`: Environment-aware workspace path resolution.
+- `src/models.py`: LLM provider factory and per-role model configuration.
+- `src/knowledge.py`: Static RISC-V / Alpine knowledge base.
+- `src/artifact_scanner.py`: Post-build artifact detection and RISC-V verification.
+- `src/llm_logger.py`: LLM call audit trail logging.
+- `data/examples/`: Curated few-shot examples per agent type.
+- `data/recipe_cache.json`: Cache of successfully ported package recipes.
 - `tests/`: Automated unit tests for engine logic.
 
 ---

@@ -92,16 +92,17 @@ def create_llm(role: AgentRole) -> BaseChatModel:
     temperature = config["temperature"]
     
     if provider == ModelProvider.OPENAI.value:
-        return ChatOpenAI(model=model_name, temperature=temperature)
+        return ChatOpenAI(model=model_name, temperature=temperature, request_timeout=120)
     elif provider == ModelProvider.GEMINI.value:
-        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, timeout=120)
     elif provider == ModelProvider.OPENROUTER.value:
         # OpenRouter uses ChatOpenAI with a base_url
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,
             openai_api_key=os.getenv("OPENROUTER_API_KEY"),
-            openai_api_base="https://openrouter.ai/api/v1"
+            openai_api_base="https://openrouter.ai/api/v1",
+            request_timeout=120,
         )
     
     raise ValueError(f"Unsupported provider: {provider}")

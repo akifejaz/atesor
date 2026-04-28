@@ -3,10 +3,12 @@ Core orchestration logic defining the multi-agent state machine and workflow nod
 Utilizes LangGraph to manage agent transitions and state.
 """
 
+import base64
 import json
 import logging
 import os
 import re
+import shlex
 from typing import List, Dict
 from pathlib import Path
 
@@ -92,29 +94,49 @@ def _build_command_error_message(result, fallback: str) -> str:
 
 
 def agent_node(role: AgentRole):
-    """Decorator to wrap agent nodes with error handling and state tracking."""
+    """Decorator to wrap agent nodes with error handling, state tracking, and rate-limit retry."""
 
     def decorator(func):
         def wrapper(state: AgentState) -> AgentState:
+            import time
             state.current_agent = role
             logger.info(f"Node Started: {role.value}")
-            try:
-                result = func(state)
-                logger.info(f"Node Completed: {role.value}")
-                return result
-            except Exception as e:
-                logger.exception(f"Exception in {role.value} node: {e}")
-                error_msg = f"Unexpected error in {role.value} agent: {str(e)}"
-                error = create_error_record(
-                    message=error_msg,
-                    category=classify_error(str(e)),
-                    attempt_number=state.attempt_count,
-                )
-                state.add_error(error)
-                state.last_error = error_msg
-                state.build_status = BuildStatus.ESCALATED
-                state.current_phase = "escalate"
-                return state
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    result = func(state)
+                    logger.info(f"Node Completed: {role.value}")
+                    return result
+                except Exception as e:
+                    error_str = str(e).lower()
+                    is_rate_limit = any(
+                        term in error_str
+                        for term in ["rate limit", "429", "too many requests", "quota exceeded", "resource_exhausted"]
+                    )
+                    if is_rate_limit and attempt < max_retries - 1:
+                        wait_time = 30 * (attempt + 1)
+                        logger.warning(
+                            f"Rate limit hit in {role.value} (attempt {attempt + 1}/{max_retries}), "
+                            f"waiting {wait_time}s before retry..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+
+                    logger.exception(f"Exception in {role.value} node: {e}")
+                    error_msg = f"Unexpected error in {role.value} agent: {str(e)}"
+                    error = create_error_record(
+                        message=error_msg,
+                        category=classify_error(str(e)),
+                        attempt_number=state.attempt_count,
+                    )
+                    state.add_error(error)
+                    state.last_error = error_msg
+                    state.build_status = BuildStatus.ESCALATED
+                    state.current_phase = "escalate"
+                    return state
+
+            return state
 
         return wrapper
 
@@ -143,7 +165,7 @@ def init_node(state: AgentState) -> AgentState:
         )
         error = create_error_record(
             message=message,
-            category=ErrorCategory.NETWORK,
+            category=classify_error(message),
             severity=FailureSeverity.HIGH,
             command=result.command,
         )
@@ -231,245 +253,86 @@ def init_node(state: AgentState) -> AgentState:
 # NODE: PLANNER (Strategic Planning)
 # ============================================================================
  
-PLANNER_PROMPT = """<role>
-You are a Strategic Planner specializing in cross-architecture software porting. Your mission is to analyze codebases and create executable build plans that enable software to compile and run on target architectures.
-</role>
- 
-<capabilities>
-- Pattern recognition: Identify how existing architectures are handled in build systems
-- Build system analysis: Understand CMake, Makefiles, Meson, Cargo, Go modules, and other build tools
-- Architecture mapping: Apply successful patterns from one architecture to another
-- Dependency resolution: Identify required tools, libraries, and system dependencies
-- Risk assessment: Predict potential build failures and compatibility issues
-</capabilities>
- 
-<core_principle>
-PATTERN-BASED PORTING: Study how the codebase handles EXISTING architectures, then replicate that pattern for the TARGET architecture. When no patterns exist, design a generic cross-platform build approach.
-</core_principle>
- 
-<repository_context>
-<project>
-Name: {repo_name}
-URL: {repo_url}
-Path: {repo_path}
-</project>
- 
-<build_system>
-{build_system_info}
-</build_system>
- 
-<dependencies>
-{dependencies_info}
-</dependencies>
- 
-<architecture_analysis>
-Target Architecture: {target_arch}
- 
-Architecture-Specific Patterns Found:
+PLANNER_PROMPT = """You are a strategic planner for RISC-V software porting. Analyze the repository and produce a phased execution plan.
+
+## Context
+
+**Repository:** {repo_name} ({repo_url})
+**Path:** {repo_path}
+**Build System:** {build_system_info}
+**Dependencies:** {dependencies_info}
+**Target:** {target_arch}
+
+### Architecture Analysis
 {arch_patterns}
- 
-Existing Architecture Support:
-{existing_archs}
-</architecture_analysis>
- 
-<codebase_structure>
+
+Existing architecture support: {existing_archs}
+
+### Codebase Structure
 {repo_tree}
-</codebase_structure>
-</repository_context>
- 
-<knowledge_base>
+
+### RISC-V Porting Knowledge
 {system_knowledge}
-</knowledge_base>
- 
-<task>
-Create a comprehensive build plan with the following structure:
- 
-<build_plan>
-<strategy>
-[Explain your porting approach: Will you follow existing architecture patterns or use a generic approach? Why?]
-</strategy>
- 
-<phases>
-<phase name="preparation">
-<purpose>[What this phase achieves]</purpose>
-<commands>
-[List exact shell commands]
-</commands>
-<expected_outcome>[What success looks like]</expected_outcome>
-</phase>
- 
-<phase name="configuration">
-<purpose>[Configuration goals]</purpose>
-<commands>
-[Configuration commands with all necessary flags]
-</commands>
-<expected_outcome>[Configuration success criteria]</expected_outcome>
-</phase>
- 
-<phase name="compilation">
-<purpose>[Build objectives]</purpose>
-<commands>
-[Compilation commands]
-</commands>
-<expected_outcome>[What artifacts should be produced]</expected_outcome>
-</phase>
- 
-<phase name="verification">
-<purpose>[Testing and validation]</purpose>
-<commands>
-[Test commands]
-</commands>
-<expected_outcome>[Verification success criteria]</expected_outcome>
-</phase>
-</phases>
- 
-<risk_analysis>
-<high_risk_areas>
-[List components likely to fail with justification]
-</high_risk_areas>
-<mitigation_strategies>
-[Preventive measures for each risk]
-</mitigation_strategies>
-</risk_analysis>
- 
-<architecture_specific_notes>
-[Any special considerations for {target_arch}]
-</architecture_specific_notes>
-</build_plan>
-</task>
- 
-<guidelines>
-1. Commands must be executable as-is (no placeholders like <value>)
-2. Include all necessary flags and environment variables
-3. Specify absolute paths when critical
-4. For multi-architecture projects, follow existing naming conventions exactly
-5. Prioritize non-invasive changes (configuration over code modification)
-6. Ensure reproducibility (same commands should work across environments)
-7. Include fallback strategies for anticipated failures
-</guidelines>
- 
-<output_format>
-Return ONLY a valid JSON object with this EXACT structure:
+
+## Planning Principles
+
+1. **Pattern-based porting:** Study how the codebase handles existing architectures (x86, ARM), then replicate that pattern for RISC-V. If no patterns exist, use a generic build approach.
+2. **Native compilation:** We build natively inside an Alpine Linux riscv64 Docker container — never use cross-compilation flags.
+3. **Alpine/musl awareness:** Alpine uses musl libc, not glibc. Watch for glibc-only APIs (`execinfo.h`, `backtrace`, `mallinfo`, `REG_RIP`).
+4. **ISA extension safety:** Do not assume specific RISC-V extensions (V, Zba, Zbb). Use detection macros (`__riscv`, `__riscv_xlen`, `__riscv_atomic`, `__riscv_vector`).
+5. **Minimal intervention:** Prefer configuration changes over code modification, conditional compilation over replacing code.
+
+## Risk Factors to Evaluate
+- x86/ARM SIMD intrinsics (SSE, AVX, NEON) — need SIMDe or scalar fallback
+- Inline assembly — must be guarded or replaced
+- Stale `config.guess`/`config.sub` that predate RISC-V support
+- glibc-only APIs on musl
+- Missing `-latomic` for atomic operations
+- Hardcoded cache line sizes or page sizes
+
+## Output
+
+Return ONLY a valid JSON object:
 {{
-  "strategy": "your approach description",
+  "strategy": "brief description of your porting approach",
   "complexity_score": 1-10,
-  "estimated_total_time": "expected duration",
+  "estimated_total_time": "duration estimate",
   "estimated_total_cost": 0.01,
-  "can_parallelize": [[phase_ids_that_can_run_together]],
+  "can_parallelize": [],
   "phases": [
     {{
       "id": 1,
       "name": "phase_name",
-      "description": "what this phase does",
+      "description": "what this phase does and why",
       "agent": "scout|builder|fixer",
-      "use_scripted_ops": true|false,
-      "depends_on": [list of prior phase ids],
-      "estimated_cost": 0.01
-    }}
-  ]
-}}
-
-Agent assignment rules:
-- "scout": For information gathering, dependency detection, environment checking
-- "builder": For configuration, compilation, build setup
-- "fixer": For fixing errors, applying patches, troubleshooting failures
-
-Example phases:
-- Phase 1 (scout): Analyze build system, detect dependencies, find architecture-specific code
-- Phase 2 (builder): Configure build environment, apply patterns from reference architectures
-- Phase 3 (builder): Compile with RISC-V target
-- Phase 4 (fixer): If compilation fails, fix issues and retry
-</output_format>
- 
-<examples>
-<example type="cmake_multiarch">
-{{
-  "strategy": "Follow existing ARM64 pattern: create arch/riscv64 directory and mirror CMake structure",
-  "complexity_score": 6,
-  "estimated_total_time": "15 minutes",
-  "estimated_total_cost": 0.05,
-  "can_parallelize": [],
-  "phases": [
-    {{
-      "id": 1,
-      "name": "scout_architecture",
-      "description": "Analyze CMake structure and detect existing arch patterns",
-      "agent": "scout",
       "use_scripted_ops": true,
       "depends_on": [],
       "estimated_cost": 0.01
-    }},
-    {{
-      "id": 2,
-      "name": "setup_riscv64",
-      "description": "Create RISC-V-specific directory structure mirroring ARM64 pattern",
-      "agent": "builder",
-      "use_scripted_ops": false,
-      "depends_on": [1],
-      "estimated_cost": 0.01
-    }},
-    {{
-      "id": 3,
-      "name": "configure_build",
-      "description": "Run CMake with RISC-V toolchain",
-      "agent": "builder",
-      "use_scripted_ops": false,
-      "depends_on": [2],
-      "estimated_cost": 0.02
-    }},
-    {{
-      "id": 4,
-      "name": "compile",
-      "description": "Compile for RISC-V target",
-      "agent": "builder",
-      "use_scripted_ops": false,
-      "depends_on": [3],
-      "estimated_cost": 0.01
     }}
   ]
 }}
-</example>
 
-<example type="generic_makefile">
+Agent assignment:
+- **scout**: Information gathering, dependency detection, build plan creation
+- **builder**: Build configuration, compilation, artifact generation
+- **fixer**: Error diagnosis, patching, rebuilding after failures
+
+## Example
+
+For a CMake project with existing ARM64 support:
 {{
-  "strategy": "Generic Makefile with ARCH= override - no existing patterns detected",
-  "complexity_score": 4,
+  "strategy": "Mirror existing ARM64 CMake pattern for RISC-V; install build-base and cmake via apk",
+  "complexity_score": 5,
   "estimated_total_time": "10 minutes",
   "estimated_total_cost": 0.03,
   "can_parallelize": [],
   "phases": [
-    {{
-      "id": 1,
-      "name": "verify_toolchain",
-      "description": "Check if RISC-V toolchain is available",
-      "agent": "scout",
-      "use_scripted_ops": true,
-      "depends_on": [],
-      "estimated_cost": 0.01
-    }},
-    {{
-      "id": 2,
-      "name": "compile_riscv",
-      "description": "Build with RISC-V toolchain using Makefile",
-      "agent": "builder",
-      "use_scripted_ops": false,
-      "depends_on": [1],
-      "estimated_cost": 0.02
-    }}
+    {{"id": 1, "name": "analyze_and_plan", "description": "Detect build system, dependencies, and arch-specific code", "agent": "scout", "use_scripted_ops": true, "depends_on": [], "estimated_cost": 0.01}},
+    {{"id": 2, "name": "build", "description": "Configure and compile for RISC-V", "agent": "builder", "use_scripted_ops": false, "depends_on": [1], "estimated_cost": 0.02}}
   ]
 }}
-</example>
-</examples>
- 
-Think step-by-step:
-1. What build system is used?
-2. How do existing architectures fit into the build process?
-3. Can I replicate that pattern for {target_arch}?
-4. What dependencies and tools are required?
-5. What's the minimal viable build command sequence?
-6. What could go wrong and how do I prevent it?
- 
-Generate the build plan now."""
+
+Generate the plan now."""
 
 
 @agent_node(AgentRole.PLANNER)
@@ -636,38 +499,35 @@ def planner_node(state: AgentState) -> AgentState:
 # NODE: SUMMARIZER (New - Professional Documentation)
 # ============================================================================
 
-SUMMARIZER_PROMPT = """You are the **RISC-V Documentation Agent**. Your task is to create a professional **RISC-V Porting Guide** for the project: {repo_name}.
+SUMMARIZER_PROMPT = """You are a technical writer producing a RISC-V porting guide for **{repo_name}**.
 
-# Repository
-URL: {repo_url}
-Build System: {build_system}
+## Build Context
+- **Repository:** {repo_url}
+- **Build System:** {build_system}
+- **Duration:** {duration}
+- **API Calls:** {api_calls} (est. cost: ${cost:.4f})
 
-# Execution Metrics
-- Duration: {duration}
-- API Calls: {api_calls}
-- Estimated Cost: ${cost:.4f}
-
-# Porting Context
-## Architecture Issues Found:
+## Architecture Issues Found
 {arch_issues}
 
-## Fixes Applied:
+## Fixes Applied
 {fixes}
 
-# Your Task
-Write a comprehensive Markdown report with the following sections:
-1. **Executive Summary**: High-level status and value.
-2. **Environment Setup**: Necessary tools and dependencies.
-3. **Build Instructions**: Step-by-step commands to build on RISC-V.
-4. **Architecture Notes**: Detailed analysis of what was architecture-specific and how it was resolved.
-5. **Validation**: How to verify the build.
-6. **Future Recommendations**: What could be improved for better RISC-V support.
-
-Use code blocks and clear headings. Be technical and precise.
-
-# RISC-V Specific Instructions:
+## Build Steps
 {build_steps}
-"""
+
+## Task
+
+Write a professional Markdown porting report with these sections:
+
+1. **Executive Summary** — Build status, key findings, overall portability assessment.
+2. **Prerequisites** — Required Alpine packages, tools, and environment setup.
+3. **Build Instructions** — Exact step-by-step commands to reproduce the build on riscv64.
+4. **Architecture Notes** — What was architecture-specific, what was changed, and why. Include RISC-V preprocessor macros used (`__riscv`, `__riscv_xlen`, etc.) if applicable.
+5. **Verification** — How to confirm the build produced valid RISC-V ELF binaries (e.g., `file <binary>`, `readelf -h`).
+6. **Known Issues & Recommendations** — Remaining portability concerns and upstream contribution opportunities.
+
+Be precise and technical. Use fenced code blocks for all commands. Do not include generic advice — only information specific to this project's RISC-V port."""
 
 
 def create_default_plan() -> TaskPlan:
@@ -688,215 +548,70 @@ def create_default_plan() -> TaskPlan:
 # NODE: SUPERVISOR (Orchestration)
 # ============================================================================
  
-SUPERVISOR_PROMPT = """<role>
-You are the Workflow Supervisor orchestrating a multi-agent software porting system. Your responsibility is to analyze the current state, select the optimal next action, and maintain efficient progress toward successful target architecture builds.
-</role>
- 
-<capabilities>
-- State analysis: Evaluate build progress, error patterns, and agent performance
-- Decision making: Choose between SCOUT (investigate), BUILD (execute), FIX (repair), or FINISH (complete)
-- Resource optimization: Minimize unnecessary LLM calls and redundant operations
-- Risk management: Escalate critical failures that exceed agent capabilities
-</capabilities>
- 
-<workflow_state>
-<current_status>
-Phase: {current_phase}
-Build Status: {build_status}
-Attempt: {attempt_count}
-Previous Agent: {current_agent}
-</current_status>
- 
-<build_plan>
+SUPERVISOR_PROMPT = """You are the workflow supervisor for a RISC-V porting system. Analyze the current state and decide the next action.
+
+## Current State
+- **Phase:** {current_phase}
+- **Build Status:** {build_status}
+- **Attempt:** {attempt_count} / {max_attempts}
+- **Previous Agent:** {current_agent}
+
+### Build Plan
 {build_plan_summary}
-</build_plan>
- 
-<execution_history>
-Scripted Operations: {scripted_ops_count}
-API Calls: {api_calls}
-Cost: ${cost:.4f}
- 
-Agent Actions:
+
+### Execution History
+Scripted ops: {scripted_ops_count} | API calls: {api_calls} | Cost: ${cost:.4f}
+
 {agent_history}
-</execution_history>
- 
-<architecture_issues>
+
+### Architecture Issues
 {arch_issues_summary}
-</architecture_issues>
- 
-<errors>
+
+### Errors
 {error_summary}
-</errors>
- 
-<context>
+
+### Additional Context
 {additional_context}
-</context>
-</workflow_state>
- 
-<available_agents>
-<scout>
-Role: Investigate architecture-specific code and potential porting issues
-When to use: Before first build, after plan changes, when new patterns emerge
-Cost: Medium (requires code analysis)
-</scout>
- 
-<builder>
-Role: Execute build plan phases and capture output
-When to use: Plan exists, no blocking issues identified, ready to attempt build
-Cost: Low (mostly command execution with light LLM interpretation)
-</builder>
- 
-<fixer>
-Role: Diagnose and repair build failures
-When to use: Build failed with actionable errors
-Cost: High (requires error analysis, patch generation, verification)
-</fixer>
- 
-<finish>
-Role: Generate porting documentation and finalize workflow
-When to use: Build succeeded OR maximum attempts exhausted
-Cost: Low (summary generation only)
-</finish>
-</available_agents>
- 
-<decision_framework>
-<conditions>
-<!-- Scout Triggers -->
-<trigger agent="SCOUT">
-- No architecture scan performed yet (state.arch_specific_code is empty)
-- Build plan changed significantly
-- New architecture patterns discovered during build
-- High-risk components identified but not analyzed
-</trigger>
- 
-<!-- Build Triggers -->
-<trigger agent="BUILD">
-- Build plan exists and is not currently executing
-- No critical blocking issues identified
-- Scout analysis complete (if applicable)
-- Last build attempt was not recent (avoid tight loops)
-- Attempt count below threshold (typically < 5)
-</trigger>
- 
-<!-- Fix Triggers -->
-<trigger agent="FIX">
-- Last build failed with concrete error messages
-- Error is categorized as FIXABLE (not NETWORK, ENVIRONMENT, or CRITICAL_DEPENDENCY)
-- Attempt count below maximum (< 8)
-- Error provides sufficient context for diagnosis
-</trigger>
- 
-<!-- Finish Triggers -->
-<trigger agent="FINISH">
-- Build status is SUCCESS
-- Maximum attempts reached (>= 8)
-- Error severity is HIGH and unfixable
-- All reasonable recovery strategies exhausted
-</trigger>
- 
-<!-- Escalate Triggers -->
-<trigger agent="ESCALATE">
-- Critical dependency missing (toolchain, core libraries)
-- Network failures preventing progress
-- State corruption or internal errors
-- Infinite loop detected (same action repeating)
-</trigger>
-</conditions>
- 
-<optimization_rules>
-1. Avoid redundant scouts: If architecture analysis complete and plan hasn't changed, skip SCOUT
-2. Prevent tight loops: If BUILD → FIX → BUILD → FIX → BUILD → same error, ESCALATE
-3. Respect attempt limits: After 8 attempts, gracefully FINISH with current state
-4. Minimize costs: Prefer scripted operations over LLM calls when deterministic
-5. Fail fast: ESCALATE immediately on unrecoverable errors (missing toolchain, network failures)
-</optimization_rules>
-</decision_framework>
- 
-<task>
-Analyze the current state and decide the next action.
- 
-<thinking_process>
-1. What was the last action and its outcome?
-2. Is there a blocking issue that must be addressed?
-3. Have we exhausted reasonable attempts for the current approach?
-4. What's the most efficient path to completion?
-5. Are we in a loop or making progress?
-6. Should we escalate to human intervention?
-</thinking_process>
- 
-Return your decision as a JSON object:
+
+## Available Actions
+
+| Action | When to Use |
+|--------|-------------|
+| **SCOUT** | No build plan exists, or build plan needs revision after new information |
+| **BUILD** | Build plan ready, no blocking issues, ready to compile |
+| **FIX** | Build failed with actionable errors that can be patched |
+| **FINISH** | Build succeeded, or max attempts exhausted |
+| **ESCALATE** | Unrecoverable error, loop detected, or critical dependency missing |
+
+## Decision Rules
+
+- If build succeeded → **FINISH**
+- If max attempts reached → **FINISH** (with partial report)
+- If same error repeats 3+ times → **ESCALATE**
+- If no build plan → **SCOUT**
+- If build failed with fixable error → **FIX**
+- If build plan ready and no blockers → **BUILD**
+- If critical failure (missing toolchain, network) → **ESCALATE**
+
+## Examples
+
+Build ready:
+{{"next_agent": "BUILD", "reasoning": "Build plan exists, no blockers, attempt 1.", "confidence": "high", "expected_outcome": "Build executes or produces actionable errors", "fallback_plan": "FIX agent handles errors"}}
+
+Build failed:
+{{"next_agent": "FIX", "reasoning": "Build failed with missing header error, fixable by installing dev package.", "confidence": "high", "expected_outcome": "Fixer installs dependency and adjusts build", "fallback_plan": "ESCALATE if fix fails twice"}}
+
+Stuck in loop:
+{{"next_agent": "ESCALATE", "reasoning": "Same compilation error after 3 fix attempts. Requires human expertise.", "confidence": "high", "expected_outcome": "Escalation report generated", "fallback_plan": "N/A"}}
+
+Return ONLY a JSON object:
 {{
   "next_agent": "SCOUT|BUILD|FIX|FINISH|ESCALATE",
-  "reasoning": "2-3 sentence justification for this choice",
+  "reasoning": "2-3 sentence justification",
   "confidence": "high|medium|low",
   "expected_outcome": "what should happen next",
   "fallback_plan": "what to do if this fails"
-}}
-</task>
- 
-<examples>
-<example scenario="first_build_ready">
-{{
-  "next_agent": "BUILD",
-  "reasoning": "Build plan exists, no architecture scan needed (simple generic codebase), no previous build attempts. Time to execute the plan.",
-  "confidence": "high",
-  "expected_outcome": "Build executes and either succeeds or produces actionable errors",
-  "fallback_plan": "If build fails, FIX agent will analyze errors"
-}}
-</example>
- 
-<example scenario="need_architecture_scan">
-{{
-  "next_agent": "SCOUT",
-  "reasoning": "Build plan created but no architecture analysis performed. Must identify potential porting issues before attempting build.",
-  "confidence": "high",
-  "expected_outcome": "Scout identifies architecture-specific code patterns and compatibility issues",
-  "fallback_plan": "Proceed to BUILD regardless if scout finds minimal issues"
-}}
-</example>
- 
-<example scenario="build_failed_fixable">
-{{
-  "next_agent": "FIX",
-  "reasoning": "Build failed with clear error: missing architecture flag in CMake. Error is FIXABLE category, attempt 2 of 8.",
-  "confidence": "high",
-  "expected_outcome": "Fixer adds appropriate CMake flag and rebuild succeeds",
-  "fallback_plan": "If fix doesn't work, try alternative flag combinations (attempt 3)"
-}}
-</example>
- 
-<example scenario="repeated_failures">
-{{
-  "next_agent": "ESCALATE",
-  "reasoning": "Same compilation error after 4 fix attempts. Pattern indicates deeper issue beyond simple configuration. Human expertise needed.",
-  "confidence": "high",
-  "expected_outcome": "Escalation captures detailed state for manual review",
-  "fallback_plan": "N/A - escalation is terminal state"
-}}
-</example>
- 
-<example scenario="build_succeeded">
-{{
-  "next_agent": "FINISH",
-  "reasoning": "Build completed successfully, all artifacts generated correctly. Time to document the porting process.",
-  "confidence": "high",
-  "expected_outcome": "Comprehensive porting guide generated",
-  "fallback_plan": "N/A - workflow complete"
-}}
-</example>
- 
-<example scenario="max_attempts">
-{{
-  "next_agent": "FINISH",
-  "reasoning": "Reached 8 attempts without success. Gracefully finishing to preserve accumulated knowledge and provide partial guidance.",
-  "confidence": "medium",
-  "expected_outcome": "Partial porting guide with encountered issues documented",
-  "fallback_plan": "N/A - attempt limit reached"
-}}
-</example>
-</examples>
- 
-Make your decision now. Be decisive, cost-conscious, and pragmatic."""
+}}"""
 
 
 @agent_node(AgentRole.SUPERVISOR)
@@ -966,9 +681,13 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
 
     if state.build_status == BuildStatus.FAILED:
-        if state.last_error_category == ErrorCategory.MISSING_TOOLS:
+        if state.last_error_category in (
+            ErrorCategory.MISSING_TOOLS,
+            ErrorCategory.DEPENDENCY,
+            ErrorCategory.CONFIGURATION,
+        ):
             state.log_agent_decision(
-                AgentRole.SUPERVISOR, "SCOUT", "Missing tools - need better plan."
+                AgentRole.SUPERVISOR, "SCOUT", f"{state.last_error_category.value} - need better plan."
             )
             state.current_phase = "scout"
             return state
@@ -1040,6 +759,7 @@ def supervisor_node(state: AgentState) -> AgentState:
         current_phase=state.current_phase,
         build_status=state.build_status.value,
         attempt_count=state.attempt_count,
+        max_attempts=state.max_attempts,
         current_agent=state.current_agent.value if state.current_agent else "none",
         build_plan_summary=build_plan_summary,
         scripted_ops_count=state.scripted_ops_count,
@@ -1103,78 +823,65 @@ def supervisor_node(state: AgentState) -> AgentState:
 # NODE: SCOUT (Architecture Analysis)
 # ============================================================================
  
-SCOUT_PROMPT = """<role>
-You are the Architecture Scout specializing in cross-platform build planning and compatibility analysis. Your mission is to analyze the codebase, identify porting challenges, and produce an executable build plan for the target architecture.
-</role>
+SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan for **{repo_name}**.
 
-<capabilities>
-- Build system analysis: Understand CMake, Make, Go modules, Cargo, Meson, Autotools, and other build tools
-- Pattern recognition: Detect architecture-specific code patterns (assembly, intrinsics, conditional compilation)
-- Dependency resolution: Identify required tools, libraries, and system packages
-- Build plan generation: Create executable build phases with specific shell commands
-</capabilities>
+## Target Environment
+- **Architecture:** {target_arch} ({arch_identifiers})
+- **OS:** Alpine Linux (musl libc, not glibc)
+- **Compilation:** Native (not cross-compilation)
+- **Working directory:** `{repo_path}`
 
-<target_architecture>
-Architecture: {target_arch}
-Common Identifiers: {arch_identifiers}
-</target_architecture>
+## Repository Analysis
+- **Build system:** {build_system}
+- **Module directory:** {module_dir}
+- **Architecture-specific code:** {arch_code_count} instances
+- **Dependencies detected:** {deps_count}
+- **Cached docs:** {doc_count}
 
-<codebase_context>
-Repository: {repo_name}
-Build System: {build_system}
-Module Directory: {module_dir}
-
-Project Structure:
+### Project Structure
 {repo_tree}
 
-Known Architecture Patterns:
+### Architecture Patterns Found
 {arch_build_patterns}
 
-Go Main Package Info:
-{go_main_info}
-</codebase_context>
+### Detected Dependencies
+{dependencies}
 
-<pre_analysis>
-Dependencies Detected: {deps_count}
-Architecture-Specific Code Instances: {arch_code_count}
-Documentation Files Cached: {doc_count}
-
-System Environment:
-{system_info}
-
-Architecture Concerns:
+### Architecture Concerns
 {arch_concerns}
 
-Detected Dependencies:
-{dependencies}
-</pre_analysis>
+### System Environment
+{system_info}
 
-<documentation>
+### Documentation
 {documentation}
-</documentation>
 
-<system_knowledge>
+### Go Main Package Info
+{go_main_info}
+
+## RISC-V / Alpine Knowledge
 {system_knowledge}
-</system_knowledge>
 
 {few_shot_examples}
 
-<task>
-Create a build plan that will compile this project for {target_arch} on Alpine Linux.
+## Build Plan Rules
 
-CRITICAL RULES:
-1. Commands must be executable as-is inside a Docker container at path: {repo_path}
-2. All commands run with the working directory set to {repo_path}
-3. Do NOT use placeholder paths like /path/to/ or <value>
-4. Do NOT use cross-compilation flags (GOOS/GOARCH) - we are building NATIVELY on {architecture}
-5. For Go projects: use "go build ./..." or "go build -o <binary_name> ." - NOT "./configure && make"
-6. For CMake projects: use "mkdir -p build && cd build && cmake .. && make"
-7. For Make projects: use "make" or "make -j$(nproc)"
-8. For Autotools: use "./configure && make" ONLY if a ./configure script actually exists
-9. Install all needed dependencies via "apk add <package>" in the setup phase
-10. Do NOT reference or copy non-existent directories
+1. **All commands must be executable as-is** inside a Docker container at `{repo_path}`. No placeholders like `/path/to/` or `<value>`.
+2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`). The build runs natively on {architecture}.
+3. **Use the correct build system:**
+   - Go: `go build ./...` or `go build -o <name> .` (NOT `./configure && make`)
+   - CMake: `mkdir -p build && cd build && cmake .. && make -j$(nproc)`
+   - Make: `make -j$(nproc)`
+   - Autotools: `./configure && make` ONLY if `./configure` actually exists
+   - Meson: `meson setup build && ninja -C build`
+   - Cargo: `cargo build --release`
+4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
+5. **If architecture-specific code is found**, note it in `architecture_concerns`. Common RISC-V issues: x86 intrinsics (SSE/AVX), inline assembly, `__builtin_ia32_*`, stale `config.guess`/`config.sub`, missing `-latomic`.
+6. **Do NOT reference non-existent directories or files.**
 
-Return a JSON object with this EXACT structure:
+## Output Format
+
+Return ONLY a JSON object:
 {{
   "build_system": "go|cmake|make|autotools|cargo|meson|other",
   "build_system_confidence": 0.95,
@@ -1196,98 +903,8 @@ Return a JSON object with this EXACT structure:
   ],
   "total_estimated_duration": "3m",
   "notes": ["any important observations"],
-  "architecture_concerns": ["list of arch-specific issues found, if any"]
-}}
-</task>
-
-<examples>
-<example type="go_project">
-{{
-  "build_system": "go",
-  "build_system_confidence": 0.95,
-  "phases": [
-    {{
-      "id": 1,
-      "name": "setup",
-      "commands": ["apk add go git"],
-      "can_parallelize": false,
-      "expected_duration": "30s"
-    }},
-    {{
-      "id": 2,
-      "name": "build",
-      "commands": ["go build -buildvcs=false ./..."],
-      "can_parallelize": false,
-      "expected_duration": "2m"
-    }}
-  ],
-  "total_estimated_duration": "3m",
-  "notes": ["Go has native RISC-V support since Go 1.14"],
-  "architecture_concerns": []
-}}
-</example>
-
-<example type="cmake_project">
-{{
-  "build_system": "cmake",
-  "build_system_confidence": 0.95,
-  "phases": [
-    {{
-      "id": 1,
-      "name": "setup",
-      "commands": ["apk add build-base cmake"],
-      "can_parallelize": false,
-      "expected_duration": "30s"
-    }},
-    {{
-      "id": 2,
-      "name": "configure",
-      "commands": ["mkdir -p build", "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"],
-      "can_parallelize": false,
-      "expected_duration": "1m"
-    }},
-    {{
-      "id": 3,
-      "name": "build",
-      "commands": ["cd build && make -j$(nproc)"],
-      "can_parallelize": false,
-      "expected_duration": "5m"
-    }}
-  ],
-  "total_estimated_duration": "7m",
-  "notes": [],
-  "architecture_concerns": []
-}}
-</example>
-
-<example type="make_project">
-{{
-  "build_system": "make",
-  "build_system_confidence": 0.9,
-  "phases": [
-    {{
-      "id": 1,
-      "name": "setup",
-      "commands": ["apk add build-base"],
-      "can_parallelize": false,
-      "expected_duration": "30s"
-    }},
-    {{
-      "id": 2,
-      "name": "build",
-      "commands": ["make -j$(nproc)"],
-      "can_parallelize": false,
-      "expected_duration": "5m"
-    }}
-  ],
-  "total_estimated_duration": "6m",
-  "notes": [],
-  "architecture_concerns": []
-}}
-</example>
-</examples>
-
-Generate the build plan now. Return ONLY valid JSON, no other text."""
+  "architecture_concerns": ["list of RISC-V-specific issues found"]
+}}"""
 
 def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
     """Validate BuildPlan for hallucinations and common issues."""
@@ -1502,6 +1119,12 @@ def scout_node(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error(f"Scout failed: {e}")
         logger.info("Using fallback build plan due to LLM parsing error")
+        state.add_error(
+            create_error_record(
+                message=f"Scout LLM failed: {e}",
+                category=ErrorCategory.UNKNOWN,
+            )
+        )
         state.build_plan = create_fallback_build_plan(state)
 
     state.build_status = BuildStatus.PENDING
@@ -1922,158 +1545,80 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
 # NODE: FIXER (Error Resolution)
 # ============================================================================
  
-FIXER_PROMPT = """<role>
-You are the Build Fixer specializing in diagnosing and resolving compilation failures. Your mission is to analyze errors, generate targeted patches, and restore build functionality with minimal code changes.
-</role>
- 
-<capabilities>
-- Error diagnosis: Parse compiler/linker output to identify root causes
-- Patch generation: Create precise code modifications or build configuration changes
-- Compatibility adaptation: Port architecture-specific code to target platform
-- Regression prevention: Ensure fixes don't break existing functionality
-</capabilities>
- 
-<build_context>
-Repository: {repo_name}
-Target Architecture: {target_arch}
-Build System: {build_system}
-Current Phase: {current_phase}
-Attempt: {attempt_count} / {max_attempts}
-</build_context>
- 
-<build_failure>
-Phase: {failed_phase}
-Exit Code: {exit_code}
- 
-Error Output:
-{error_output}
- 
-Failed Command:
+FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compilation failure for **{repo_name}**.
+
+## Build Context
+- **Target:** {target_arch}
+- **Build System:** {build_system}
+- **Phase:** {current_phase}
+- **Attempt:** {attempt_count} / {max_attempts}
+
+## Failure Details
+
+**Failed Command:**
+```
 {failed_command}
- 
-Previous Fix Attempts:
+```
+
+**Error Output:**
+```
+{error_output}
+```
+
+**Exit Code:** {exit_code}
+
+### Previous Fix Attempts
 {previous_fixes}
-</build_failure>
- 
-<available_context>
-<codebase_structure>
+
+## Available Context
+
+### Repository Structure
 {repo_tree}
-</codebase_structure>
- 
-<architecture_issues>
+
+### Known Architecture Issues
 {known_arch_issues}
-</architecture_issues>
- 
-<build_plan>
+
+### Current Build Plan
 {build_plan}
-</build_plan>
- 
-<system_knowledge>
+
+### RISC-V / Alpine Knowledge
 {system_knowledge}
-</system_knowledge>
-</available_context>
- 
-<diagnostic_process>
-<step_1_error_classification>
-Categorize the failure:
-- COMPILATION_ERROR: Source code won't compile
-- LINKING_ERROR: Object files won't link
-- CONFIGURATION_ERROR: Build system misconfiguration
-- DEPENDENCY_ERROR: Missing library or tool
-- ARCHITECTURE_INCOMPATIBILITY: Target-specific issue
-</step_1_error_classification>
- 
-<step_2_root_cause_analysis>
-Identify the specific problem:
-- Extract file, line number, and error message
-- Determine if this is architecture-specific or generic
-- Check if error relates to known issues from scout analysis
-- Assess whether this is a regression from previous fix
-</step_2_root_cause_analysis>
- 
-<step_3_solution_design>
-Choose the minimal effective fix:
-- Prefer configuration changes over code modification
-- Prefer conditional compilation over replacing code
-- Prefer adding missing defines over removing functionality
-- Prefer portable solutions over target-specific hacks
-</step_3_solution_design>
- 
-<step_4_patch_generation>
-Create the fix:
-- For code: Generate unified diff format patches
-- For build config: Provide exact modification instructions
-- For flags: Specify complete command with new flags
-- Test mentally: Would this fix work without breaking other architectures?
-</step_4_patch_generation>
-</diagnostic_process>
- 
-<fix_strategies_by_error_type>
-<intrinsics_replacement>
-Problem: x86/ARM intrinsics not available on target
-Solution:
-1. Check if portable fallback exists in codebase
-2. Implement generic C version if simple
-3. Use target-equivalent intrinsics if available
-4. Disable feature via conditional compilation if non-critical
-</intrinsics_replacement>
- 
-<inline_assembly>
-Problem: Architecture-specific assembly code
-Solution:
-1. Look for existing generic implementation
-2. Replace with portable C code
-3. Use target assembly if performance critical
-4. Disable feature if optional
-</inline_assembly>
- 
-<missing_definitions>
-Problem: Undefined macros or symbols
-Solution:
-1. Add missing defines to build configuration
-2. Include missing headers
-3. Add conditional definitions for target architecture
-</missing_definitions>
- 
-<wrong_flags>
-Problem: Incorrect compiler/linker flags
-Solution:
-1. Update CMake/Makefile with target-appropriate flags
-2. Remove architecture-specific optimization flags
-3. Add target architecture identification flags
-</wrong_flags>
- 
-<conditional_compilation>
-Problem: Code assumes specific architecture
-Solution:
-1. Add #elif for target architecture
-2. Ensure fallback case exists
-3. Define appropriate feature macros
-</conditional_compilation>
-</fix_strategies_by_error_type>
- 
-<task>
-Analyze the build failure and generate a fix.
- 
-<thinking_process>
-1. What exactly failed? (exact error, file, line)
-2. Why did it fail? (root cause, not symptom)
-3. Have we seen this before? (check previous fixes)
-4. What's the minimal fix? (least invasive change)
-5. Will this fix break anything else? (compatibility check)
-6. Is this fixable by an agent? (or needs escalation)
-</thinking_process>
- 
-Return a JSON object with this EXACT structure:
+
+{few_shot_examples}
+
+## Diagnostic Process
+
+1. **Classify** the error: compilation, linking, configuration, dependency, or architecture incompatibility.
+2. **Identify root cause** — the actual problem, not the symptom. Check if it relates to known arch issues.
+3. **Check history** — have previous fixes attempted this? Don't repeat failed approaches.
+4. **Design minimal fix** — prefer (in order): configuration change > conditional compilation > portable replacement > feature disable.
+
+## Common RISC-V Fix Patterns
+
+| Error Pattern | Likely Cause | Fix |
+|---------------|-------------|-----|
+| `#error` with `x86_64` / `__x86_64__` check | Missing arch case | Add `#elif defined(__riscv)` branch |
+| `_mm_*`, `__m128`, SSE/AVX intrinsics | x86 SIMD | Add `#ifdef __riscv` with scalar fallback, or use SIMDe |
+| `asm("mov ..."` or `__asm__` with x86 | Inline assembly | Use C equivalent or add RISC-V asm |
+| `__builtin_ia32_*` | GCC x86 builtins | Replace with portable `__builtin_*` or C code |
+| `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags |
+| `execinfo.h` / `backtrace()` | glibc-only API | Guard with `#ifdef __GLIBC__` or use `libunwind` |
+| `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && autoreconf -fi` |
+| `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
+| `./configure: No such file` on Go project | Wrong build system | Use `go build ./...` instead |
+
+## Output Format
+
+Return ONLY a JSON object:
 {{
   "strategies": [
     {{
       "id": 1,
-      "description": "Brief description of what this fix does",
+      "description": "Brief description of the fix",
       "actions": [
         {{
           "type": "command",
-          "command": "shell command to run (e.g., apk add missing-package)"
+          "command": "shell command to run"
         }}
       ]
     }}
@@ -2081,109 +1626,21 @@ Return a JSON object with this EXACT structure:
   "recommended_strategy_id": 1,
   "reflection": {{
     "root_cause": "Why the error occurred",
-    "this_fix_will_work_because": "Reasoning why the proposed fix addresses the root cause"
+    "this_fix_will_work_because": "Why this fix addresses the root cause"
   }}
 }}
 
-Action types:
-- "command": Run a shell command. Fields: "type", "command"
-- "create_file": Create a new file. Fields: "type", "path" (relative to repo root), "content"
-- "patch": Apply a patch. Fields: "type", "file" (relative path), "content" (unified diff format)
+**Action types:**
+- `"command"` — Run a shell command. Fields: `type`, `command`
+- `"create_file"` — Create a new file. Fields: `type`, `path` (relative to repo root), `content`
+- `"patch"` — Apply a unified diff. Fields: `type`, `file` (relative path), `content` (unified diff)
 
-IMPORTANT RULES:
-1. Always provide at least one strategy with at least one action
-2. Do NOT use empty commands or empty file content
-3. Do NOT create empty source files (e.g., touch main.go)
-4. Do NOT use absolute paths starting with /home/ or /root/
-5. For Go projects with "./configure: No such file or directory" errors, the fix is to use "go build" instead
-6. For missing dependencies, use "apk add <package>" commands
-7. Provide actionable fixes, not just analysis
-</task>
- 
-<examples>
-<example type="wrong_build_command">
-{{
-  "strategies": [
-    {{
-      "id": 1,
-      "description": "Replace incorrect ./configure with Go build command",
-      "actions": [
-        {{
-          "type": "command",
-          "command": "go build -buildvcs=false ./..."
-        }}
-      ]
-    }}
-  ],
-  "recommended_strategy_id": 1,
-  "reflection": {{
-    "root_cause": "Build plan used ./configure for a Go project that uses go modules",
-    "this_fix_will_work_because": "Go projects are built with 'go build', not autotools configure scripts"
-  }}
-}}
-</example>
-
-<example type="missing_dependency">
-{{
-  "strategies": [
-    {{
-      "id": 1,
-      "description": "Install missing build dependency and retry",
-      "actions": [
-        {{
-          "type": "command",
-          "command": "apk add openssl-dev"
-        }},
-        {{
-          "type": "command",
-          "command": "make -j$(nproc)"
-        }}
-      ]
-    }}
-  ],
-  "recommended_strategy_id": 1,
-  "reflection": {{
-    "root_cause": "Missing openssl-dev header files required by the project",
-    "this_fix_will_work_because": "Installing the -dev package provides the missing headers"
-  }}
-}}
-</example>
-
-<example type="arch_incompatibility">
-{{
-  "strategies": [
-    {{
-      "id": 1,
-      "description": "Add RISC-V case to architecture detection and disable SIMD",
-      "actions": [
-        {{
-          "type": "patch",
-          "file": "src/platform.h",
-          "content": "--- a/src/platform.h\\n+++ b/src/platform.h\\n@@ -10,6 +10,8 @@\\n #ifdef __x86_64__\\n   #define PLATFORM_X86\\n+#elif defined(__riscv)\\n+  #define PLATFORM_RISCV64\\n #endif"
-        }}
-      ]
-    }}
-  ],
-  "recommended_strategy_id": 1,
-  "reflection": {{
-    "root_cause": "Architecture detection header missing RISC-V case",
-    "this_fix_will_work_because": "Adding the __riscv preprocessor check follows the same pattern as existing architectures"
-  }}
-}}
-</example>
-</examples>
- 
-<guidelines>
-1. Always provide exact patches (not pseudocode)
-2. Test your fix mentally before proposing it
-3. Consider side effects on other architectures
-4. Prefer portable solutions over target-specific hacks
-5. Escalate when truly necessary (missing toolchain, fundamental incompatibility)
-6. Learn from previous failed fixes (don't repeat the same approach)
-7. Explain your reasoning clearly
-</guidelines>
- 
-Diagnose and fix the error now."""
+**Rules:**
+- At least one strategy with at least one action.
+- No empty commands, empty files, or placeholder paths (`/path/to/`, `/home/`, `/root/`).
+- For missing packages: `apk add <package>`.
+- Provide exact, executable fixes — not analysis or pseudocode.
+- Do not repeat a fix that already failed (check previous fix attempts above)."""
 
 
 @agent_node(AgentRole.FIXER)
@@ -2261,6 +1718,7 @@ def fixer_node(state: AgentState) -> AgentState:
         known_arch_issues=arch_issues,
         build_plan=build_plan_str,
         system_knowledge=get_system_knowledge_summary(),
+        few_shot_examples=few_shot_examples,
     )
 
     try:
@@ -2334,13 +1792,15 @@ def fixer_node(state: AgentState) -> AgentState:
                 dir_path = os.path.dirname(full_file_path)
                 if dir_path:
                     mkdir_result = execute_command(
-                        f"mkdir -p {dir_path}", cwd=state.repo_path, use_docker=True
+                        f"mkdir -p {shlex.quote(dir_path)}", cwd=state.repo_path, use_docker=True
                     )
                     if not mkdir_result.success:
                         logger.warning(f"Failed to create directory: {dir_path}")
 
+                # Use base64 encoding to safely transfer LLM-generated content
+                encoded = base64.b64encode(file_content.encode()).decode()
                 write_result = execute_command(
-                    f"cat > {full_file_path} << 'ATESOR_EOF'\n{file_content}\nATESOR_EOF",
+                    f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(full_file_path)}",
                     cwd=state.repo_path,
                     use_docker=True,
                 )
@@ -2640,7 +2100,21 @@ def finish_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.SUMMARIZER)
-        response = llm.invoke(messages)
+
+        # Use a thread-based timeout to prevent LLM hangs from blocking the entire run
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(llm.invoke, messages)
+        try:
+            response = future.result(timeout=120)
+        except (concurrent.futures.TimeoutError, TimeoutError):
+            logger.warning("Summarizer LLM call timed out after 120s, using fallback recipe")
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise TimeoutError("Summarizer LLM call timed out")
+        else:
+            executor.shutdown(wait=False)
+
         state.log_api_call(cost=0.005)
 
         recipe = extract_content(response.content)

@@ -456,19 +456,19 @@ def classify_error(error_message: str) -> ErrorCategory:
     """
     error_lower = error_message.lower()
 
+    # Rate limiting (check before network since "timeout" is in network patterns)
+    if any(
+        term in error_lower
+        for term in ["rate limit", "too many requests", "429", "quota exceeded"]
+    ):
+        return ErrorCategory.RATE_LIMIT
+
     # Network errors
     if any(
         term in error_lower
         for term in ["network", "connection", "timeout", "unreachable"]
     ):
         return ErrorCategory.NETWORK
-
-    # Rate limiting
-    if any(
-        term in error_lower
-        for term in ["rate limit", "too many requests", "429", "quota exceeded"]
-    ):
-        return ErrorCategory.RATE_LIMIT
 
     # Linking errors
     if any(
@@ -525,6 +525,12 @@ def classify_error(error_message: str) -> ErrorCategory:
             "configure: error",
             "unsupported option",
             "invalid argument",
+            "unrecognized option",
+            "no go files in",
+            "no go source files",
+            "no buildable go source files",
+            "no rule to make target",
+            "no makefile found",
         ]
     ):
         return ErrorCategory.CONFIGURATION
@@ -583,6 +589,29 @@ def classify_error(error_message: str) -> ErrorCategory:
         ]
     ):
         return ErrorCategory.CONFIGURATION  # Usually a code/config bug
+
+    # Package manager resolution errors (apk, apt, etc.)
+    if any(
+        term in error_lower
+        for term in [
+            "unable to select packages",
+            "no such package",
+            "unable to lock database",
+            "broken packages",
+        ]
+    ):
+        return ErrorCategory.DEPENDENCY
+
+    # Go toolchain version mismatch
+    if any(
+        term in error_lower
+        for term in [
+            "go.mod requires go >=",
+            "requires go >=",
+            "running go ",
+        ]
+    ):
+        return ErrorCategory.MISSING_TOOLS
 
     return ErrorCategory.UNKNOWN
 
