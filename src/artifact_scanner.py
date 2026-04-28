@@ -40,7 +40,7 @@ class ArtifactScanner:
         self.artifacts = []
 
         # Find executable binaries
-        find_cmd = f"find {shlex.quote(self.build_dir)} -type f -executable 2>/dev/null | grep -v '.so' | head -20"
+        find_cmd = f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -type f -executable -print 2>/dev/null | grep -v '.so' | head -20"
         binaries_result = execute_command(find_cmd, cwd=self.cwd)
         if binaries_result.success and binaries_result.stdout.strip():
             for binary_path in binaries_result.stdout.strip().split("\n"):
@@ -48,7 +48,7 @@ class ArtifactScanner:
 
         # Find static libraries
         libs_result = execute_command(
-            f"find {shlex.quote(self.build_dir)} -name '*.a' 2>/dev/null | head -20", cwd=self.cwd
+            f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -name '*.a' -print 2>/dev/null | head -20", cwd=self.cwd
         )
         if libs_result.success and libs_result.stdout.strip():
             for lib_path in libs_result.stdout.strip().split("\n"):
@@ -56,7 +56,7 @@ class ArtifactScanner:
 
         # Find shared libraries
         shared_result = execute_command(
-            f"find {shlex.quote(self.build_dir)} -name '*.so*' 2>/dev/null | head -20", cwd=self.cwd
+            f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune -o -name '*.so*' -print 2>/dev/null | head -20", cwd=self.cwd
         )
         if shared_result.success and shared_result.stdout.strip():
             for lib_path in shared_result.stdout.strip().split("\n"):

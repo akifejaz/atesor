@@ -70,6 +70,7 @@ class ScriptedOperations:
         This is a zero-cost operation.
 
         IMPORTANT: Clones inside Docker container to avoid ownership issues.
+        If git pull fails (e.g., force-pushed branch), falls back to re-clone.
         """
         # Use container path
         container_repo_path = f"/workspace/repos/{name}"
@@ -81,7 +82,32 @@ class ScriptedOperations:
             # Pull inside container to maintain ownership
             cmd = f"cd {container_repo_path} && git pull"
             result = execute_command(cmd, use_docker=True)
+
+            if not result.success:
+                # Pull failed — likely diverged history or force-push
+                logger.warning(f"git pull failed for {name}, attempting fetch+reset...")
+                reset_cmd = (
+                    f"cd {container_repo_path} && "
+                    f"git fetch origin && "
+                    f"git reset --hard $(git remote show origin | grep 'HEAD branch' | awk '{{print $NF}}' | xargs -I% echo origin/%) && "
+                    f"git clean -fdx"
+                )
+                result = execute_command(reset_cmd, use_docker=True)
+
+                if not result.success:
+                    # Reset also failed — delete and re-clone
+                    logger.warning(f"fetch+reset failed for {name}, re-cloning from scratch...")
+                    rm_cmd = f"rm -rf {container_repo_path}"
+                    execute_command(rm_cmd, use_docker=True)
+                    clone_cmd = f"git clone --depth 1 {url} {container_repo_path}"
+                    result = execute_command(clone_cmd, use_docker=True)
         else:
+            # If directory exists but is not a valid git repo, remove it first
+            if os.path.exists(host_repo_path):
+                logger.warning(f"Directory {name} exists but has no .git, removing and re-cloning...")
+                rm_cmd = f"rm -rf {container_repo_path}"
+                execute_command(rm_cmd, use_docker=True)
+
             logger.info(f"Cloning repository {url}...")
             # Clone inside container
             cmd = f"git clone --depth 1 {url} {container_repo_path}"

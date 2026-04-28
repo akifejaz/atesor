@@ -663,6 +663,42 @@
       "id": "scout-auto-008",
       "source": "auto",
       "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: sj (go)",
+      "tags": [
+        "go",
+        "sj"
+      ],
+      "build_system": "go",
+      "repo_name": "sj",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o sj ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful sj build.",
+      "id": "scout-auto-009",
+      "source": "auto",
+      "timestamp": "2026-04-27"
     }
   ]
 }

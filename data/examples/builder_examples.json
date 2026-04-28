@@ -457,6 +457,36 @@
       "id": "builder-auto-008",
       "source": "auto",
       "timestamp": "2026-04-22"
+    },
+    {
+      "name": "Auto: sj build execution",
+      "tags": [
+        "go",
+        "sj"
+      ],
+      "build_system": "go",
+      "repo_name": "sj",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o sj ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from sj.",
+      "id": "builder-auto-009",
+      "source": "auto",
+      "timestamp": "2026-04-27"
     }
   ]
 }
