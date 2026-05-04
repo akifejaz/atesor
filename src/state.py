@@ -484,6 +484,23 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.LINKING
 
+    # Autotools/configure script issues (check before COMPILATION to catch configure syntax errors)
+    if any(
+        term in error_lower
+        for term in [
+            "possibly undefined macro",
+            "macro not found in library",
+            "autoconf failed",
+            "autoreconf: error",
+            "aclocal: not found",
+        ]
+    ):
+        return ErrorCategory.CONFIGURATION
+
+    # Configure script has unexpanded M4 macros or shell-incompatible syntax
+    if "configure" in error_lower and "syntax error" in error_lower:
+        return ErrorCategory.CONFIGURATION
+
     # Compilation errors
     if any(
         term in error_lower
@@ -531,6 +548,9 @@ def classify_error(error_message: str) -> ErrorCategory:
             "no buildable go source files",
             "no rule to make target",
             "no makefile found",
+            "cannot find main module",
+            "no required module provides",
+            "directory prefix . does not contain main module",
         ]
     ):
         return ErrorCategory.CONFIGURATION

@@ -29,7 +29,7 @@ class CommandValidator:
     # Allowed command patterns (whitelist)
     SAFE_COMMANDS = {
         # File operations
-        r'^ls\s+',
+        r'^ls(\s+.*)?$',
         r'^cat\s+',
         r'^head\s+',
         r'^tail\s+',
@@ -45,16 +45,24 @@ class CommandValidator:
         r'^wc\s+',
         
         # Build operations
-        r'^cmake\s+',
-        r'^make\s+',
-        r'^ninja\s+',
+        r'^cmake(\s+.*)?$',
+        r'^make(\s+.*)?$',
+        r'^ninja(\s+.*)?$',
         r'^./configure.*',
         r'^./autogen\.sh.*',
-        r'^cargo\s+',
-        r'^npm\s+',
-        r'^pip\s+',
-        r'^python\s+',
-        r'^go\s+',
+        r'^./bootstrap.*',
+        r'^autoreconf(\s+.*)?$',
+        r'^autoconf(\s+.*)?$',
+        r'^automake(\s+.*)?$',
+        r'^libtoolize(\s+.*)?$',
+        r'^aclocal(\s+.*)?$',
+        r'^autoheader(\s+.*)?$',
+        r'^meson(\s+.*)?$',
+        r'^cargo(\s+.*)?$',
+        r'^npm(\s+.*)?$',
+        r'^pip(\s+.*)?$',
+        r'^python(\s+.*)?$',
+        r'^go(\s+.*)?$',
         
         # Package management
         r'^apt-get\s+',
@@ -62,6 +70,10 @@ class CommandValidator:
         r'^apk\s+',
         r'^yum\s+',
         r'^dnf\s+',
+
+        # File downloads (without piping to shell)
+        r'^wget\s+(?!.*\|\s*(bash|sh|zsh|fish))',   # wget but not wget | shell
+        r'^curl\s+(?!.*\|\s*(bash|sh|zsh|fish))',   # curl but not curl | shell
         
         # Git operations
         r'^git\s+',

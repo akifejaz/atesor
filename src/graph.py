@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 from typing import List, Dict
 from pathlib import Path
 
@@ -57,6 +58,37 @@ def get_model_for_role(role: AgentRole):
     return create_llm(role)
 
 
+def invoke_llm(llm, messages, timeout: int = 120):
+    """
+    Invoke an LLM with a hard timeout to prevent indefinite hangs.
+    Uses a daemon thread so blocking HTTP connections don't prevent process exit.
+    Raises TimeoutError if the call exceeds `timeout` seconds.
+    """
+    import threading
+    result = [None]
+    exception = [None]
+    done = threading.Event()
+
+    def worker():
+        try:
+            result[0] = llm.invoke(messages)
+        except Exception as e:
+            exception[0] = e
+        finally:
+            done.set()
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    if not done.wait(timeout=timeout):
+        raise TimeoutError(f"LLM call timed out after {timeout}s")
+
+    if exception[0] is not None:
+        raise exception[0]
+
+    return result[0]
+
+
 def extract_content(content) -> str:
     """Safely extract string content from LLM response."""
     if isinstance(content, str):
@@ -80,12 +112,21 @@ def extract_json_block(text: str) -> str:
     return text
 
 
+def _to_host_path(path: str) -> str:
+    """Translate a /workspace Docker container path to the host filesystem path."""
+    if path.startswith("/workspace") and not os.path.exists("/workspace"):
+        from .config import WORKSPACE_ROOT
+        return path.replace("/workspace", WORKSPACE_ROOT, 1)
+    return path
+
+
 def _build_command_error_message(result, fallback: str) -> str:
     """Build a robust, human-readable error message from command output."""
     stderr = (result.stderr or "").strip()
     stdout = (result.stdout or "").strip()
     detail = stderr or stdout or "No stderr/stdout output captured."
     return f"{fallback} (exit {result.exit_code}) - {detail}"
+
 
 
 # ============================================================================
@@ -112,7 +153,7 @@ def agent_node(role: AgentRole):
                     error_str = str(e).lower()
                     is_rate_limit = any(
                         term in error_str
-                        for term in ["rate limit", "429", "too many requests", "quota exceeded", "resource_exhausted"]
+                        for term in ["rate limit", "429", "too many requests", "quota exceeded", "resource_exhausted", "402", "spend limit exceeded", "usd spend limit"]
                     )
                     if is_rate_limit and attempt < max_retries - 1:
                         wait_time = 30 * (attempt + 1)
@@ -421,7 +462,7 @@ def planner_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.PLANNER)
-        response = llm.invoke(messages)
+        response = invoke_llm(llm, messages)
         state.log_api_call(cost=0.01)  # Estimate
 
         content = extract_content(response.content)
@@ -681,13 +722,14 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
 
     if state.build_status == BuildStatus.FAILED:
+        # MISSING_TOOLS / DEPENDENCY need an updated build plan from scout (add packages, change steps)
+        # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE → send to fixer to patch in-place
         if state.last_error_category in (
             ErrorCategory.MISSING_TOOLS,
             ErrorCategory.DEPENDENCY,
-            ErrorCategory.CONFIGURATION,
         ):
             state.log_agent_decision(
-                AgentRole.SUPERVISOR, "SCOUT", f"{state.last_error_category.value} - need better plan."
+                AgentRole.SUPERVISOR, "SCOUT", f"{state.last_error_category.value} - need updated build plan."
             )
             state.current_phase = "scout"
             return state
@@ -774,7 +816,7 @@ def supervisor_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.SUPERVISOR)
-        response = llm.invoke(messages)
+        response = invoke_llm(llm, messages)
         state.log_api_call(cost=0.002)
 
         content = extract_content(response.content)
@@ -869,10 +911,19 @@ SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan f
 1. **All commands must be executable as-is** inside a Docker container at `{repo_path}`. No placeholders like `/path/to/` or `<value>`.
 2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`). The build runs natively on {architecture}.
 3. **Use the correct build system:**
-   - Go: `go build ./...` or `go build -o <name> .` (NOT `./configure && make`)
+   - Go: Check `Go Main Package Info` for whether `go.mod` exists.
+     - **If `needs_go_init: true`** (no go.mod found): First run `go mod init <module_name>` then `go mod tidy` then `go build .`.
+       Use the GitHub repo path as module name (e.g. `github.com/tomnomnom/assetfinder`).
+     - **If `has_go_mod: true`**: Run `go mod tidy` then `go build ./...` or target path from `build_command`.
+     - **Always** use `go build ./...` or specific path — never just `go build` alone when a main path is known.
    - CMake: `mkdir -p build && cd build && cmake .. && make -j$(nproc)`
    - Make: `make -j$(nproc)`
-   - Autotools: `./configure && make` ONLY if `./configure` actually exists
+   - Autotools: Check if `./configure` exists.
+     - If `./configure` exists: Run `./configure --host=riscv64-linux-musl && make`
+     - If `./configure` does NOT exist but `configure.ac` exists: Run `autoreconf -fi` to generate it, then `./configure --host=riscv64-linux-musl && make`
+     - If `autoreconf -fi` fails with "undefined macro" or "macro not found": **Copy gettext.m4 FIRST, then run aclocal**: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`, then run `./configure --host=riscv64-linux-musl`. Do NOT include `/usr/share/gettext/m4` in the aclocal `-I` flags after copying — this causes conflicts.
+     - Always pass `--host=riscv64-linux-musl` to `./configure` for cross-compilation awareness
+     - **IMPORTANT**: If the repo has an `m4/` directory, include `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true` as the FIRST command in the setup phase to ensure modern gettext M4 macros are present before running autoreconf or aclocal
    - Meson: `meson setup build && ninja -C build`
    - Cargo: `cargo build --release`
 4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
@@ -915,6 +966,9 @@ def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
         "riscv64-unknown-linux-gnu-gcc",  # Unless we confirmed it's there
     ]
 
+    # Go subcommands that must not appear as apk package names
+    go_subcommands = {"mod", "build", "get", "install", "run", "test", "tool", "generate", "fmt", "vet"}
+
     for phase in plan.phases:
         for cmd in phase.commands:
             for pattern in hallucination_patterns:
@@ -927,6 +981,17 @@ def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
             # Check for absolute paths that look guessed
             if "/home/" in cmd and "/workspace/" not in cmd:
                 return False, f"Suspicious absolute path in command: '{cmd}'"
+
+            # Check for `apk add go mod` or `apk add go build` style hallucinations
+            if cmd.strip().startswith("apk add"):
+                parts = cmd.split()
+                pkg_names = [p for p in parts[2:] if not p.startswith("-")]
+                for pkg in pkg_names:
+                    if pkg in go_subcommands:
+                        return False, (
+                            f"Hallucination: '{cmd}' — '{pkg}' is a Go subcommand, not an apk package. "
+                            f"Use 'go {pkg}' as a separate command."
+                        )
 
             # Check for bad cmake patterns
             if "cmake" in cmd:
@@ -1055,7 +1120,7 @@ def scout_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.SCOUT)
-        response = llm.invoke(messages)
+        response = invoke_llm(llm, messages)
         state.log_api_call(cost=0.01)
 
         content = extract_content(response.content)
@@ -1137,12 +1202,25 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
     build_type = build_sys.type if build_sys else "unknown"
 
     if build_type == "go":
+        go_main_info = state.context_cache.get("go_main_info", {})
+        needs_init = go_main_info.get("needs_go_init", False)
+        build_cmd = go_main_info.get("build_command", "go build -buildvcs=false ./...")
+        # Infer module name from repo URL
+        module_name = state.repo_url.replace("https://", "").rstrip("/") if state.repo_url else f"github.com/unknown/{state.repo_name}"
+
+        build_cmds = []
+        if needs_init:
+            build_cmds += [f"go mod init {module_name}", "go mod tidy"]
+        else:
+            build_cmds.append("go mod tidy")
+        build_cmds.append(build_cmd if build_cmd != "go build ." else "go build -buildvcs=false ./...")
+
         return BuildPlan(
             build_system="go",
             build_system_confidence=0.8,
             phases=[
                 BuildPhase(1, "setup", ["apk update && apk add go git"], False, "30s"),
-                BuildPhase(2, "build", ["go build -buildvcs=false ./..."], False, "3m"),
+                BuildPhase(2, "build", build_cmds, False, "3m"),
             ],
             total_estimated_duration="4m",
             notes=["Fallback Go build plan"],
@@ -1194,15 +1272,29 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             notes=["Fallback Meson build plan"],
         )
     elif build_type == "autotools":
+        # Check if configure exists; if not, need to regenerate
+        # Check if configure script exists in the repo
+        has_configure = os.path.exists(os.path.join(_to_host_path(state.repo_path), "configure")) if state.repo_path else True
+        configure_phase_cmds = ["./configure --host=riscv64-linux-musl"]
+        if not has_configure:
+            configure_phase_cmds = [
+                "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
+                "aclocal -I m4 -I /usr/share/aclocal",
+                "autoconf",
+                "./configure --host=riscv64-linux-musl",
+            ]
         return BuildPlan(
             build_system="autotools",
             build_system_confidence=0.6,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base autoconf automake libtool"], False, "30s"),
-                BuildPhase(2, "configure", ["./configure"], False, "1m"),
+                BuildPhase(1, "setup", [
+                    "apk update && apk add build-base autoconf automake libtool gettext-dev",
+                    "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",  # copy system gettext.m4 FIRST
+                ], False, "30s"),
+                BuildPhase(2, "configure", configure_phase_cmds, False, "3m"),
                 BuildPhase(3, "build", ["make -j$(nproc)"], False, "5m"),
             ],
-            total_estimated_duration="7m",
+            total_estimated_duration="9m",
             notes=["Fallback Autotools build plan"],
         )
     else:
@@ -1224,7 +1316,49 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
 # ============================================================================
 # NODE: BUILDER (Build Execution)
 # ============================================================================
- 
+
+
+def _fixup_top_builddir_in_submakefiles(docker_repo_path: str) -> None:
+    """
+    Post-configure fixup for old gettext/autotools projects.
+
+    Old po/Makefile.in.in templates reference $(top_builddir) as a make variable
+    but never define it (they expected @top_builddir@ substitution that was added
+    in newer gettext). When make descends into po/ without passing top_builddir,
+    the dependency $(top_builddir)/config.status expands to /config.status which
+    doesn't exist → "No rule to make target '/config.status'".
+
+    Fix: run a shell script INSIDE Docker (to avoid host permission issues with
+    root-owned files) that scans all subdirectory Makefiles and injects the
+    correct relative top_builddir assignment.
+    """
+    try:
+        from src.config import CONTAINER_NAME
+        container = CONTAINER_NAME
+        # Shell script: walk subdirs, find Makefiles using $(top_builddir)
+        # that don't already define it, and inject `top_builddir = <relpath>`
+        script = (
+            f"cd {docker_repo_path} && "
+            "find . -mindepth 2 -name Makefile -not -path './.git/*' | while read f; do "
+            "  if grep -q '\\$(top_builddir)' \"$f\" && ! grep -q '^top_builddir' \"$f\"; then "
+            "    depth=$(echo \"$f\" | tr -cd '/' | wc -c); depth=$((depth - 1)); "
+            "    rel=$(python3 -c \"print('/'.join(['..'] * $depth))\"); "
+            "    sed -i \"1s|^|top_builddir = $rel\\n|\" \"$f\" && "
+            "    echo \"Injected top_builddir=$rel into $f\"; "
+            "  fi; "
+            "done"
+        )
+        result = subprocess.run(
+            ["docker", "exec", container, "sh", "-c", script],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.stdout.strip():
+            logger.info(f"top_builddir fixup: {result.stdout.strip()}")
+        if result.returncode != 0 and result.stderr.strip():
+            logger.warning(f"_fixup_top_builddir_in_submakefiles stderr: {result.stderr.strip()}")
+    except Exception as exc:
+        logger.warning(f"_fixup_top_builddir_in_submakefiles: {exc}")
+
 
 @agent_node(AgentRole.BUILDER)
 def builder_node(state: AgentState) -> AgentState:
@@ -1273,6 +1407,27 @@ def builder_node(state: AgentState) -> AgentState:
                         )
                         logger.info(f"Proactively optimized command: {optimized_cmd}")
                         break
+
+            # Rewrite autoreconf to copy-first sequence when the repo has m4/gettext.m4.
+            # autoreconf calls autopoint internally which reverts any gettext.m4 fix.
+            # Only rewrite when m4/gettext.m4 exists — other repos are unaffected.
+            if re.search(r"\bautoreconf\b", optimized_cmd):
+                if os.path.isfile(os.path.join(_to_host_path(state.repo_path), "m4", "gettext.m4")):
+                    optimized_cmd = (
+                        "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+                        " && aclocal -I m4 -I /usr/share/aclocal"
+                        " && autoconf"
+                    )
+                    logger.info(
+                        "Rewrote autoreconf → copy-first gettext sequence "
+                        "(autoreconf/autopoint would revert gettext.m4)"
+                    )
+
+            # Before any make command, proactively fix po/Makefile top_builddir if needed.
+            # This handles the case where configure was run by the fixer (not the builder),
+            # so the post-configure hook wouldn't have fired yet.
+            if re.match(r"\bmake\b", optimized_cmd.lstrip()):
+                _fixup_top_builddir_in_submakefiles(state.repo_path)
 
             result = execute_command(optimized_cmd, cwd=state.repo_path)
             state.cache_command_result(command, result)
@@ -1332,6 +1487,15 @@ def builder_node(state: AgentState) -> AgentState:
 
         state.last_successful_phase = phase.id
         logger.info(f"Phase {phase.id} completed successfully")
+
+        # Post-configure fixup: after any configure phase, patch subdirectory Makefiles
+        # that reference $(top_builddir) but don't define it. This is a common issue
+        # with old gettext/autotools projects where po/Makefile.in.in lacks the
+        # top_builddir = @top_builddir@ substitution.
+        if phase.name.lower() in ("configure", "config") or any(
+            "./configure" in c for c in phase.commands
+        ):
+            _fixup_top_builddir_in_submakefiles(state.repo_path)
 
     # All phases completed - NOW VERIFY THE BUILD PRODUCED ARTIFACTS
     logger.info("All build phases completed - verifying artifacts...")
@@ -1454,6 +1618,18 @@ def validate_fix_command(command: str) -> tuple[bool, str]:
         if re.search(pattern, command, re.IGNORECASE):
             return False, reason
 
+    # Reject `apk add go mod` style hallucinations where Go subcommands are used as package names
+    _go_subcommands = {"mod", "build", "get", "install", "run", "test", "tool", "generate", "fmt", "vet"}
+    if command.strip().startswith("apk add"):
+        parts = command.split()
+        pkg_names = [p for p in parts[2:] if not p.startswith("-")]
+        for pkg in pkg_names:
+            if pkg in _go_subcommands:
+                return False, (
+                    f"Hallucination: '{command}' — '{pkg}' is a Go subcommand, not an apk package. "
+                    f"Use 'go {pkg}' as a separate command."
+                )
+
     return True, "Command is safe"
 
 
@@ -1463,6 +1639,9 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
     Returns (is_valid, error_message).
     """
     try:
+        if not isinstance(fix_data, dict):
+            return False, f"Expected JSON object from fixer, got {type(fix_data).__name__}"
+
         if not fix_data.get("strategies"):
             return False, "No strategies provided"
 
@@ -1603,9 +1782,11 @@ FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compil
 | `__builtin_ia32_*` | GCC x86 builtins | Replace with portable `__builtin_*` or C code |
 | `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags |
 | `execinfo.h` / `backtrace()` | glibc-only API | Guard with `#ifdef __GLIBC__` or use `libunwind` |
-| `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && autoreconf -fi` |
+| `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .` |
+| `possibly undefined macro: AM_GNU_GETTEXT` OR `syntax error: unexpected word (expecting ")")` in `./configure` OR `No rule to make target '/config.status'` | Old `m4/gettext.m4` missing `AM_GNU_GETTEXT_VERSION`. **DO NOT run autoreconf** (autopoint reverts fixes). Exact fix sequence — run ALL three commands: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`. The copy-first step is critical — without it autoconf produces a broken configure even if aclocal exits 0. |
 | `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
-| `./configure: No such file` on Go project | Wrong build system | Use `go build ./...` instead |
+| `cannot find main module, but found .git/config` | Missing go.mod (GOPATH-style repo) | Run `go mod init <github.com/owner/repo>` then `go mod tidy` |
+| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | Try `apk add --no-cache go` to see if a newer version is available; if apk also fails, then this package cannot be ported without upgrading the toolchain |
 
 ## Output Format
 
@@ -1724,7 +1905,7 @@ def fixer_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.FIXER)
-        response = llm.invoke(messages)
+        response = invoke_llm(llm, messages)
         state.log_api_call(cost=0.01)
 
         content = extract_content(response.content)
@@ -1841,11 +2022,30 @@ def fixer_node(state: AgentState) -> AgentState:
                     logger.warning(f"Fix command blocked: {command} - {reason}")
                     continue
 
-                result = execute_command(command, cwd=state.repo_path)
-                if result.success:
-                    changes_made.append(f"Executed: {command}")
-                else:
-                    logger.error(f"Fix command failed: {result.stderr}")
+                # Rewrite autoreconf to copy-first sequence when gettext macros are missing.
+                # autoreconf internally calls autopoint which reverts any gettext.m4 fix.
+                # The copy-first approach replaces the old m4/gettext.m4 with the system's
+                # modern one BEFORE running aclocal+autoconf, which is the only reliable fix.
+                if re.search(r"\bautoreconf\b", command):
+                    if os.path.isfile(os.path.join(_to_host_path(state.repo_path), "m4", "gettext.m4")):
+                        rewritten = (
+                            "cp /usr/share/gettext/m4/*.m4 m4/"
+                            " && aclocal -I m4 -I /usr/share/aclocal"
+                            " && autoconf"
+                        )
+                        logger.info(
+                            f"Rewrote autoreconf → copy-first gettext sequence "
+                            f"(autoreconf would revert gettext.m4 fix via autopoint)"
+                        )
+                        command = rewritten
+
+                commands_to_run = [command]
+                for cmd in commands_to_run:
+                    result = execute_command(cmd, cwd=state.repo_path)
+                    if result.success:
+                        changes_made.append(f"Executed: {cmd}")
+                    else:
+                        logger.error(f"Fix command failed: {result.stderr}")
 
         # Record fix attempt
         fix_attempt = FixAttempt(
@@ -2100,21 +2300,7 @@ def finish_node(state: AgentState) -> AgentState:
     try:
         messages = [HumanMessage(content=prompt)]
         llm = get_model_for_role(AgentRole.SUMMARIZER)
-
-        # Use a thread-based timeout to prevent LLM hangs from blocking the entire run
-        import concurrent.futures
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(llm.invoke, messages)
-        try:
-            response = future.result(timeout=120)
-        except (concurrent.futures.TimeoutError, TimeoutError):
-            logger.warning("Summarizer LLM call timed out after 120s, using fallback recipe")
-            future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            raise TimeoutError("Summarizer LLM call timed out")
-        else:
-            executor.shutdown(wait=False)
-
+        response = invoke_llm(llm, messages)
         state.log_api_call(cost=0.005)
 
         recipe = extract_content(response.content)

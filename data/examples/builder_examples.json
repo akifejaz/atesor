@@ -487,6 +487,774 @@
       "id": "builder-auto-009",
       "source": "auto",
       "timestamp": "2026-04-27"
+    },
+    {
+      "name": "Auto: anew build execution",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o anew ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anew.",
+      "id": "builder-auto-010",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gf build execution",
+      "tags": [
+        "go",
+        "gf"
+      ],
+      "build_system": "go",
+      "repo_name": "gf",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod init github.com/tomnomnom/gf",
+            "go mod tidy",
+            "go build -o gf main.go"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gf.",
+      "id": "builder-auto-011",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gron build execution",
+      "tags": [
+        "go",
+        "gron"
+      ],
+      "build_system": "go",
+      "repo_name": "gron",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gron.",
+      "id": "builder-auto-012",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: assetfinder build execution",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod init github.com/tomnomnom/assetfinder",
+            "go mod tidy",
+            "go build -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from assetfinder.",
+      "id": "builder-auto-013",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: dnsx build execution",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/integration-test"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dnsx.",
+      "id": "builder-auto-014",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: ffuf build execution",
+      "tags": [
+        "go",
+        "ffuf"
+      ],
+      "build_system": "go",
+      "repo_name": "ffuf",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o ffuf ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ffuf.",
+      "id": "builder-auto-015",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gobuster build execution",
+      "tags": [
+        "go",
+        "gobuster"
+      ],
+      "build_system": "go",
+      "repo_name": "gobuster",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gobuster ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gobuster.",
+      "id": "builder-auto-016",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gitleaks build execution",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gitleaks ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gitleaks.",
+      "id": "builder-auto-017",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: chisel build execution",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o chisel ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from chisel.",
+      "id": "builder-auto-018",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: croc build execution",
+      "tags": [
+        "go",
+        "croc"
+      ],
+      "build_system": "go",
+      "repo_name": "croc",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o croc ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from croc.",
+      "id": "builder-auto-019",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: asnmap build execution",
+      "tags": [
+        "go",
+        "asnmap"
+      ],
+      "build_system": "go",
+      "repo_name": "asnmap",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o asnmap ./cmd/asnmap"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from asnmap.",
+      "id": "builder-auto-020",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gau build execution",
+      "tags": [
+        "go",
+        "gau"
+      ],
+      "build_system": "go",
+      "repo_name": "gau",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gau ./cmd/gau"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gau.",
+      "id": "builder-auto-021",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: glow build execution",
+      "tags": [
+        "go",
+        "glow"
+      ],
+      "build_system": "go",
+      "repo_name": "glow",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o glow ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from glow.",
+      "id": "builder-auto-022",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: cvemap build execution",
+      "tags": [
+        "go",
+        "cvemap"
+      ],
+      "build_system": "go",
+      "repo_name": "cvemap",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o vulnx ./cmd/vulnx"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from cvemap.",
+      "id": "builder-auto-023",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gum build execution",
+      "tags": [
+        "go",
+        "gum"
+      ],
+      "build_system": "go",
+      "repo_name": "gum",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gum ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gum.",
+      "id": "builder-auto-024",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: age build execution",
+      "tags": [
+        "go",
+        "age"
+      ],
+      "build_system": "go",
+      "repo_name": "age",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/age"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from age.",
+      "id": "builder-auto-025",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: fping build execution",
+      "tags": [
+        "autotools",
+        "fping"
+      ],
+      "build_system": "autotools",
+      "repo_name": "fping",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base automake autoconf libtool",
+            "cp /usr/share/automake-*/config.guess ./",
+            "cp /usr/share/automake-*/config.sub ./"
+          ]
+        },
+        {
+          "name": "prepare",
+          "commands": [
+            "./autogen.sh"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from fping.",
+      "id": "builder-auto-026",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: airixss build execution",
+      "tags": [
+        "go",
+        "airixss"
+      ],
+      "build_system": "go",
+      "repo_name": "airixss",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "init_module",
+          "commands": [
+            "go mod init github.com/ferreiraklet/airixss",
+            "go mod tidy"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -o airixss ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from airixss.",
+      "id": "builder-auto-027",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: allxfr build execution",
+      "tags": [
+        "go",
+        "allxfr"
+      ],
+      "build_system": "go",
+      "repo_name": "allxfr",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from allxfr.",
+      "id": "builder-auto-028",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: AnalyticsRelationships build execution",
+      "tags": [
+        "go",
+        "AnalyticsRelationships"
+      ],
+      "build_system": "go",
+      "repo_name": "AnalyticsRelationships",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o AnalyticsRelationships ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from AnalyticsRelationships.",
+      "id": "builder-auto-029",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: anyproxy build execution",
+      "tags": [
+        "go",
+        "anyproxy"
+      ],
+      "build_system": "go",
+      "repo_name": "anyproxy",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./grace"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anyproxy.",
+      "id": "builder-auto-030",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: assh build execution",
+      "tags": [
+        "go",
+        "assh"
+      ],
+      "build_system": "go",
+      "repo_name": "assh",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o assh ./main.go"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from assh.",
+      "id": "builder-auto-031",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: byp4xx build execution",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod init github.com/byp4xx/byp4xx",
+            "go mod tidy",
+            "go build -buildvcs=false -o byp4xx ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from byp4xx.",
+      "id": "builder-auto-032",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: cariddi build execution",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o cariddi ./cmd/cariddi"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from cariddi.",
+      "id": "builder-auto-033",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: certgraph build execution",
+      "tags": [
+        "go",
+        "certgraph"
+      ],
+      "build_system": "go",
+      "repo_name": "certgraph",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o certgraph ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from certgraph.",
+      "id": "builder-auto-034",
+      "source": "auto",
+      "timestamp": "2026-04-29"
     }
   ]
 }

@@ -699,6 +699,1068 @@
       "id": "scout-auto-009",
       "source": "auto",
       "timestamp": "2026-04-27"
+    },
+    {
+      "name": "Auto: anew (go)",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o anew ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anew build.",
+      "id": "scout-auto-010",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gf (go)",
+      "tags": [
+        "go",
+        "gf"
+      ],
+      "build_system": "go",
+      "repo_name": "gf",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/tomnomnom/gf",
+              "go mod tidy",
+              "go build -o gf main.go"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gf build.",
+      "id": "scout-auto-011",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gron (go)",
+      "tags": [
+        "go",
+        "gron"
+      ],
+      "build_system": "go",
+      "repo_name": "gron",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gron build.",
+      "id": "scout-auto-012",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: assetfinder (go)",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/tomnomnom/assetfinder",
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assetfinder build.",
+      "id": "scout-auto-013",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: dnsx (go)",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/integration-test"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful dnsx build.",
+      "id": "scout-auto-014",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: dnsx (go)",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful dnsx build.",
+      "id": "scout-auto-014",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: ffuf (go)",
+      "tags": [
+        "go",
+        "ffuf"
+      ],
+      "build_system": "go",
+      "repo_name": "ffuf",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o ffuf ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful ffuf build.",
+      "id": "scout-auto-016",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gobuster (go)",
+      "tags": [
+        "go",
+        "gobuster"
+      ],
+      "build_system": "go",
+      "repo_name": "gobuster",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gobuster ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gobuster build.",
+      "id": "scout-auto-016",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gobuster (go)",
+      "tags": [
+        "go",
+        "gobuster"
+      ],
+      "build_system": "go",
+      "repo_name": "gobuster",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gobuster ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gobuster build.",
+      "id": "scout-auto-017",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gitleaks (go)",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gitleaks ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitleaks build.",
+      "id": "scout-auto-019",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gitleaks (go)",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gitleaks ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitleaks build.",
+      "id": "scout-auto-019",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: chisel (go)",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o chisel ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful chisel build.",
+      "id": "scout-auto-021",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: chisel (go)",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o chisel ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful chisel build.",
+      "id": "scout-auto-021",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: croc (go)",
+      "tags": [
+        "go",
+        "croc"
+      ],
+      "build_system": "go",
+      "repo_name": "croc",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o croc ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful croc build.",
+      "id": "scout-auto-023",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: asnmap (go)",
+      "tags": [
+        "go",
+        "asnmap"
+      ],
+      "build_system": "go",
+      "repo_name": "asnmap",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o asnmap ./cmd/asnmap"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful asnmap build.",
+      "id": "scout-auto-024",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gau (go)",
+      "tags": [
+        "go",
+        "gau"
+      ],
+      "build_system": "go",
+      "repo_name": "gau",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gau ./cmd/gau"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gau build.",
+      "id": "scout-auto-024",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: glow (go)",
+      "tags": [
+        "go",
+        "glow"
+      ],
+      "build_system": "go",
+      "repo_name": "glow",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o glow ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful glow build.",
+      "id": "scout-auto-026",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: cvemap (go)",
+      "tags": [
+        "go",
+        "cvemap"
+      ],
+      "build_system": "go",
+      "repo_name": "cvemap",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o vulnx ./cmd/vulnx"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cvemap build.",
+      "id": "scout-auto-026",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gum (go)",
+      "tags": [
+        "go",
+        "gum"
+      ],
+      "build_system": "go",
+      "repo_name": "gum",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gum ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gum build.",
+      "id": "scout-auto-028",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: age (go)",
+      "tags": [
+        "go",
+        "age"
+      ],
+      "build_system": "go",
+      "repo_name": "age",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/age"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful age build.",
+      "id": "scout-auto-029",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: fping (autotools)",
+      "tags": [
+        "autotools",
+        "fping"
+      ],
+      "build_system": "autotools",
+      "repo_name": "fping",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base automake autoconf libtool",
+              "cp /usr/share/automake-*/config.guess ./",
+              "cp /usr/share/automake-*/config.sub ./"
+            ]
+          },
+          {
+            "name": "prepare",
+            "commands": [
+              "./autogen.sh"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful fping build.",
+      "id": "scout-auto-030",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: airixss (go)",
+      "tags": [
+        "go",
+        "airixss"
+      ],
+      "build_system": "go",
+      "repo_name": "airixss",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "init_module",
+            "commands": [
+              "go mod init github.com/ferreiraklet/airixss",
+              "go mod tidy"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false -o airixss ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful airixss build.",
+      "id": "scout-auto-031",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: allxfr (go)",
+      "tags": [
+        "go",
+        "allxfr"
+      ],
+      "build_system": "go",
+      "repo_name": "allxfr",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful allxfr build.",
+      "id": "scout-auto-032",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: AnalyticsRelationships (go)",
+      "tags": [
+        "go",
+        "AnalyticsRelationships"
+      ],
+      "build_system": "go",
+      "repo_name": "AnalyticsRelationships",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o AnalyticsRelationships ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful AnalyticsRelationships build.",
+      "id": "scout-auto-033",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: anyproxy (go)",
+      "tags": [
+        "go",
+        "anyproxy"
+      ],
+      "build_system": "go",
+      "repo_name": "anyproxy",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./grace"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anyproxy build.",
+      "id": "scout-auto-034",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: assh (go)",
+      "tags": [
+        "go",
+        "assh"
+      ],
+      "build_system": "go",
+      "repo_name": "assh",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o assh ./main.go"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assh build.",
+      "id": "scout-auto-035",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: byp4xx (go)",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/byp4xx/byp4xx",
+              "go mod tidy",
+              "go build -buildvcs=false -o byp4xx ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful byp4xx build.",
+      "id": "scout-auto-036",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: cariddi (go)",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o cariddi ./cmd/cariddi"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cariddi build.",
+      "id": "scout-auto-037",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: certgraph (go)",
+      "tags": [
+        "go",
+        "certgraph"
+      ],
+      "build_system": "go",
+      "repo_name": "certgraph",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o certgraph ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful certgraph build.",
+      "id": "scout-auto-038",
+      "source": "auto",
+      "timestamp": "2026-04-29"
     }
   ]
 }

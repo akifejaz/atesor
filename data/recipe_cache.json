@@ -497,6 +497,1154 @@
       ],
       "build_duration_seconds": 103.3,
       "recipe_file": "output/siegfried_recipe.md"
+    },
+    "anew": {
+      "repo_url": "https://github.com/tomnomnom/anew.git",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-04T12:17:12.751670",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o anew ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/anew/script/release"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/anew/anew"
+        }
+      ],
+      "build_duration_seconds": 178.6,
+      "recipe_file": "output/anew_recipe.md"
+    },
+    "gf": {
+      "repo_url": "https://github.com/tomnomnom/gf",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T13:51:34.301113",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gf ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gf/gf"
+        }
+      ],
+      "build_duration_seconds": 227.0,
+      "recipe_file": "output/gf_recipe.md"
+    },
+    "gron": {
+      "repo_url": "https://github.com/tomnomnom/gron",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T13:55:48.923010",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gron ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/gron"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/original-gron.php"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/example"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/release"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/test"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/lint"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/precommit"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gron/script/profile"
+        }
+      ],
+      "build_duration_seconds": 247.8,
+      "recipe_file": "output/gron_recipe.md"
+    },
+    "assetfinder": {
+      "repo_url": "https://github.com/tomnomnom/assetfinder",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:03:03.578471",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o assetfinder ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/assetfinder/script/release"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/assetfinder/assetfinder"
+        }
+      ],
+      "build_duration_seconds": 161.7,
+      "recipe_file": "output/assetfinder_recipe.md"
+    },
+    "dnsx": {
+      "repo_url": "https://github.com/projectdiscovery/dnsx",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:08:21.094902",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dnsx/integration_tests/run.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dnsx/integration-test"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dnsx/cmd/functional-test/run.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dnsx/dnsx"
+        }
+      ],
+      "build_duration_seconds": 311.3,
+      "recipe_file": "output/dnsx_recipe.md"
+    },
+    "ffuf": {
+      "repo_url": "https://github.com/ffuf/ffuf",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:40:26.435146",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o ffuf ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/ffuf/ffuf"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/ffuf/pkg/filter/time_test.go"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/ffuf/pkg/filter/time.go"
+        }
+      ],
+      "build_duration_seconds": 528.8,
+      "recipe_file": "output/ffuf_recipe.md"
+    },
+    "gobuster": {
+      "repo_url": "https://github.com/OJ/gobuster",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:42:46.871255",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gobuster ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gobuster/gobuster"
+        }
+      ],
+      "build_duration_seconds": 134.6,
+      "recipe_file": "output/gobuster_recipe.md"
+    },
+    "gitleaks": {
+      "repo_url": "https://github.com/gitleaks/gitleaks",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:51:54.448679",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gitleaks ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/scripts/profile.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/gitleaks"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/testdata/config/valid/rule_entropy_group.toml"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/testdata/config/invalid/rule_bad_entropy_group.toml"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/testdata/config/invalid/rule_missing_id.toml"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitleaks/testdata/config/invalid/rule_no_regex_or_path.toml"
+        }
+      ],
+      "build_duration_seconds": 540.9,
+      "recipe_file": "output/gitleaks_recipe.md"
+    },
+    "chisel": {
+      "repo_url": "https://github.com/jpillora/chisel",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T14:56:10.372109",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o chisel ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/chisel/chisel"
+        }
+      ],
+      "build_duration_seconds": 249.1,
+      "recipe_file": "output/chisel_recipe.md"
+    },
+    "croc": {
+      "repo_url": "https://github.com/schollz/croc",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:06:12.913970",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o croc ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/croc/croc-entrypoint.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/croc/croc"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/croc/src/install/upload-src-tarball.sh"
+        }
+      ],
+      "build_duration_seconds": 252.2,
+      "recipe_file": "output/croc_recipe.md"
+    },
+    "asnmap": {
+      "repo_url": "https://github.com/projectdiscovery/asnmap",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:17:50.861773",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o asnmap ./cmd/asnmap"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/asnmap/asnmap"
+        }
+      ],
+      "build_duration_seconds": 290.9,
+      "recipe_file": "output/asnmap_recipe.md"
+    },
+    "gau": {
+      "repo_url": "https://github.com/lc/gau",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:41:28.571175",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gau ./cmd/gau"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gau/gau"
+        }
+      ],
+      "build_duration_seconds": 181.9,
+      "recipe_file": "output/gau_recipe.md"
+    },
+    "glow": {
+      "repo_url": "https://github.com/charmbracelet/glow",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:44:17.942277",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o glow ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/glow/glow"
+        }
+      ],
+      "build_duration_seconds": 162.3,
+      "recipe_file": "output/glow_recipe.md"
+    },
+    "cvemap": {
+      "repo_url": "https://github.com/projectdiscovery/cvemap",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T16:32:12.415207",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o vulnx ./cmd/vulnx"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/cvemap/scripts/git-hook-install.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/cvemap/integration-test"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/cvemap/cmd/integration-test/vulnsh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/cvemap/vulnx"
+        }
+      ],
+      "build_duration_seconds": 166.0,
+      "recipe_file": "output/cvemap_recipe.md"
+    },
+    "dalfox": {
+      "repo_url": "https://github.com/hahwul/dalfox",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:38:19.989571",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dalfox/dalfox.go"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dalfox/dalfox"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dalfox/samples/sample_found_action.sh"
+        }
+      ],
+      "build_duration_seconds": 392.9,
+      "recipe_file": "output/dalfox_recipe.md"
+    },
+    "gum": {
+      "repo_url": "https://github.com/charmbracelet/gum",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T15:52:06.240354",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gum ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/gum"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/demo.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/posix.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/convert-to-gif.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/commit.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/magic.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/git-branch-manager.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/filter-key-value.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/diyfetch"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/git-stage.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/test.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gum/examples/skate.sh"
+        }
+      ],
+      "build_duration_seconds": 461.6,
+      "recipe_file": "output/gum_recipe.md"
+    },
+    "age": {
+      "repo_url": "https://github.com/FiloSottile/age",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T16:12:50.437762",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/age"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/age/age"
+        }
+      ],
+      "build_duration_seconds": 502.5,
+      "recipe_file": "output/age_recipe.md"
+    },
+    "fping": {
+      "repo_url": "https://github.com/schweikert/fping",
+      "build_system": "autotools",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-28T17:18:42.640450",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base automake autoconf libtool",
+              "cp /usr/share/automake-*/config.guess ./",
+              "cp /usr/share/automake-*/config.sub ./"
+            ]
+          },
+          {
+            "name": "prepare",
+            "commands": [
+              "./autogen.sh"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/autoclean.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/missing"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/compile"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/config.sub"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/config.status"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/config.guess"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/install-sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/depcomp"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/configure"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/autogen.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/src/fping"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/src/maketags.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/deploy-bintray.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/run-tests.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/test-15-netdata.pl"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/test-07-options-i-m.pl"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/test-09-option-r-t.pl"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/run-lcov.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/build-3-prepare-macos.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fping/ci/test-10-option-u-x.pl"
+        }
+      ],
+      "build_duration_seconds": 384.0,
+      "recipe_file": "output/fping_recipe.md"
+    },
+    "airixss": {
+      "repo_url": "https://github.com/ferreiraklet/airixss",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T10:46:45.096165",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "init_module",
+            "commands": [
+              "go mod init github.com/ferreiraklet/airixss",
+              "go mod tidy"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false -o airixss ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/airixss/airixss"
+        }
+      ],
+      "build_duration_seconds": 328.2,
+      "recipe_file": "output/airixss_recipe.md"
+    },
+    "allxfr": {
+      "repo_url": "https://github.com/lanrat/allxfr",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T10:51:22.729703",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 271.5,
+      "recipe_file": "output/allxfr_recipe.md"
+    },
+    "AnalyticsRelationships": {
+      "repo_url": "https://github.com/Josue87/AnalyticsRelationships",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T10:53:17.374457",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o AnalyticsRelationships ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/AnalyticsRelationships/AnalyticsRelationships"
+        }
+      ],
+      "build_duration_seconds": 108.1,
+      "recipe_file": "output/AnalyticsRelationships_recipe.md"
+    },
+    "anyproxy": {
+      "repo_url": "https://github.com/keminar/anyproxy",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T10:56:54.995169",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./grace"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 210.9,
+      "recipe_file": "output/anyproxy_recipe.md"
+    },
+    "assh": {
+      "repo_url": "https://github.com/moul/assh",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T11:01:35.003235",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o assh ./main.go"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/assh/contrib/generate-loggers.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/assh/assh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/assh/pkg/hooks/testdata/posix.shell"
+        }
+      ],
+      "build_duration_seconds": 273.4,
+      "recipe_file": "output/assh_recipe.md"
+    },
+    "byp4xx": {
+      "repo_url": "https://github.com/lobuhi/byp4xx",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T11:05:29.351191",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/byp4xx/byp4xx",
+              "go mod tidy",
+              "go build -buildvcs=false -o byp4xx ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/byp4xx/byp4xx"
+        }
+      ],
+      "build_duration_seconds": 227.8,
+      "recipe_file": "output/byp4xx_recipe.md"
+    },
+    "cariddi": {
+      "repo_url": "https://github.com/edoardottt/cariddi",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T11:12:29.928219",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o cariddi ./cmd/cariddi"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/cariddi/cariddi"
+        }
+      ],
+      "build_duration_seconds": 413.8,
+      "recipe_file": "output/cariddi_recipe.md"
+    },
+    "certgraph": {
+      "repo_url": "https://github.com/lanrat/certgraph",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-04-29T11:16:38.813559",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o certgraph ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/certgraph/certgraph"
+        }
+      ],
+      "build_duration_seconds": 242.7,
+      "recipe_file": "output/certgraph_recipe.md"
     }
   }
 }
