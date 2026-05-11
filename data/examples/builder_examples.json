@@ -1255,6 +1255,1377 @@
       "id": "builder-auto-034",
       "source": "auto",
       "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: cJSON build execution",
+      "tags": [
+        "cmake",
+        "cJSON"
+      ],
+      "build_system": "cmake",
+      "repo_name": "cJSON",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from cJSON.",
+      "id": "builder-auto-035",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: zstd build execution",
+      "tags": [
+        "cmake",
+        "zstd"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zstd",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zstd.",
+      "id": "builder-auto-036",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: lz4 build execution",
+      "tags": [
+        "make",
+        "lz4"
+      ],
+      "build_system": "make",
+      "repo_name": "lz4",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add build-base"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from lz4.",
+      "id": "builder-auto-037",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: brotli build execution",
+      "tags": [
+        "cmake",
+        "brotli"
+      ],
+      "build_system": "cmake",
+      "repo_name": "brotli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from brotli.",
+      "id": "builder-auto-038",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: ogg build execution",
+      "tags": [
+        "cmake",
+        "ogg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "ogg",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf musl-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ogg.",
+      "id": "builder-auto-039",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: jansson build execution",
+      "tags": [
+        "cmake",
+        "jansson"
+      ],
+      "build_system": "cmake",
+      "repo_name": "jansson",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DJANSSON_BUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from jansson.",
+      "id": "builder-auto-040",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libyaml build execution",
+      "tags": [
+        "cmake",
+        "libyaml"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libyaml",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libyaml.",
+      "id": "builder-auto-041",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: zlib-ng build execution",
+      "tags": [
+        "cmake",
+        "zlib-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib-ng",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zlib-ng.",
+      "id": "builder-auto-042",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: minizip-ng build execution",
+      "tags": [
+        "cmake",
+        "minizip-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "minizip-ng",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from minizip-ng.",
+      "id": "builder-auto-043",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: snappy build execution",
+      "tags": [
+        "cmake",
+        "snappy"
+      ],
+      "build_system": "cmake",
+      "repo_name": "snappy",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from snappy.",
+      "id": "builder-auto-044",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: xz build execution",
+      "tags": [
+        "cmake",
+        "xz"
+      ],
+      "build_system": "cmake",
+      "repo_name": "xz",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add build-base musl-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from xz.",
+      "id": "builder-auto-045",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libjpeg-turbo build execution",
+      "tags": [
+        "cmake",
+        "libjpeg-turbo"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libjpeg-turbo",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake zlib-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libjpeg-turbo.",
+      "id": "builder-auto-046",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libtiff build execution",
+      "tags": [
+        "cmake",
+        "libtiff"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libtiff",
+      "phases": [
+        {
+          "name": "install_dependencies",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake zlib-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_TOOLS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libtiff.",
+      "id": "builder-auto-047",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: openjpeg build execution",
+      "tags": [
+        "cmake",
+        "openjpeg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "openjpeg",
+      "phases": [
+        {
+          "name": "install_dependencies",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf curl-dev musl-dev libatomic"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from openjpeg.",
+      "id": "builder-auto-048",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: c-ares build execution",
+      "tags": [
+        "cmake",
+        "c-ares"
+      ],
+      "build_system": "cmake",
+      "repo_name": "c-ares",
+      "phases": [
+        {
+          "name": "install_dependencies",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "rm -rf build",
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCARES_BUILD_TOOLS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from c-ares.",
+      "id": "builder-auto-049",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libavif build execution",
+      "tags": [
+        "cmake",
+        "libavif"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf zlib-dev libpng-dev libjpeg-turbo-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libavif.",
+      "id": "builder-auto-050",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: Little-CMS build execution",
+      "tags": [
+        "cmake",
+        "Little-CMS"
+      ],
+      "build_system": "cmake",
+      "repo_name": "Little-CMS",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf",
+            "apk add zlib-dev libjpeg-turbo-dev libpng-dev tiff-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from Little-CMS.",
+      "id": "builder-auto-051",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: freetype build execution",
+      "tags": [
+        "cmake",
+        "freetype"
+      ],
+      "build_system": "cmake",
+      "repo_name": "freetype",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf zlib-dev libpng-dev bzip2-dev brotli-dev harfbuzz-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from freetype.",
+      "id": "builder-auto-052",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: dav1d build execution",
+      "tags": [
+        "meson",
+        "dav1d"
+      ],
+      "build_system": "meson",
+      "repo_name": "dav1d",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base meson ninja musl-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "meson setup build --buildtype=release --default-library=static",
+            "ninja -C build"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dav1d.",
+      "id": "builder-auto-053",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: opus build execution",
+      "tags": [
+        "cmake",
+        "opus"
+      ],
+      "build_system": "cmake",
+      "repo_name": "opus",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from opus.",
+      "id": "builder-auto-054",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: vorbis build execution",
+      "tags": [
+        "cmake",
+        "vorbis"
+      ],
+      "build_system": "cmake",
+      "repo_name": "vorbis",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf libogg-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from vorbis.",
+      "id": "builder-auto-055",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: speex build execution",
+      "tags": [
+        "autotools",
+        "speex"
+      ],
+      "build_system": "autotools",
+      "repo_name": "speex",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base automake autoconf libtool",
+            "cp /usr/share/automake-*/config.guess .",
+            "cp /usr/share/automake-*/config.sub ."
+          ]
+        },
+        {
+          "name": "prepare",
+          "commands": [
+            "./autogen.sh"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from speex.",
+      "id": "builder-auto-056",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: curl build execution",
+      "tags": [
+        "cmake",
+        "curl"
+      ],
+      "build_system": "cmake",
+      "repo_name": "curl",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev nghttp2-dev c-ares-dev perl"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from curl.",
+      "id": "builder-auto-057",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libssh2 build execution",
+      "tags": [
+        "cmake",
+        "libssh2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libssh2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf openssl-dev zlib-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libssh2.",
+      "id": "builder-auto-058",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libuv build execution",
+      "tags": [
+        "cmake",
+        "libuv"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libuv",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libuv.",
+      "id": "builder-auto-059",
+      "source": "auto",
+      "timestamp": "2026-05-06"
+    },
+    {
+      "name": "Auto: flac build execution",
+      "tags": [
+        "cmake",
+        "flac"
+      ],
+      "build_system": "cmake",
+      "repo_name": "flac",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake libogg-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from flac.",
+      "id": "builder-auto-060",
+      "source": "auto",
+      "timestamp": "2026-05-06"
+    },
+    {
+      "name": "Auto: openssl build execution",
+      "tags": [
+        "other",
+        "openssl"
+      ],
+      "build_system": "other",
+      "repo_name": "openssl",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add --no-cache build-base perl linux-headers"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "perl ./Configure linux64-riscv64 no-asm no-tests no-docs --prefix=/usr/local",
+            "make depend"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from openssl.",
+      "id": "builder-auto-061",
+      "source": "auto",
+      "timestamp": "2026-05-06"
+    },
+    {
+      "name": "Auto: sqlite build execution",
+      "tags": [
+        "make",
+        "sqlite"
+      ],
+      "build_system": "make",
+      "repo_name": "sqlite",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from sqlite.",
+      "id": "builder-auto-062",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libarchive build execution",
+      "tags": [
+        "cmake",
+        "libarchive"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libarchive",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf zlib-dev openssl-dev bzip2-dev xz-dev mbedtls-dev nettle-dev libxml2-dev expat-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS='-latomic' -DCMAKE_SHARED_LINKER_FLAGS='-latomic'"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libarchive.",
+      "id": "builder-auto-063",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libxml2 build execution",
+      "tags": [
+        "cmake",
+        "libxml2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libxml2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake python3-dev icu-dev zlib-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libxml2.",
+      "id": "builder-auto-064",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: pcre2 build execution",
+      "tags": [
+        "cmake",
+        "pcre2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "pcre2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake zlib-dev musl-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF -DBUILD_DOCS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from pcre2.",
+      "id": "builder-auto-065",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: sqlite build execution",
+      "tags": [
+        "autotools",
+        "sqlite"
+      ],
+      "build_system": "autotools",
+      "repo_name": "sqlite",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add build-base zlib-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from sqlite.",
+      "id": "builder-auto-066",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: highway build execution",
+      "tags": [
+        "cmake",
+        "highway"
+      ],
+      "build_system": "cmake",
+      "repo_name": "highway",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DHWY_ENABLE_TESTS=OFF -DHWY_ENABLE_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from highway.",
+      "id": "builder-auto-067",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: mbedtls build execution",
+      "tags": [
+        "cmake",
+        "mbedtls"
+      ],
+      "build_system": "cmake",
+      "repo_name": "mbedtls",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake python3"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from mbedtls.",
+      "id": "builder-auto-068",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libgit2 build execution",
+      "tags": [
+        "cmake",
+        "libgit2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libgit2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev curl-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && export LDFLAGS=\"-latomic\" && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DUSE_SSH=ON -DUSE_HTTPS=ON"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libgit2.",
+      "id": "builder-auto-069",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libexpat build execution",
+      "tags": [
+        "cmake",
+        "libexpat"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libexpat",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake ../expat -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libexpat.",
+      "id": "builder-auto-070",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: OpenBLAS build execution",
+      "tags": [
+        "make",
+        "OpenBLAS"
+      ],
+      "build_system": "make",
+      "repo_name": "OpenBLAS",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base musl-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc) TARGET=RISCV64"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from OpenBLAS.",
+      "id": "builder-auto-071",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: libsodium build execution",
+      "tags": [
+        "autotools",
+        "libsodium"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libsodium",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base automake autoconf libtool",
+            "cp /usr/share/automake-*/config.guess ./",
+            "cp /usr/share/automake-*/config.sub ./"
+          ]
+        },
+        {
+          "name": "prepare",
+          "commands": [
+            "./autogen.sh -s -f"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libsodium.",
+      "id": "builder-auto-072",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: libheif build execution",
+      "tags": [
+        "cmake",
+        "libheif"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libheif",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake zlib-dev libjpeg-turbo-dev pkgconf"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libheif.",
+      "id": "builder-auto-073",
+      "source": "auto",
+      "timestamp": "2026-05-11"
     }
   ]
 }

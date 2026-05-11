@@ -511,6 +511,8 @@ def classify_error(error_message: str) -> ErrorCategory:
             "undeclared",
             "undefined reference",
             "implicit declaration",
+            "path_max unset",
+            "fortified realpath",
         ]
     ):
         return ErrorCategory.COMPILATION

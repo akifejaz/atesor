@@ -318,10 +318,12 @@ Existing architecture support: {existing_archs}
 ## Planning Principles
 
 1. **Pattern-based porting:** Study how the codebase handles existing architectures (x86, ARM), then replicate that pattern for RISC-V. If no patterns exist, use a generic build approach.
-2. **Native compilation:** We build natively inside an Alpine Linux riscv64 Docker container — never use cross-compilation flags.
+2. **Native compilation:** We build natively inside an Alpine Linux riscv64 Docker container — never use cross-compilation flags (`--host`, `GOOS/GOARCH`, `-DCMAKE_SYSTEM_PROCESSOR`).
 3. **Alpine/musl awareness:** Alpine uses musl libc, not glibc. Watch for glibc-only APIs (`execinfo.h`, `backtrace`, `mallinfo`, `REG_RIP`).
 4. **ISA extension safety:** Do not assume specific RISC-V extensions (V, Zba, Zbb). Use detection macros (`__riscv`, `__riscv_xlen`, `__riscv_atomic`, `__riscv_vector`).
 5. **Minimal intervention:** Prefer configuration changes over code modification, conditional compilation over replacing code.
+6. **Dependency awareness:** For C/C++ projects, identify required libraries by reading CMakeLists.txt (`find_package`, `pkg_check_modules`), meson.build (`dependency()`), or configure.ac (`AC_CHECK_LIB`, `PKG_CHECK_MODULES`). Install all `-dev` packages upfront.
+7. **SIMD strategy:** Many C/C++ libraries use x86 SIMD (SSE/AVX). For RISC-V, first try disabling SIMD via build options (e.g., `-DWITH_SIMD=OFF`). If no option exists, the code must compile with scalar fallbacks.
 
 ## Risk Factors to Evaluate
 - x86/ARM SIMD intrinsics (SSE, AVX, NEON) — need SIMDe or scalar fallback
@@ -909,25 +911,62 @@ SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan f
 ## Build Plan Rules
 
 1. **All commands must be executable as-is** inside a Docker container at `{repo_path}`. No placeholders like `/path/to/` or `<value>`.
-2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`). The build runs natively on {architecture}.
+   - **CRITICAL: Each command runs in a separate shell starting at `{repo_path}`**. A `cd` in one command does NOT carry over to the next. Always chain `cd` with subsequent commands using `&&`. Example: `cd build && cmake ..` NOT separate `cd build` then `cmake ..`.
+2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`, `-DCMAKE_SYSTEM_PROCESSOR=riscv64`). The build runs natively on {architecture}. The compiler already targets riscv64.
 3. **Use the correct build system:**
    - Go: Check `Go Main Package Info` for whether `go.mod` exists.
      - **If `needs_go_init: true`** (no go.mod found): First run `go mod init <module_name>` then `go mod tidy` then `go build .`.
        Use the GitHub repo path as module name (e.g. `github.com/tomnomnom/assetfinder`).
      - **If `has_go_mod: true`**: Run `go mod tidy` then `go build ./...` or target path from `build_command`.
      - **Always** use `go build ./...` or specific path — never just `go build` alone when a main path is known.
-   - CMake: `mkdir -p build && cd build && cmake .. && make -j$(nproc)`
-   - Make: `make -j$(nproc)`
+   - CMake: `mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)`
+     - **CRITICAL**: If you split cmake steps across phases, ALWAYS include `mkdir -p build` BEFORE any `cd build` command. Never assume the build directory exists.
+     - **Read CMakeLists.txt** to discover optional features that may cause build issues on RISC-V:
+       - Look for `option(...)` and `find_package(...)` to find toggleable features and required dependencies.
+       - **Disable tests/examples/docs** to speed up build: e.g. `-DBUILD_TESTING=OFF`, `-DBUILD_TESTS=OFF`, `-DBUILD_EXAMPLES=OFF`, `-DBUILD_PROGRAMS=OFF`
+       - **Disable x86-specific SIMD** if the project has SSE/AVX options: e.g. `-DENABLE_SSE=OFF`, `-DWITH_SIMD=OFF`, `-DHWY_ENABLE_TESTS=OFF`
+       - **Install required `-dev` packages** for each `find_package()`/`pkg_check_modules()` call in CMakeLists.txt. Common Alpine mappings:
+         - `ZLIB` → `zlib-dev`, `PNG` → `libpng-dev`, `JPEG/JPEGTURBO` → `libjpeg-turbo-dev`
+         - `OpenSSL` → `openssl-dev`, `CURL` → `curl-dev`, `LibXml2` → `libxml2-dev`
+         - `Threads` → already available, `EXPAT` → `expat-dev`, `BZip2` → `bzip2-dev`
+     - If CMake fails with "Could NOT find ..." → install the missing `-dev` package via `apk add`
+   - Make: `make -j$(nproc)` — read the Makefile first to check for required variables or config targets.
    - Autotools: Check if `./configure` exists.
-     - If `./configure` exists: Run `./configure --host=riscv64-linux-musl && make`
-     - If `./configure` does NOT exist but `configure.ac` exists: Run `autoreconf -fi` to generate it, then `./configure --host=riscv64-linux-musl && make`
-     - If `autoreconf -fi` fails with "undefined macro" or "macro not found": **Copy gettext.m4 FIRST, then run aclocal**: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`, then run `./configure --host=riscv64-linux-musl`. Do NOT include `/usr/share/gettext/m4` in the aclocal `-I` flags after copying — this causes conflicts.
-     - Always pass `--host=riscv64-linux-musl` to `./configure` for cross-compilation awareness
+     - If `./configure` exists: Run `./configure && make -j$(nproc)` (do NOT pass `--host` when building natively)
+     - If `./configure` does NOT exist but `autogen.sh` exists: **CRITICAL**: Run `./autogen.sh -s -f` (MUST pass `-s` for dev setup mode and `-f` to force — without these flags, many autogen.sh scripts silently exit without generating configure). Then `./configure && make -j$(nproc)`
+     - If `./configure` does NOT exist but `configure.ac`/`configure.in` exists: Run `autoreconf -fi` to generate it, then `./configure && make -j$(nproc)`
+     - If `autoreconf -fi` fails with "undefined macro" or "macro not found": **Copy gettext.m4 FIRST, then run aclocal**: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`, then run `./configure && make -j$(nproc)`.
      - **IMPORTANT**: If the repo has an `m4/` directory, include `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true` as the FIRST command in the setup phase to ensure modern gettext M4 macros are present before running autoreconf or aclocal
+   - **Build system preference**: If a project has BOTH CMakeLists.txt AND configure.ac/autogen.sh, and the CMake build fails with parse errors or missing features, fall back to autotools.
    - Meson: `meson setup build && ninja -C build`
+     - Install `meson` and `ninja` via `apk add meson ninja`
+     - If the project uses NASM/YASM for assembly: `apk add nasm`
    - Cargo: `cargo build --release`
+   - Custom build systems (e.g., OpenSSL, SQLite):
+     - If the project uses `./Configure` (capital C, Perl script): `perl ./Configure <target> && make -j$(nproc)`
+     - For OpenSSL specifically: use `perl ./Configure linux64-riscv64 no-asm no-tests no-docs` (do NOT use -Wl, flags — pass `-latomic` via LDFLAGS env var instead: `export LDFLAGS="-latomic"`)
+     - If the project provides a standalone amalgamation file (e.g. sqlite3.c): compile directly with `gcc -o output source.c -lpthread -ldl`
+     - Always read the project's INSTALL/README for the correct build procedure
 4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
-5. **If architecture-specific code is found**, note it in `architecture_concerns`. Common RISC-V issues: x86 intrinsics (SSE/AVX), inline assembly, `__builtin_ia32_*`, stale `config.guess`/`config.sub`, missing `-latomic`.
+   - For C/C++ libraries, always install the `-dev` variant (e.g., `zlib-dev`, `openssl-dev`, `curl-dev`).
+   - **IMPORTANT: Never repeat the same package name in an `apk add` command. List each package exactly once.**
+   - **Alpine/musl package gotchas** (these packages do NOT exist — do NOT try to install them):
+     - `libiconv-dev` → musl has iconv built-in, no separate package needed
+     - `libatomic-dev` → libatomic is part of gcc, already installed via `build-base`
+     - `librt-dev`, `libpthread-dev` → part of musl, no separate packages
+     - `libdl-dev` → part of musl, no separate package
+   - Check the project README/INSTALL and CMakeLists.txt/meson.build for required dependencies.
+   - For CMake projects, check `find_package()` calls in CMakeLists.txt — each required package needs a corresponding `-dev` install. Common: `absl` → `abseil-cpp-dev`, `Protobuf` → `protobuf-dev`, `OpenSSL` → `openssl-dev`, `ZLIB` → `zlib-dev`, `LibSSH2` → `libssh2-dev`.
+5. **Verify source code location**: CMakeLists.txt or configure.ac may be in a subdirectory (e.g., `expat/`, `src/`). If the root has no build files, check subdirectories. If README says source is on a different branch (e.g., `c_master`, `cpp_master`), add `git fetch origin <branch>:<branch> && git checkout <branch>` as the FIRST command in setup phase. The `:<branch>` syntax is required for shallow clones to create a local branch.
+   - **If both CMake and autotools are available** (both CMakeLists.txt and configure/configure.ac exist), prefer autotools (`./configure && make`) as it is usually more mature and handles code generation better on RISC-V.
+   - **If `./configure` already exists**, use it directly — do NOT run autoreconf, bootstrap.sh, or autogen.sh unnecessarily.
+6. **If architecture-specific code is found**, note it in `architecture_concerns`. Common RISC-V issues:
+   - x86 SIMD intrinsics (SSE/AVX/NEON) — disable via build option or add scalar fallback
+   - Inline assembly — must be guarded for RISC-V or replaced with C code
+   - `__builtin_ia32_*` — x86-specific GCC builtins
+   - Stale `config.guess`/`config.sub` — update via `apk add automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .`
+   - Missing `-latomic` for atomic operations on RISC-V
+   - glibc-only APIs on musl (e.g., `execinfo.h`, `backtrace`, `mallinfo`)
 6. **Do NOT reference non-existent directories or files.**
 
 ## Output Format
@@ -1272,24 +1311,23 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             notes=["Fallback Meson build plan"],
         )
     elif build_type == "autotools":
-        # Check if configure exists; if not, need to regenerate
         # Check if configure script exists in the repo
         has_configure = os.path.exists(os.path.join(_to_host_path(state.repo_path), "configure")) if state.repo_path else True
-        configure_phase_cmds = ["./configure --host=riscv64-linux-musl"]
+        # Native build: do NOT use --host flag (we are compiling on riscv64 natively)
+        configure_phase_cmds = ["./configure"]
         if not has_configure:
             configure_phase_cmds = [
                 "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
-                "aclocal -I m4 -I /usr/share/aclocal",
-                "autoconf",
-                "./configure --host=riscv64-linux-musl",
+                "autoreconf -fi",
+                "./configure",
             ]
         return BuildPlan(
             build_system="autotools",
             build_system_confidence=0.6,
             phases=[
                 BuildPhase(1, "setup", [
-                    "apk update && apk add build-base autoconf automake libtool gettext-dev",
-                    "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",  # copy system gettext.m4 FIRST
+                    "apk update && apk add build-base autoconf automake libtool gettext-dev pkgconf",
+                    "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
                 ], False, "30s"),
                 BuildPhase(2, "configure", configure_phase_cmds, False, "3m"),
                 BuildPhase(3, "build", ["make -j$(nproc)"], False, "5m"),
@@ -1777,16 +1815,38 @@ FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compil
 | Error Pattern | Likely Cause | Fix |
 |---------------|-------------|-----|
 | `#error` with `x86_64` / `__x86_64__` check | Missing arch case | Add `#elif defined(__riscv)` branch |
-| `_mm_*`, `__m128`, SSE/AVX intrinsics | x86 SIMD | Add `#ifdef __riscv` with scalar fallback, or use SIMDe |
+| `_mm_*`, `__m128`, SSE/AVX intrinsics | x86 SIMD | Disable SIMD via CMake option (`-DWITH_SIMD=OFF`, `-DENABLE_SSE=OFF`) or add `#ifdef __riscv` with scalar fallback |
 | `asm("mov ..."` or `__asm__` with x86 | Inline assembly | Use C equivalent or add RISC-V asm |
 | `__builtin_ia32_*` | GCC x86 builtins | Replace with portable `__builtin_*` or C code |
-| `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags |
-| `execinfo.h` / `backtrace()` | glibc-only API | Guard with `#ifdef __GLIBC__` or use `libunwind` |
+| `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags: `cmake .. -DCMAKE_EXE_LINKER_FLAGS=-latomic` or `LDFLAGS=-latomic` |
+| `execinfo.h` / `backtrace()` | glibc-only API | `apk add libexecinfo-dev` and add `-lexecinfo` to link flags, or guard with `#ifdef __GLIBC__` |
 | `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .` |
 | `possibly undefined macro: AM_GNU_GETTEXT` OR `syntax error: unexpected word (expecting ")")` in `./configure` OR `No rule to make target '/config.status'` | Old `m4/gettext.m4` missing `AM_GNU_GETTEXT_VERSION`. **DO NOT run autoreconf** (autopoint reverts fixes). Exact fix sequence — run ALL three commands: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`. The copy-first step is critical — without it autoconf produces a broken configure even if aclocal exits 0. |
 | `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
 | `cannot find main module, but found .git/config` | Missing go.mod (GOPATH-style repo) | Run `go mod init <github.com/owner/repo>` then `go mod tidy` |
-| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | Try `apk add --no-cache go` to see if a newer version is available; if apk also fails, then this package cannot be ported without upgrading the toolchain |
+| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | Try `apk add --no-cache go` to see if a newer version is available |
+| `Could NOT find <Package>` (CMake) | Missing dev library | Install the Alpine `-dev` package: `apk add <package>-dev` |
+| `Package '<pkg>' not found` (pkg-config) | Missing dev library | Install the Alpine `-dev` package: `apk add <pkg>-dev` |
+| `No such file or directory: nasm` | Missing assembler | `apk add nasm` |
+| `undefined reference to 'dlopen'` | Missing libdl | Add `-ldl` to linker flags (on musl, `dlopen` is in libc, so ensure `-ldl` is linked) |
+| `fatal error: linux/*.h` | Missing kernel headers | `apk add linux-headers` |
+| `cannot find -lm` / `cannot find -lpthread` | Missing C library dev | `apk add musl-dev` (usually already present with build-base) |
+| `cd: build: No such file or directory` | Build directory not created | Add `mkdir -p build` before any `cd build` command |
+| `Command blocked by safety validation` with `./Configure` | OpenSSL-style Configure script | Use `perl ./Configure` instead of `./Configure`, or set `LDFLAGS` env var instead of passing `-Wl,` flags directly |
+| `no such package` in apk add | Wrong Alpine package name | Check Alpine package names: e.g. `libatomic` is part of gcc (no separate -dev), `libiconv-dev` → `musl-dev` includes iconv on Alpine |
+| `./configure: No such file or directory` | Missing configure script | Run `autoreconf -fi` to generate it, or run `./autogen.sh -s -f` if autogen.sh exists (the `-s -f` flags enable dev setup + force regeneration). If autoreconf fails, try: `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null; aclocal; autoconf; automake --add-missing 2>/dev/null; ./configure` |
+| `PATH_MAX` undeclared / `fortified realpath will not work` | musl/Alpine fortify-headers issue | Add `-DPATH_MAX=4096` to CFLAGS: for CMake use `-DCMAKE_C_FLAGS="-DPATH_MAX=4096"`, for Make use `CFLAGS="-DPATH_MAX=4096"`. If still failing, also add `-U_FORTIFY_SOURCE` |
+| `please do not run arbitrary` / autogen.sh exits without creating configure | autogen.sh requires flags | Run `./autogen.sh -s -f` (dev setup + force) instead of plain `./autogen.sh`. If that doesn't work, run `autoreconf -fi` directly |
+| `Unable to autodetect a usable HTTPS backend` | Missing SSL library for CMake | Install `openssl-dev` and pass `-DUSE_HTTPS=OpenSSL` to cmake |
+| `Could not find a package configuration file provided by` | Missing CMake dependency | Install the missing `-dev` package. Common mappings: `absl` → `abseil-cpp-dev`, `GTest` → `gtest-dev`, `Protobuf` → `protobuf-dev` |
+| `does not appear to contain CMakeLists.txt` | Wrong source directory or branch | Check if CMakeLists.txt is in a subdirectory (e.g., `expat/`, `src/`). Also check README — source may be on a different git branch. Run `git fetch origin <branch>:<branch> && git checkout <branch>` (the `:<branch>` creates a local tracking branch). Common branches: `c_master`, `main`, `develop`. Use `git branch -a` to list available branches |
+| `IMPORTED_LOCATION not set for imported target` | Missing dev package for cmake target | Install the missing `-dev` package. e.g., `PNG::PNG` → `libpng-dev`, `TIFF::TIFF` → `libtiff-dev`. If still failing, disable the feature via cmake option |
+| `Parse error. Expected a command name` in CMakeLists.txt | CMake build system broken | Switch to autotools: run `autoreconf -fi` or `./autogen.sh -s -f` to generate `./configure`, then `./configure && make -j$(nproc)` |
+| `undefined reference to` with cmake build (multiple linking errors) | CMake build incomplete | If the project also has `configure.ac` or `./configure`, switch to autotools: `./configure && make -j$(nproc)` (or `autoreconf -fi && ./configure && make -j$(nproc)` if configure doesn't exist). Autotools often handles codegen and linking better than cmake for complex projects |
+| `pathspec did not match any file(s) known to git` after fetch | Shallow clone branch issue | Use `git fetch origin <branch>:<branch>` to create a local branch, then `git checkout <branch>`. The `:<branch>` syntax creates the local tracking branch that shallow clones don't have |
+| `ModuleNotFoundError: No module named 'jinja2'` / `'jsonschema'` | Python build-time dep | `pip3 install jinja2 jsonschema` or `apk add py3-jinja2 py3-jsonschema` |
+
+**CRITICAL: Each command runs in a separate shell starting at the repo root. A `cd` in one command does NOT carry over. Always chain `cd` with subsequent commands using `&&` (e.g., `cd build && cmake ..`).**
 
 ## Output Format
 
@@ -1814,7 +1874,7 @@ Return ONLY a JSON object:
 **Action types:**
 - `"command"` — Run a shell command. Fields: `type`, `command`
 - `"create_file"` — Create a new file. Fields: `type`, `path` (relative to repo root), `content`
-- `"patch"` — Apply a unified diff. Fields: `type`, `file` (relative path), `content` (unified diff)
+- `"patch"` — Apply a unified diff. Fields: `type`, `file` (relative path), `content` (MUST be a proper unified diff with `--- a/file` and `+++ b/file` headers and `@@ -line,count +line,count @@` hunks). **Prefer using `"command"` with `sed` for simple edits instead of patch.**
 
 **Rules:**
 - At least one strategy with at least one action.

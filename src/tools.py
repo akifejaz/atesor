@@ -49,8 +49,10 @@ class CommandValidator:
         r'^make(\s+.*)?$',
         r'^ninja(\s+.*)?$',
         r'^./configure.*',
+        r'^./Configure.*',
         r'^./autogen\.sh.*',
         r'^./bootstrap.*',
+        r'^./buildconf\.sh.*',
         r'^autoreconf(\s+.*)?$',
         r'^autoconf(\s+.*)?$',
         r'^automake(\s+.*)?$',
@@ -62,7 +64,10 @@ class CommandValidator:
         r'^npm(\s+.*)?$',
         r'^pip(\s+.*)?$',
         r'^python(\s+.*)?$',
+        r'^python3(\s+.*)?$',
+        r'^perl(\s+.*)?$',
         r'^go(\s+.*)?$',
+        r'^git(\s+.*)?$',
         
         # Package management
         r'^apt-get\s+',
@@ -218,7 +223,7 @@ class DockerConfig:
 def execute_command(
     command: str,
     cwd: Optional[str] = None,
-    timeout: int = 1200,
+    timeout: int = 1800,
     validate: bool = True,
     use_docker: bool = True,
 ) -> CommandResult:
@@ -480,16 +485,16 @@ def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optiona
         
         try:
             if filepath:
-                # Apply to specific file
-                # First check if it's a unified diff or just raw content
+                # Apply to specific file - always try as a diff, never raw append
                 if "--- " in patch_content and "+++ " in patch_content:
                     cmd = f"patch {filepath} < {patch_filename}"
+                elif "@@ " in patch_content:
+                    # Has diff hunks but missing headers - try patch -p0
+                    cmd = f"patch -p0 {filepath} < {patch_filename}"
                 else:
-                    # Raw content append (legacy fallback)
-                    # Use a more robust way to append in container
-                    import base64
-                    encoded = base64.b64encode(patch_content.encode('utf-8')).decode('ascii')
-                    cmd = f"echo '{encoded}' | base64 -d >> {filepath}"
+                    # Not a valid diff format - reject to avoid corrupting the file
+                    logger.warning(f"Patch content is not a valid unified diff - rejecting to avoid file corruption")
+                    return False
             else:
                 # Standard unified diff - apply with -p1
                 # Try dry-run first
@@ -519,10 +524,12 @@ def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optiona
             if filepath:
                 if "--- " in patch_content and "+++ " in patch_content:
                     cmd = f"patch {filepath} < {patch_file}"
+                elif "@@ " in patch_content:
+                    cmd = f"patch -p0 {filepath} < {patch_file}"
                 else:
-                    with open(filepath, 'a') as f:
-                        f.write(f"\n{patch_content}\n")
-                    return True
+                    logger.warning(f"Patch content is not a valid unified diff - rejecting")
+                    os.remove(patch_file)
+                    return False
             else:
                 cmd = f"patch -p1 < {patch_file}"
             
