@@ -9,10 +9,12 @@ FROM alpine:latest
 LABEL maintainer="Atesor AI"
 LABEL description="Minimal RISC-V 64-bit sandbox for automated software porting"
 
-# Install absolute essentials for building and analysis
+# Install essentials for building and analysis
 # build-base: provides gcc, g++, make, libc-dev, binutils
 # cmake, git, curl: essential for fetching and building most repos
 # bash, python3: common scripting requirements
+# meson, ninja, autoconf, automake, libtool: additional build systems
+# nasm, perl: needed by some projects (e.g., openssl, libjpeg-turbo)
 RUN apk add --no-cache \
     build-base \
     cmake \
@@ -24,7 +26,30 @@ RUN apk add --no-cache \
     file \
     tar \
     xz \
-    pkgconfig
+    pkgconfig \
+    meson \
+    ninja \
+    autoconf \
+    automake \
+    libtool \
+    gettext-dev \
+    nasm \
+    perl \
+    linux-headers \
+    zlib-dev \
+    samurai \
+    py3-pip \
+    py3-jinja2 \
+    py3-jsonschema \
+    gfortran \
+    texinfo \
+    patch \
+    diffutils \
+    protobuf-dev \
+    protoc \
+    abseil-cpp-dev \
+    openssl-dev \
+    libpng-dev
 
 # Set up environment variables for native compilation inside the sandbox
 ENV CC=gcc

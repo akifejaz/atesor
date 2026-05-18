@@ -699,6 +699,2674 @@
       "id": "scout-auto-009",
       "source": "auto",
       "timestamp": "2026-04-27"
+    },
+    {
+      "name": "Auto: anew (go)",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o anew ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anew build.",
+      "id": "scout-auto-010",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gf (go)",
+      "tags": [
+        "go",
+        "gf"
+      ],
+      "build_system": "go",
+      "repo_name": "gf",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/tomnomnom/gf",
+              "go mod tidy",
+              "go build -o gf main.go"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gf build.",
+      "id": "scout-auto-011",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gron (go)",
+      "tags": [
+        "go",
+        "gron"
+      ],
+      "build_system": "go",
+      "repo_name": "gron",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gron build.",
+      "id": "scout-auto-012",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: assetfinder (go)",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/tomnomnom/assetfinder",
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assetfinder build.",
+      "id": "scout-auto-013",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: dnsx (go)",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/integration-test"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful dnsx build.",
+      "id": "scout-auto-014",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: dnsx (go)",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful dnsx build.",
+      "id": "scout-auto-014",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: ffuf (go)",
+      "tags": [
+        "go",
+        "ffuf"
+      ],
+      "build_system": "go",
+      "repo_name": "ffuf",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o ffuf ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful ffuf build.",
+      "id": "scout-auto-016",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gobuster (go)",
+      "tags": [
+        "go",
+        "gobuster"
+      ],
+      "build_system": "go",
+      "repo_name": "gobuster",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gobuster ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gobuster build.",
+      "id": "scout-auto-016",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gobuster (go)",
+      "tags": [
+        "go",
+        "gobuster"
+      ],
+      "build_system": "go",
+      "repo_name": "gobuster",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gobuster ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gobuster build.",
+      "id": "scout-auto-017",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gitleaks (go)",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gitleaks ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitleaks build.",
+      "id": "scout-auto-019",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gitleaks (go)",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gitleaks ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitleaks build.",
+      "id": "scout-auto-019",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: chisel (go)",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o chisel ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful chisel build.",
+      "id": "scout-auto-021",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: chisel (go)",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o chisel ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful chisel build.",
+      "id": "scout-auto-021",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: croc (go)",
+      "tags": [
+        "go",
+        "croc"
+      ],
+      "build_system": "go",
+      "repo_name": "croc",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o croc ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful croc build.",
+      "id": "scout-auto-023",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: asnmap (go)",
+      "tags": [
+        "go",
+        "asnmap"
+      ],
+      "build_system": "go",
+      "repo_name": "asnmap",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o asnmap ./cmd/asnmap"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful asnmap build.",
+      "id": "scout-auto-024",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gau (go)",
+      "tags": [
+        "go",
+        "gau"
+      ],
+      "build_system": "go",
+      "repo_name": "gau",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gau ./cmd/gau"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gau build.",
+      "id": "scout-auto-024",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: glow (go)",
+      "tags": [
+        "go",
+        "glow"
+      ],
+      "build_system": "go",
+      "repo_name": "glow",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o glow ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful glow build.",
+      "id": "scout-auto-026",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: cvemap (go)",
+      "tags": [
+        "go",
+        "cvemap"
+      ],
+      "build_system": "go",
+      "repo_name": "cvemap",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o vulnx ./cmd/vulnx"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cvemap build.",
+      "id": "scout-auto-026",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: gum (go)",
+      "tags": [
+        "go",
+        "gum"
+      ],
+      "build_system": "go",
+      "repo_name": "gum",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gum ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gum build.",
+      "id": "scout-auto-028",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: age (go)",
+      "tags": [
+        "go",
+        "age"
+      ],
+      "build_system": "go",
+      "repo_name": "age",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/age"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful age build.",
+      "id": "scout-auto-029",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: fping (autotools)",
+      "tags": [
+        "autotools",
+        "fping"
+      ],
+      "build_system": "autotools",
+      "repo_name": "fping",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base automake autoconf libtool",
+              "cp /usr/share/automake-*/config.guess ./",
+              "cp /usr/share/automake-*/config.sub ./"
+            ]
+          },
+          {
+            "name": "prepare",
+            "commands": [
+              "./autogen.sh"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful fping build.",
+      "id": "scout-auto-030",
+      "source": "auto",
+      "timestamp": "2026-04-28"
+    },
+    {
+      "name": "Auto: airixss (go)",
+      "tags": [
+        "go",
+        "airixss"
+      ],
+      "build_system": "go",
+      "repo_name": "airixss",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "init_module",
+            "commands": [
+              "go mod init github.com/ferreiraklet/airixss",
+              "go mod tidy"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false -o airixss ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful airixss build.",
+      "id": "scout-auto-031",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: allxfr (go)",
+      "tags": [
+        "go",
+        "allxfr"
+      ],
+      "build_system": "go",
+      "repo_name": "allxfr",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./..."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful allxfr build.",
+      "id": "scout-auto-032",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: AnalyticsRelationships (go)",
+      "tags": [
+        "go",
+        "AnalyticsRelationships"
+      ],
+      "build_system": "go",
+      "repo_name": "AnalyticsRelationships",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o AnalyticsRelationships ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful AnalyticsRelationships build.",
+      "id": "scout-auto-033",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: anyproxy (go)",
+      "tags": [
+        "go",
+        "anyproxy"
+      ],
+      "build_system": "go",
+      "repo_name": "anyproxy",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./grace"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anyproxy build.",
+      "id": "scout-auto-034",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: assh (go)",
+      "tags": [
+        "go",
+        "assh"
+      ],
+      "build_system": "go",
+      "repo_name": "assh",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o assh ./main.go"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assh build.",
+      "id": "scout-auto-035",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: byp4xx (go)",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/byp4xx/byp4xx",
+              "go mod tidy",
+              "go build -buildvcs=false -o byp4xx ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful byp4xx build.",
+      "id": "scout-auto-036",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: cariddi (go)",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o cariddi ./cmd/cariddi"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cariddi build.",
+      "id": "scout-auto-037",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: certgraph (go)",
+      "tags": [
+        "go",
+        "certgraph"
+      ],
+      "build_system": "go",
+      "repo_name": "certgraph",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o certgraph ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful certgraph build.",
+      "id": "scout-auto-038",
+      "source": "auto",
+      "timestamp": "2026-04-29"
+    },
+    {
+      "name": "Auto: cJSON (cmake)",
+      "tags": [
+        "cmake",
+        "cJSON"
+      ],
+      "build_system": "cmake",
+      "repo_name": "cJSON",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cJSON build.",
+      "id": "scout-auto-039",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: zstd (cmake)",
+      "tags": [
+        "cmake",
+        "zstd"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zstd",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful zstd build.",
+      "id": "scout-auto-040",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: zstd (cmake)",
+      "tags": [
+        "cmake",
+        "zstd"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zstd",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_PROGRAMS=ON"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful zstd build.",
+      "id": "scout-auto-040",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: lz4 (make)",
+      "tags": [
+        "make",
+        "lz4"
+      ],
+      "build_system": "make",
+      "repo_name": "lz4",
+      "trigger": {
+        "build_system": "make",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "make",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk add build-base"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful lz4 build.",
+      "id": "scout-auto-042",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: ogg (cmake)",
+      "tags": [
+        "cmake",
+        "ogg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "ogg",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf musl-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful ogg build.",
+      "id": "scout-auto-043",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: ogg (cmake)",
+      "tags": [
+        "cmake",
+        "ogg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "ogg",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful ogg build.",
+      "id": "scout-auto-043",
+      "source": "auto",
+      "timestamp": "2026-05-04"
+    },
+    {
+      "name": "Auto: jansson (cmake)",
+      "tags": [
+        "cmake",
+        "jansson"
+      ],
+      "build_system": "cmake",
+      "repo_name": "jansson",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DJANSSON_BUILD_EXAMPLES=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful jansson build.",
+      "id": "scout-auto-045",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libyaml (cmake)",
+      "tags": [
+        "cmake",
+        "libyaml"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libyaml",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libyaml build.",
+      "id": "scout-auto-046",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: zlib-ng (cmake)",
+      "tags": [
+        "cmake",
+        "zlib-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib-ng",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful zlib-ng build.",
+      "id": "scout-auto-047",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: minizip-ng (cmake)",
+      "tags": [
+        "cmake",
+        "minizip-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "minizip-ng",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful minizip-ng build.",
+      "id": "scout-auto-048",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: snappy (cmake)",
+      "tags": [
+        "cmake",
+        "snappy"
+      ],
+      "build_system": "cmake",
+      "repo_name": "snappy",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful snappy build.",
+      "id": "scout-auto-049",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: xz (cmake)",
+      "tags": [
+        "cmake",
+        "xz"
+      ],
+      "build_system": "cmake",
+      "repo_name": "xz",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add build-base musl-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful xz build.",
+      "id": "scout-auto-050",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libjpeg-turbo (cmake)",
+      "tags": [
+        "cmake",
+        "libjpeg-turbo"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libjpeg-turbo",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake zlib-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libjpeg-turbo build.",
+      "id": "scout-auto-051",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libtiff (cmake)",
+      "tags": [
+        "cmake",
+        "libtiff"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libtiff",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "install_dependencies",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake zlib-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_TOOLS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libtiff build.",
+      "id": "scout-auto-052",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: openjpeg (cmake)",
+      "tags": [
+        "cmake",
+        "openjpeg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "openjpeg",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "install_dependencies",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf curl-dev musl-dev libatomic"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful openjpeg build.",
+      "id": "scout-auto-053",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: c-ares (cmake)",
+      "tags": [
+        "cmake",
+        "c-ares"
+      ],
+      "build_system": "cmake",
+      "repo_name": "c-ares",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "install_dependencies",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "rm -rf build",
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCARES_BUILD_TOOLS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful c-ares build.",
+      "id": "scout-auto-054",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libavif (cmake)",
+      "tags": [
+        "cmake",
+        "libavif"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf zlib-dev libpng-dev libjpeg-turbo-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libavif build.",
+      "id": "scout-auto-055",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: Little-CMS (cmake)",
+      "tags": [
+        "cmake",
+        "Little-CMS"
+      ],
+      "build_system": "cmake",
+      "repo_name": "Little-CMS",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf",
+              "apk add zlib-dev libjpeg-turbo-dev libpng-dev tiff-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful Little-CMS build.",
+      "id": "scout-auto-056",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: freetype (cmake)",
+      "tags": [
+        "cmake",
+        "freetype"
+      ],
+      "build_system": "cmake",
+      "repo_name": "freetype",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf zlib-dev libpng-dev bzip2-dev brotli-dev harfbuzz-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful freetype build.",
+      "id": "scout-auto-057",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: dav1d (meson)",
+      "tags": [
+        "meson",
+        "dav1d"
+      ],
+      "build_system": "meson",
+      "repo_name": "dav1d",
+      "trigger": {
+        "build_system": "meson",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "meson",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base meson ninja musl-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "meson setup build --buildtype=release --default-library=static",
+              "ninja -C build"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful dav1d build.",
+      "id": "scout-auto-058",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: opus (cmake)",
+      "tags": [
+        "cmake",
+        "opus"
+      ],
+      "build_system": "cmake",
+      "repo_name": "opus",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful opus build.",
+      "id": "scout-auto-059",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: vorbis (cmake)",
+      "tags": [
+        "cmake",
+        "vorbis"
+      ],
+      "build_system": "cmake",
+      "repo_name": "vorbis",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf libogg-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful vorbis build.",
+      "id": "scout-auto-060",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: speex (autotools)",
+      "tags": [
+        "autotools",
+        "speex"
+      ],
+      "build_system": "autotools",
+      "repo_name": "speex",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base automake autoconf libtool",
+              "cp /usr/share/automake-*/config.guess .",
+              "cp /usr/share/automake-*/config.sub ."
+            ]
+          },
+          {
+            "name": "prepare",
+            "commands": [
+              "./autogen.sh"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful speex build.",
+      "id": "scout-auto-061",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: curl (cmake)",
+      "tags": [
+        "cmake",
+        "curl"
+      ],
+      "build_system": "cmake",
+      "repo_name": "curl",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev nghttp2-dev c-ares-dev perl"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful curl build.",
+      "id": "scout-auto-062",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: libssh2 (cmake)",
+      "tags": [
+        "cmake",
+        "libssh2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libssh2",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf openssl-dev zlib-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libssh2 build.",
+      "id": "scout-auto-063",
+      "source": "auto",
+      "timestamp": "2026-05-05"
+    },
+    {
+      "name": "Auto: flac (cmake)",
+      "tags": [
+        "cmake",
+        "flac"
+      ],
+      "build_system": "cmake",
+      "repo_name": "flac",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake libogg-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful flac build.",
+      "id": "scout-auto-064",
+      "source": "auto",
+      "timestamp": "2026-05-06"
+    },
+    {
+      "name": "Auto: openssl (other)",
+      "tags": [
+        "other",
+        "openssl"
+      ],
+      "build_system": "other",
+      "repo_name": "openssl",
+      "trigger": {
+        "build_system": "other",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "other",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk add --no-cache build-base perl linux-headers"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "perl ./Configure linux64-riscv64 no-asm no-tests no-docs --prefix=/usr/local",
+              "make depend"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful openssl build.",
+      "id": "scout-auto-065",
+      "source": "auto",
+      "timestamp": "2026-05-06"
+    },
+    {
+      "name": "Auto: sqlite (make)",
+      "tags": [
+        "make",
+        "sqlite"
+      ],
+      "build_system": "make",
+      "repo_name": "sqlite",
+      "trigger": {
+        "build_system": "make",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "make",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful sqlite build.",
+      "id": "scout-auto-066",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libarchive (cmake)",
+      "tags": [
+        "cmake",
+        "libarchive"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libarchive",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf zlib-dev openssl-dev bzip2-dev xz-dev mbedtls-dev nettle-dev libxml2-dev expat-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS='-latomic' -DCMAKE_SHARED_LINKER_FLAGS='-latomic'"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libarchive build.",
+      "id": "scout-auto-067",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libxml2 (cmake)",
+      "tags": [
+        "cmake",
+        "libxml2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libxml2",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake python3-dev icu-dev zlib-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF",
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libxml2 build.",
+      "id": "scout-auto-068",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: pcre2 (cmake)",
+      "tags": [
+        "cmake",
+        "pcre2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "pcre2",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake zlib-dev musl-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF -DBUILD_DOCS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful pcre2 build.",
+      "id": "scout-auto-069",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: sqlite (autotools)",
+      "tags": [
+        "autotools",
+        "sqlite"
+      ],
+      "build_system": "autotools",
+      "repo_name": "sqlite",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk add build-base zlib-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful sqlite build.",
+      "id": "scout-auto-069",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: highway (cmake)",
+      "tags": [
+        "cmake",
+        "highway"
+      ],
+      "build_system": "cmake",
+      "repo_name": "highway",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DHWY_ENABLE_TESTS=OFF -DHWY_ENABLE_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful highway build.",
+      "id": "scout-auto-071",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: mbedtls (cmake)",
+      "tags": [
+        "cmake",
+        "mbedtls"
+      ],
+      "build_system": "cmake",
+      "repo_name": "mbedtls",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake python3"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful mbedtls build.",
+      "id": "scout-auto-072",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libgit2 (cmake)",
+      "tags": [
+        "cmake",
+        "libgit2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libgit2",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev curl-dev"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && export LDFLAGS=\"-latomic\" && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DUSE_SSH=ON -DUSE_HTTPS=ON"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libgit2 build.",
+      "id": "scout-auto-073",
+      "source": "auto",
+      "timestamp": "2026-05-07"
+    },
+    {
+      "name": "Auto: libexpat (cmake)",
+      "tags": [
+        "cmake",
+        "libexpat"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libexpat",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake ../expat -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libexpat build.",
+      "id": "scout-auto-074",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: OpenBLAS (make)",
+      "tags": [
+        "make",
+        "OpenBLAS"
+      ],
+      "build_system": "make",
+      "repo_name": "OpenBLAS",
+      "trigger": {
+        "build_system": "make",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "make",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base musl-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc) TARGET=RISCV64"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful OpenBLAS build.",
+      "id": "scout-auto-075",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: libsodium (autotools)",
+      "tags": [
+        "autotools",
+        "libsodium"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libsodium",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base automake autoconf libtool",
+              "cp /usr/share/automake-*/config.guess ./",
+              "cp /usr/share/automake-*/config.sub ./"
+            ]
+          },
+          {
+            "name": "prepare",
+            "commands": [
+              "./autogen.sh -s -f"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "./configure"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libsodium build.",
+      "id": "scout-auto-076",
+      "source": "auto",
+      "timestamp": "2026-05-08"
+    },
+    {
+      "name": "Auto: libheif (cmake)",
+      "tags": [
+        "cmake",
+        "libheif"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libheif",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake zlib-dev libjpeg-turbo-dev pkgconf"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful libheif build.",
+      "id": "scout-auto-077",
+      "source": "auto",
+      "timestamp": "2026-05-11"
     }
   ]
 }

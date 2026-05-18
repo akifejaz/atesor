@@ -393,27 +393,54 @@ class ScriptedOperations:
         """
         Find the Go main package location.
         Returns info about where the main package is located.
+        For repos without go.mod (old GOPATH-style), sets needs_go_init=True.
         """
         result = {
             "has_main": False,
             "main_path": "",
             "module_dir": "",
             "build_command": "go build .",
+            "needs_go_init": False,
+            "has_go_mod": False,
         }
 
         repo_path = self._to_host_path(repo_path)
 
         go_mod_files = []
+        has_go_files = False
         for root, dirs, files in os.walk(repo_path):
             if ".git" in root:
                 continue
             if "go.mod" in files:
                 module_dir = root.replace(repo_path, "").lstrip("/")
                 go_mod_files.append((root, module_dir))
+            if any(f.endswith(".go") for f in files):
+                has_go_files = True
 
         if not go_mod_files:
+            if has_go_files:
+                # GOPATH-style repo: has .go files but no go.mod
+                result["needs_go_init"] = True
+                result["has_go_files"] = True
+                # Try to find main package anyway
+                for root, dirs, files in os.walk(repo_path):
+                    if ".git" in root or "vendor" in root:
+                        continue
+                    for f in files:
+                        if f.endswith(".go"):
+                            try:
+                                with open(os.path.join(root, f), "r", encoding="utf-8", errors="ignore") as fh:
+                                    if "package main" in fh.read():
+                                        rel_path = root.replace(repo_path, "").lstrip("/")
+                                        result["has_main"] = True
+                                        result["main_path"] = rel_path or "."
+                                        result["build_command"] = "go build ."
+                                        return result
+                            except:
+                                pass
             return result
 
+        result["has_go_mod"] = True
         go_mod_path, module_dir = go_mod_files[0]
         result["module_dir"] = module_dir
 
@@ -443,7 +470,24 @@ class ScriptedOperations:
 
         if main_files:
             result["has_main"] = True
-            main = main_files[0]
+            # Prefer: cmd/<reponame> > cmd/* without "test"/"example" > root > other
+            repo_basename = os.path.basename(repo_path).lower()
+            def score_main(m):
+                d = m["dir"].lower()
+                if not d:
+                    return 3  # root main
+                if d == f"cmd/{repo_basename}":
+                    return 10  # perfect match
+                if d.startswith("cmd/") and "test" not in d and "example" not in d and "integration" not in d:
+                    return 7
+                if d.startswith("cmd/"):
+                    return 2
+                if "test" in d or "example" in d or "integration" in d:
+                    return 1
+                return 4
+
+            main = max(main_files, key=score_main)
+            result["all_main_paths"] = [m["dir"] or "." for m in main_files]
 
             if main["dir"]:
                 result["main_path"] = main["dir"]

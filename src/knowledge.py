@@ -17,18 +17,76 @@ ALPINE_TOOL_MAP = {
     "gcc": "build-base",
     "g++": "build-base",
     "pkgconfig": "pkgconf",
+    "nasm": "nasm",
+    "yasm": "yasm",
+    "perl": "perl",
+    "fortran": "gfortran",
     # Languages
     "go": "go",
     "rust": "rust cargo",
     "python3": "python3 py3-pip",
     "node": "nodejs npm",
     "java": "openjdk17",
-    # Libraries
+    # Core C/C++ development libraries
     "zlib": "zlib-dev",
     "openssl": "openssl-dev",
     "curl": "curl-dev",
     "git": "git",
     "libatomic": "libatomic",
+    # Compression libraries
+    "zstd": "zstd-dev",
+    "lz4": "lz4-dev",
+    "brotli": "brotli-dev",
+    "xz": "xz-dev",
+    "bzip2": "bzip2-dev",
+    "snappy": "snappy-dev",
+    # Image libraries
+    "libpng": "libpng-dev",
+    "libjpeg": "libjpeg-turbo-dev",
+    "libjpeg-turbo": "libjpeg-turbo-dev",
+    "libwebp": "libwebp-dev",
+    "libtiff": "tiff-dev",
+    "openjpeg": "openjpeg-dev",
+    "libheif": "libheif-dev",
+    "lcms2": "lcms2-dev",
+    "freetype": "freetype-dev",
+    # Audio/Video
+    "opus": "opus-dev",
+    "flac": "flac-dev",
+    "ogg": "libogg-dev",
+    "vorbis": "libvorbis-dev",
+    "dav1d": "dav1d-dev",
+    # Cryptography
+    "mbedtls": "mbedtls-dev",
+    "libsodium": "libsodium-dev",
+    # Networking
+    "libssh2": "libssh2-dev",
+    "nghttp2": "nghttp2-dev",
+    "c-ares": "c-ares-dev",
+    "libuv": "libuv-dev",
+    "libevent": "libevent-dev",
+    # Data formats
+    "libxml2": "libxml2-dev",
+    "expat": "expat-dev",
+    "jansson": "jansson-dev",
+    "yaml": "yaml-dev",
+    "pcre2": "pcre2-dev",
+    # Archive
+    "libarchive": "libarchive-dev",
+    # Database
+    "sqlite": "sqlite-dev",
+    # C++ libraries
+    "abseil-cpp": "abseil-cpp-dev",
+    "absl": "abseil-cpp-dev",
+    "protobuf": "protobuf-dev",
+    "protoc": "protoc",
+    "gtest": "gtest-dev",
+    "benchmark": "benchmark-dev",
+    # System
+    "linux-headers": "linux-headers",
+    "musl-dev": "musl-dev",
+    "libexecinfo": "libexecinfo-dev",
+    "libunwind": "libunwind-dev",
 }
 
 # ============================================================================
