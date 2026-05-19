@@ -100,25 +100,23 @@
       "recipe_file": "output/sj_recipe.md"
     },
     "zlib": {
-      "repo_url": "https://github.com/madler/zlib",
+      "repo_url": "https://github.com/madler/zlib.git",
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-04T14:44:11.345913",
+      "last_built": "2026-05-18T16:53:08.239948",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add build-base cmake musl-dev linux-headers"
+              "apk add --no-cache build-base cmake"
             ]
           },
           {
             "name": "configure",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
             ]
           },
           {
@@ -189,7 +187,7 @@
           "path": "/workspace/repos/zlib/build/libz.so.1.3.2.1"
         }
       ],
-      "build_duration_seconds": 227.0,
+      "build_duration_seconds": 1036.0,
       "recipe_file": "output/zlib_recipe.md"
     },
     "shcopy": {
@@ -499,18 +497,18 @@
       "recipe_file": "output/siegfried_recipe.md"
     },
     "anew": {
-      "repo_url": "https://github.com/tomnomnom/anew.git",
+      "repo_url": "https://github.com/tomnomnom/anew",
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-04T12:17:12.751670",
+      "last_built": "2026-05-18T16:59:21.116633",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
               "apk update",
-              "apk add go"
+              "apk add build-base"
             ]
           },
           {
@@ -534,7 +532,7 @@
           "path": "/workspace/repos/anew/anew"
         }
       ],
-      "build_duration_seconds": 178.6,
+      "build_duration_seconds": 1480.9,
       "recipe_file": "output/anew_recipe.md"
     },
     "gf": {
@@ -542,21 +540,22 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T13:51:34.301113",
+      "last_built": "2026-05-18T17:05:54.021754",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
               "apk update",
-              "apk add go"
+              "apk add build-base"
             ]
           },
           {
             "name": "build",
             "commands": [
+              "go mod init github.com/tomnomnom/gf",
               "go mod tidy",
-              "go build -buildvcs=false -v -o gf ."
+              "go build -buildvcs=false -o gf ."
             ]
           }
         ]
@@ -569,7 +568,7 @@
           "path": "/workspace/repos/gf/gf"
         }
       ],
-      "build_duration_seconds": 227.0,
+      "build_duration_seconds": 1871.5,
       "recipe_file": "output/gf_recipe.md"
     },
     "gron": {
@@ -577,14 +576,13 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T13:55:48.923010",
+      "last_built": "2026-05-19T10:41:59.287939",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add go git"
+              "apk update"
             ]
           },
           {
@@ -632,7 +630,7 @@
           "path": "/workspace/repos/gron/script/profile"
         }
       ],
-      "build_duration_seconds": 247.8,
+      "build_duration_seconds": 65244.3,
       "recipe_file": "output/gron_recipe.md"
     },
     "assetfinder": {
@@ -640,20 +638,19 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T14:03:03.578471",
+      "last_built": "2026-05-19T10:45:31.166329",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add go"
+              "go mod init github.com/tomnomnom/assetfinder",
+              "go mod tidy"
             ]
           },
           {
             "name": "build",
             "commands": [
-              "go mod tidy",
               "go build -buildvcs=false -v -o assetfinder ."
             ]
           }
@@ -671,7 +668,7 @@
           "path": "/workspace/repos/assetfinder/assetfinder"
         }
       ],
-      "build_duration_seconds": 161.7,
+      "build_duration_seconds": 65454.0,
       "recipe_file": "output/assetfinder_recipe.md"
     },
     "dnsx": {
@@ -679,20 +676,16 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T14:08:21.094902",
+      "last_built": "2026-05-19T11:36:03.534138",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
-            "commands": [
-              "apk update",
-              "apk add go"
-            ]
+            "commands": []
           },
           {
             "name": "build",
             "commands": [
-              "go mod tidy",
               "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
             ]
           }
@@ -707,10 +700,6 @@
         },
         {
           "type": "binary",
-          "path": "/workspace/repos/dnsx/integration-test"
-        },
-        {
-          "type": "binary",
           "path": "/workspace/repos/dnsx/cmd/functional-test/run.sh"
         },
         {
@@ -718,7 +707,7 @@
           "path": "/workspace/repos/dnsx/dnsx"
         }
       ],
-      "build_duration_seconds": 311.3,
+      "build_duration_seconds": 68485.4,
       "recipe_file": "output/dnsx_recipe.md"
     },
     "ffuf": {
@@ -726,20 +715,18 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T14:40:26.435146",
+      "last_built": "2026-05-13T13:05:01.732231",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add go"
+              "go mod tidy"
             ]
           },
           {
             "name": "build",
             "commands": [
-              "go mod tidy",
               "go build -buildvcs=false -v -o ffuf ."
             ]
           }
@@ -761,7 +748,7 @@
           "path": "/workspace/repos/ffuf/pkg/filter/time.go"
         }
       ],
-      "build_duration_seconds": 528.8,
+      "build_duration_seconds": 2349.4,
       "recipe_file": "output/ffuf_recipe.md"
     },
     "gobuster": {
@@ -859,14 +846,14 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T14:56:10.372109",
+      "last_built": "2026-05-12T21:24:42.312717",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
               "apk update",
-              "apk add go"
+              "apk add --no-cache go git"
             ]
           },
           {
@@ -886,7 +873,7 @@
           "path": "/workspace/repos/chisel/chisel"
         }
       ],
-      "build_duration_seconds": 249.1,
+      "build_duration_seconds": 5419.9,
       "recipe_file": "output/chisel_recipe.md"
     },
     "croc": {
@@ -894,21 +881,21 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T15:06:12.913970",
+      "last_built": "2026-05-12T20:45:59.519233",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
               "apk update",
-              "apk add --no-cache go git"
+              "apk add --no-cache go"
             ]
           },
           {
             "name": "build",
             "commands": [
               "go mod tidy",
-              "go build -buildvcs=false -v -o croc ."
+              "go build -buildvcs=false -v -o croc ./src/install"
             ]
           }
         ]
@@ -929,7 +916,7 @@
           "path": "/workspace/repos/croc/src/install/upload-src-tarball.sh"
         }
       ],
-      "build_duration_seconds": 252.2,
+      "build_duration_seconds": 652.7,
       "recipe_file": "output/croc_recipe.md"
     },
     "asnmap": {
@@ -1209,20 +1196,20 @@
       "build_system": "go",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T16:12:50.437762",
+      "last_built": "2026-05-12T20:39:46.275962",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update && apk add go git"
+              "apk add go"
             ]
           },
           {
             "name": "build",
             "commands": [
               "go mod tidy",
-              "go build ./cmd/age"
+              "go build -buildvcs=false -v -o age ./cmd/age"
             ]
           }
         ]
@@ -1235,7 +1222,7 @@
           "path": "/workspace/repos/age/age"
         }
       ],
-      "build_duration_seconds": 502.5,
+      "build_duration_seconds": 2545.8,
       "recipe_file": "output/age_recipe.md"
     },
     "fping": {
@@ -1243,22 +1230,13 @@
       "build_system": "autotools",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-04-28T17:18:42.640450",
+      "last_built": "2026-05-13T12:44:55.112494",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add build-base automake autoconf libtool",
-              "cp /usr/share/automake-*/config.guess ./",
-              "cp /usr/share/automake-*/config.sub ./"
-            ]
-          },
-          {
-            "name": "prepare",
-            "commands": [
-              "./autogen.sh"
+              "apk update && apk add build-base automake autoconf libtool"
             ]
           },
           {
@@ -1359,7 +1337,7 @@
           "path": "/workspace/repos/fping/ci/test-10-option-u-x.pl"
         }
       ],
-      "build_duration_seconds": 384.0,
+      "build_duration_seconds": 1137.6,
       "recipe_file": "output/fping_recipe.md"
     },
     "airixss": {
@@ -1849,7 +1827,7 @@
       "build_system": "make",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-04T17:13:47.235221",
+      "last_built": "2026-05-13T12:28:21.544689",
       "build_plan": {
         "phases": [
           {
@@ -1939,18 +1917,18 @@
         },
         {
           "type": "binary",
-          "path": "/workspace/repos/lz4/build/CMakeFiles/4.1.3/CompilerIdC/a.out"
-        },
-        {
-          "type": "binary",
-          "path": "/workspace/repos/lz4/build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
-        },
-        {
-          "type": "binary",
           "path": "/workspace/repos/lz4/programs/cachedObjs/3a297cdcdda21e64139b4c81136d85cf/lz4"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/lz4/lib/liblz4.a"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/lz4/lib/cachedObjs/114b1ec24f5c1d70f6731d54b5e28dc1/liblz4.a"
         }
       ],
-      "build_duration_seconds": 458.6,
+      "build_duration_seconds": 142.9,
       "recipe_file": "output/lz4_recipe.md"
     },
     "brotli": {
@@ -1958,20 +1936,21 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-04T17:25:52.482351",
+      "last_built": "2026-05-13T13:17:44.678466",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update && apk add build-base cmake"
+              "apk update",
+              "apk add build-base cmake"
             ]
           },
           {
             "name": "configure",
             "commands": [
               "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
             ]
           },
           {
@@ -2034,7 +2013,7 @@
           "path": "/workspace/repos/brotli/build/libbrotlienc.so"
         }
       ],
-      "build_duration_seconds": 718.8,
+      "build_duration_seconds": 3108.2,
       "recipe_file": "output/brotli_recipe.md"
     },
     "ogg": {
@@ -2171,21 +2150,25 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-05T11:38:07.799109",
+      "last_built": "2026-05-13T04:03:57.239510",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add build-base cmake"
+              "apk update && apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
             ]
           },
           {
             "name": "build",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
               "cd build && make -j$(nproc)"
             ]
           }
@@ -2196,6 +2179,18 @@
       "artifacts": [
         {
           "type": "binary",
+          "path": "/workspace/repos/libyaml/build/test-nesting"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-emitter-test-suite"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-dumper"
+        },
+        {
+          "type": "binary",
           "path": "/workspace/repos/libyaml/build/CMakeFiles/4.1.3/CompilerIdC/a.out"
         },
         {
@@ -2203,11 +2198,55 @@
           "path": "/workspace/repos/libyaml/build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
         },
         {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/test-reader"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/example-reformatter"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-emitter"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/example-deconstructor"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-parser"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-scanner"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/example-deconstructor-alt"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-parser-test-suite"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/example-reformatter-alt"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/run-loader"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/libyaml/build/test-version"
+        },
+        {
           "type": "library_static",
           "path": "/workspace/repos/libyaml/build/libyaml.a"
         }
       ],
-      "build_duration_seconds": 89.9,
+      "build_duration_seconds": 1514.8,
       "recipe_file": "output/libyaml_recipe.md"
     },
     "tinyxml2": {
@@ -2215,7 +2254,7 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-05T11:38:40.270913",
+      "last_built": "2026-05-13T04:05:09.769145",
       "build_plan": {
         "phases": [
           {
@@ -2228,8 +2267,7 @@
           {
             "name": "configure",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
             ]
           },
           {
@@ -2264,7 +2302,7 @@
           "path": "/workspace/repos/tinyxml2/build/libtinyxml2.a"
         }
       ],
-      "build_duration_seconds": 251.1,
+      "build_duration_seconds": 1511.3,
       "recipe_file": "output/tinyxml2_recipe.md"
     },
     "zopfli": {
@@ -2341,7 +2379,7 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-05T11:50:19.284949",
+      "last_built": "2026-05-13T12:47:25.485419",
       "build_plan": {
         "phases": [
           {
@@ -2354,8 +2392,7 @@
           {
             "name": "configure",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DENABLE_SIMD=OFF"
             ]
           },
           {
@@ -2402,7 +2439,7 @@
           "path": "/workspace/repos/zlib-ng/build/libz-ng.so"
         }
       ],
-      "build_duration_seconds": 314.3,
+      "build_duration_seconds": 1137.4,
       "recipe_file": "output/zlib-ng_recipe.md"
     },
     "minizip-ng": {
@@ -3814,21 +3851,20 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-05T17:58:03.077394",
+      "last_built": "2026-05-13T13:03:57.251601",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
               "apk update",
-              "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev nghttp2-dev c-ares-dev perl"
+              "apk add build-base cmake openssl-dev zlib-dev c-ares-dev nghttp2-dev libssh2-dev brotli-dev zstd-dev lz4-dev pcre2-dev libxml2-dev expat-dev libidn2-dev libpsl-dev perl pkgconf"
             ]
           },
           {
             "name": "configure",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF -DBUILD_SHARED_LIBS=ON"
             ]
           },
           {
@@ -3911,7 +3947,7 @@
           "path": "/workspace/repos/curl/build/lib/libcurl.so"
         }
       ],
-      "build_duration_seconds": 1341.3,
+      "build_duration_seconds": 1941.7,
       "recipe_file": "output/curl_recipe.md"
     },
     "libssh2": {
@@ -5382,21 +5418,25 @@
       "build_system": "cmake",
       "architecture": "riscv64",
       "sandbox": "alpine-riscv64",
-      "last_built": "2026-05-08T11:53:09.805446",
+      "last_built": "2026-05-13T04:13:09.675725",
       "build_plan": {
         "phases": [
           {
             "name": "setup",
             "commands": [
-              "apk update",
-              "apk add build-base cmake"
+              "apk update && apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
             ]
           },
           {
             "name": "build",
             "commands": [
-              "mkdir -p build",
-              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF",
               "cd build && make -j$(nproc)"
             ]
           }
@@ -5426,7 +5466,7 @@
           "path": "/workspace/repos/nanopb/build/libprotobuf-nanopb.a"
         }
       ],
-      "build_duration_seconds": 174.9,
+      "build_duration_seconds": 1021.0,
       "recipe_file": "output/nanopb_recipe.md"
     },
     "libsodium": {
@@ -5609,6 +5649,1413 @@
       ],
       "build_duration_seconds": 969.7,
       "recipe_file": "output/libheif_recipe.md"
+    },
+    "dlevel": {
+      "repo_url": "https://github.com/rix4uni/dlevel",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T22:46:45.285169",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o dlevel ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/dlevel/dlevel"
+        }
+      ],
+      "build_duration_seconds": 1357.3,
+      "recipe_file": "output/dlevel_recipe.md"
+    },
+    "ecoji": {
+      "repo_url": "https://github.com/keith-turner/ecoji",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:15:07.322336",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd v2 && go mod tidy && go build -buildvcs=false -v -o ../ecoji ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 825.5,
+      "recipe_file": "output/ecoji_recipe.md"
+    },
+    "durl": {
+      "repo_url": "https://github.com/j3ssie/durl",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:15:38.509511",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/durl/durl"
+        }
+      ],
+      "build_duration_seconds": 1502.1,
+      "recipe_file": "output/durl_recipe.md"
+    },
+    "encode": {
+      "repo_url": "https://github.com/Brum3ns/encode",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:24:20.076865",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o encode ./cmd/encode"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/encode/encode"
+        }
+      ],
+      "build_duration_seconds": 679.0,
+      "recipe_file": "output/encode_recipe.md"
+    },
+    "enola": {
+      "repo_url": "https://github.com/TheYahya/enola",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:34:14.820303",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o enola ./cmd/enola"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/enola/enola"
+        }
+      ],
+      "build_duration_seconds": 1137.4,
+      "recipe_file": "output/enola_recipe.md"
+    },
+    "enumerepo": {
+      "repo_url": "https://github.com/trickest/enumerepo",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:35:28.104416",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o enumerepo ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/enumerepo/enumerepo"
+        }
+      ],
+      "build_duration_seconds": 725.7,
+      "recipe_file": "output/enumerepo_recipe.md"
+    },
+    "exifLooter": {
+      "repo_url": "https://github.com/aydinnyunus/exifLooter",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:39:16.659974",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o exiflooter ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/exifLooter/exiflooter"
+        }
+      ],
+      "build_duration_seconds": 601.3,
+      "recipe_file": "output/exifLooter_recipe.md"
+    },
+    "FFUF-Workflow-Tool": {
+      "repo_url": "https://github.com/nullenc0de/FFUF-Workflow-Tool",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:41:02.463764",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o ffuf-workflow ./cmd/ffuf-workflow"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/FFUF-Workflow-Tool/ffuf-workflow"
+        }
+      ],
+      "build_duration_seconds": 325.4,
+      "recipe_file": "output/FFUF-Workflow-Tool_recipe.md"
+    },
+    "fget": {
+      "repo_url": "https://github.com/pkgforge-security/fget",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:44:33.865745",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fget/fget"
+        }
+      ],
+      "build_duration_seconds": 505.2,
+      "recipe_file": "output/fget_recipe.md"
+    },
+    "ffufPostprocessing": {
+      "repo_url": "https://github.com/dsecuredcom/ffufPostprocessing",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:45:24.544926",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o ffufPostprocessing ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/ffufPostprocessing/ffufPostprocessing"
+        }
+      ],
+      "build_duration_seconds": 568.9,
+      "recipe_file": "output/ffufPostprocessing_recipe.md"
+    },
+    "fico": {
+      "repo_url": "https://github.com/orcastor/fico",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-12T23:53:08.796135",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o fico ./cmd"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fico/fico"
+        }
+      ],
+      "build_duration_seconds": 841.9,
+      "recipe_file": "output/fico_recipe.md"
+    },
+    "favirecon": {
+      "repo_url": "https://github.com/edoardottt/favirecon",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:03:13.378530",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o favirecon ./cmd/favirecon"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/favirecon/scripts/check-favicon-ok.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/favirecon/scripts/check-dups.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/favirecon/favirecon"
+        }
+      ],
+      "build_duration_seconds": 1730.3,
+      "recipe_file": "output/favirecon_recipe.md"
+    },
+    "fwanalyzer": {
+      "repo_url": "https://github.com/cruise-automation/fwanalyzer",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:20:28.159113",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o build/fwanalyzer ./cmd/fwanalyzer"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/catfile.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/diff.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_privatekey.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_cert.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_otacert.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_file_arm64.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_apkcert.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_file_arm32.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_file_elf_stripped.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_file_x8664.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/scripts/check_sec.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/devices/check.py"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/devices/android/check_ota.py"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/devices/android/unpack.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/build/fwanalyzer"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/test/test.py"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/test/script_test.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/test/unsquashfs"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/test/e2cp"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fwanalyzer/test/testdir/bin/elf_arm64"
+        }
+      ],
+      "build_duration_seconds": 1025.1,
+      "recipe_file": "output/fwanalyzer_recipe.md"
+    },
+    "fuzzuli": {
+      "repo_url": "https://github.com/musana/fuzzuli",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:24:55.399752",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o fuzzuli ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/fuzzuli/fuzzuli"
+        }
+      ],
+      "build_duration_seconds": 1302.6,
+      "recipe_file": "output/fuzzuli_recipe.md"
+    },
+    "getJS": {
+      "repo_url": "https://github.com/003random/getJS",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:29:17.379949",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 1075.5,
+      "recipe_file": "output/getJS_recipe.md"
+    },
+    "git-who": {
+      "repo_url": "https://github.com/sinclairtarget/git-who",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:35:14.536184",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o git-who ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/git-who/git-who"
+        }
+      ],
+      "build_duration_seconds": 609.8,
+      "recipe_file": "output/git-who_recipe.md"
+    },
+    "github-endpoints": {
+      "repo_url": "https://github.com/gwen001/github-endpoints",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:36:50.859226",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o github-endpoints ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/github-endpoints/preview.png"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/github-endpoints/github-endpoints"
+        }
+      ],
+      "build_duration_seconds": 280.6,
+      "recipe_file": "output/github-endpoints_recipe.md"
+    },
+    "galer": {
+      "repo_url": "https://github.com/dwisiswant0/galer",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:37:14.713241",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 1753.5,
+      "recipe_file": "output/galer_recipe.md"
+    },
+    "github-subdomains": {
+      "repo_url": "https://github.com/gwen001/github-subdomains",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:38:15.353072",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/github-subdomains/main"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/github-subdomains/github-subdomains"
+        }
+      ],
+      "build_duration_seconds": 336.2,
+      "recipe_file": "output/github-subdomains_recipe.md"
+    },
+    "gitdorks_go": {
+      "repo_url": "https://github.com/damit5/gitdorks_go",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:38:29.334540",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o gitdorks_go ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitdorks_go/gitdorks_go"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitdorks_go/release/gitdorks_go.exe"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitdorks_go/release/gitdorks_go_darwin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitdorks_go/release/gitdorks_go_amd_linux"
+        }
+      ],
+      "build_duration_seconds": 543.2,
+      "recipe_file": "output/gitdorks_go_recipe.md"
+    },
+    "go-fasttld": {
+      "repo_url": "https://github.com/elliotwutingfeng/go-fasttld",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:40:37.497475",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o dist/fasttld ./cmd/fasttld"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 219.2,
+      "recipe_file": "output/go-fasttld_recipe.md"
+    },
+    "globalping-cli": {
+      "repo_url": "https://github.com/jsdelivr/globalping-cli",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:43:47.154154",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o globalping ./"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/globalping-cli/globalping"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/globalping-cli/mocks/gen_mocks.sh"
+        }
+      ],
+      "build_duration_seconds": 503.7,
+      "recipe_file": "output/globalping-cli_recipe.md"
+    },
+    "goawk": {
+      "repo_url": "https://github.com/benhoyt/goawk",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:51:10.532242",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add --no-cache go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o goawk ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/benchstat.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/fuzz_input.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/make_binaries.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/benchmark.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/benchmark_awks.py"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/scripts/csvbench/csvbench.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/goawk"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/goawk/testdata/other/gron.awk"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/goawk/testdata/output/t.a"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/goawk/testdata/t.a"
+        }
+      ],
+      "build_duration_seconds": 828.5,
+      "recipe_file": "output/goawk_recipe.md"
+    },
+    "glider": {
+      "repo_url": "https://github.com/nadoo/glider",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:54:02.611038",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./..."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 1121.0,
+      "recipe_file": "output/glider_recipe.md"
+    },
+    "GoLinkFinder": {
+      "repo_url": "https://github.com/0xsha/GoLinkFinder",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:54:13.430884",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/0xsha/GoLinkFinder",
+              "go mod tidy",
+              "go build -v -o GoLinkFinder ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/GoLinkFinder/GoLinkFinder"
+        }
+      ],
+      "build_duration_seconds": 617.2,
+      "recipe_file": "output/GoLinkFinder_recipe.md"
+    },
+    "gitql": {
+      "repo_url": "https://github.com/filhodanuvem/gitql",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:54:37.742926",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false -v -o gitql ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gitql/gitql"
+        }
+      ],
+      "build_duration_seconds": 1309.9,
+      "recipe_file": "output/gitql_recipe.md"
+    },
+    "godnsbench": {
+      "repo_url": "https://github.com/ameshkov/godnsbench",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:54:49.971966",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o godnsbench ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/godnsbench/godnsbench"
+        }
+      ],
+      "build_duration_seconds": 973.5,
+      "recipe_file": "output/godnsbench_recipe.md"
+    },
+    "gojq": {
+      "repo_url": "https://github.com/itchyny/gojq",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:54:57.940734",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gojq ./cmd/gojq"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gojq/gojq"
+        }
+      ],
+      "build_duration_seconds": 852.9,
+      "recipe_file": "output/gojq_recipe.md"
+    },
+    "gocurl": {
+      "repo_url": "https://github.com/ameshkov/gocurl",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:56:39.400525",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gocurl ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gocurl/gocurl"
+        }
+      ],
+      "build_duration_seconds": 1098.0,
+      "recipe_file": "output/gocurl_recipe.md"
+    },
+    "gofireprox": {
+      "repo_url": "https://github.com/mr-pmillz/gofireprox",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T00:57:52.002031",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gofireprox ./cmd/gofireprox"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gofireprox/gofireprox"
+        }
+      ],
+      "build_duration_seconds": 1081.1,
+      "recipe_file": "output/gofireprox_recipe.md"
+    },
+    "gotator": {
+      "repo_url": "https://github.com/Josue87/gotator",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T01:02:14.603596",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gotator ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gotator/gotator"
+        }
+      ],
+      "build_duration_seconds": 327.1,
+      "recipe_file": "output/gotator_recipe.md"
+    },
+    "gronx": {
+      "repo_url": "https://github.com/adhocore/gronx",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T01:04:05.165109",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gronx ./cmd/tasker"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gronx/install.sh"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gronx/gronx"
+        }
+      ],
+      "build_duration_seconds": 363.9,
+      "recipe_file": "output/gronx_recipe.md"
+    },
+    "gosmee": {
+      "repo_url": "https://github.com/chmouel/gosmee",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T01:09:02.222186",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add --no-cache go git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gosmee ."
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gosmee/gosmee/gosmee"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gosmee/gosmee/templates/replay_script.tmpl.bash"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gosmee/gosmee/templates/bash_completion.bash"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gosmee/misc/replayview"
+        }
+      ],
+      "build_duration_seconds": 855.8,
+      "recipe_file": "output/gosmee_recipe.md"
+    },
+    "gungnir": {
+      "repo_url": "https://github.com/g0ldencybersec/gungnir",
+      "build_system": "go",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T01:37:52.958203",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add go"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -v -o gungnir ./cmd/gungnir"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/gungnir/gungnir"
+        }
+      ],
+      "build_duration_seconds": 1721.3,
+      "recipe_file": "output/gungnir_recipe.md"
+    },
+    "msgpack-c": {
+      "repo_url": "https://github.com/msgpack/msgpack-c",
+      "build_system": "cmake",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T03:51:51.894577",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake",
+              "git fetch origin c_master:c_master && git checkout c_master",
+              "export LDFLAGS=\"-latomic\""
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/CMakeFiles/4.1.3/CompilerIdC/a.out"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/CMakeFiles/4.1.3/CMakeDetermineCompilerABI_C.bin"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/speed_test_uint32_array"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/lib_buffer_unpack"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/boundary"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/simple_c"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/speed_test_uint64_array"
+        },
+        {
+          "type": "binary",
+          "path": "/workspace/repos/msgpack-c/build/example/user_buffer_unpack"
+        },
+        {
+          "type": "library_static",
+          "path": "/workspace/repos/msgpack-c/build/libmsgpack-c.a"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/msgpack-c/build/libmsgpack-c.so.2"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/msgpack-c/build/libmsgpack-c.so.2.0.0"
+        },
+        {
+          "type": "library_shared",
+          "path": "/workspace/repos/msgpack-c/build/libmsgpack-c.so"
+        }
+      ],
+      "build_duration_seconds": 1116.3,
+      "recipe_file": "output/msgpack-c_recipe.md"
+    },
+    "fftw3": {
+      "repo_url": "https://github.com/FFTW/fftw3",
+      "build_system": "other",
+      "architecture": "riscv64",
+      "sandbox": "alpine-riscv64",
+      "last_built": "2026-05-13T04:08:56.518895",
+      "build_plan": {
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "echo \"The fftw3 repository at /workspace/repos/fftw3 is the source generator only and does not contain the generated C source files required to build the library.  Without running the generator scripts (which are not included in this repository) the build cannot proceed.  Therefore no build commands are executed.\""
+            ]
+          }
+        ]
+      },
+      "dependencies": [],
+      "patches": [],
+      "artifacts": [],
+      "build_duration_seconds": 871.7,
+      "recipe_file": "output/fftw3_recipe.md"
     }
   }
 }

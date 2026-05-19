@@ -3,10 +3,12 @@ Low-level utility functions for command execution, file I/O, and safety validati
 Provides Docker-aware file and command operations.
 """
 
+import random
 import re
 import subprocess
 import logging
 import os
+import time
 from typing import Optional, Tuple
 
 from src.state import CommandResult
@@ -242,7 +244,6 @@ def execute_command(
     """
     from src.config import _IN_DOCKER, WORKSPACE_ROOT
     
-    import time
     start_time = time.time()
     
     # If we are ALREADY in Docker, we cannot use docker exec normally
@@ -264,6 +265,10 @@ def execute_command(
                 duration_seconds=0.0,
             )
     
+    # Auto-correct wrong Alpine package names in apk commands
+    if _is_apk_command(command):
+        command = _fix_apk_package_names(command)
+
     # Execute command
     try:
         # FIXED: Execute in Docker container by default
@@ -297,7 +302,11 @@ def execute_command(
                 docker_cmd.extend(["-w", container_cwd])
             
             # Add container name and command
-            docker_cmd.extend([DockerConfig.CONTAINER_NAME, "bash", "-c", command])
+            # Wrap apk commands with flock to serialize across concurrent agents
+            exec_command = command
+            if _is_apk_command(command):
+                exec_command = f"flock -w 120 /tmp/apk.lock sh -c '{command}'"
+            docker_cmd.extend([DockerConfig.CONTAINER_NAME, "bash", "-c", exec_command])
             
             logger.debug(f"Executing in Docker: {' '.join(docker_cmd[:5])}... (cwd: {cwd})")
             
@@ -325,8 +334,35 @@ def execute_command(
         if result.returncode == 0:
             logger.debug(f"Command succeeded: {command[:50]}...")
         else:
-            logger.warning(f"Command failed (exit {result.returncode}): {command[:50]}...")
-            logger.warning(f"stderr: {result.stderr[:200]}")
+            # Retry apk commands that fail due to database lock contention
+            # (common when multiple agents share one container in batch mode)
+            if _is_apk_lock_error(result) and _is_apk_command(command):
+                APK_LOCK_RETRIES = 5
+                for retry in range(1, APK_LOCK_RETRIES + 1):
+                    delay = 5 * retry + random.uniform(0, 3)
+                    logger.info(
+                        f"apk lock contention, retry {retry}/{APK_LOCK_RETRIES} "
+                        f"after {delay:.0f}s: {command[:60]}"
+                    )
+                    time.sleep(delay)
+                    retry_result = subprocess.run(
+                        docker_cmd if use_docker else command,
+                        shell=not use_docker,
+                        cwd=None if use_docker else cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                    if not _is_apk_lock_error(retry_result):
+                        result = retry_result
+                        duration = time.time() - start_time
+                        if result.returncode == 0:
+                            logger.info(f"apk command succeeded on retry {retry}")
+                        break
+
+            if result.returncode != 0:
+                logger.warning(f"Command failed (exit {result.returncode}): {command[:50]}...")
+                logger.warning(f"stderr: {result.stderr[:200]}")
         
         return CommandResult(
             command=command,
@@ -357,6 +393,32 @@ def execute_command(
             stderr=str(e),
             duration_seconds=duration,
         )
+
+
+def _is_apk_lock_error(result) -> bool:
+    """Check if a command failed due to apk database lock contention."""
+    return result.returncode != 0 and (
+        "Unable to lock database" in (getattr(result, 'stderr', '') or '')
+        or "Unable to lock database" in (getattr(result, 'stdout', '') or '')
+    )
+
+
+def _is_apk_command(command: str) -> bool:
+    """Check if a command involves the apk package manager."""
+    cmd = command.strip()
+    return cmd.startswith("apk ") or "apk add" in cmd or "apk update" in cmd or "apk del" in cmd
+
+
+def _fix_apk_package_names(command: str) -> str:
+    """Auto-correct common Debian/Ubuntu package names to Alpine equivalents."""
+    from src.knowledge import ALPINE_PACKAGE_CORRECTIONS
+    fixed = command
+    for wrong, correct in ALPINE_PACKAGE_CORRECTIONS.items():
+        # Only replace whole package names (word boundaries)
+        fixed = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, fixed)
+    if fixed != command:
+        logger.info(f"Auto-corrected apk package names: {command[:80]} → {fixed[:80]}")
+    return fixed
 
 
 # ============================================================================

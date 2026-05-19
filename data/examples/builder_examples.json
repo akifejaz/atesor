@@ -218,487 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: simplehttpserver build execution",
-      "tags": [
-        "go",
-        "simplehttpserver"
-      ],
-      "build_system": "go",
-      "repo_name": "simplehttpserver",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go build -buildvcs=false ./..."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from simplehttpserver.",
-      "id": "builder-auto-001",
-      "source": "auto",
-      "timestamp": "2026-04-17"
-    },
-    {
-      "name": "Auto: zlib build execution",
-      "tags": [
-        "cmake",
-        "zlib"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zlib",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from zlib.",
-      "id": "builder-auto-002",
-      "source": "auto",
-      "timestamp": "2026-04-20"
-    },
-    {
-      "name": "Auto: zlib build execution",
-      "tags": [
-        "go",
-        "zlib"
-      ],
-      "build_system": "go",
-      "repo_name": "zlib",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk add build-base cmake go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && cmake .. && make"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from zlib.",
-      "id": "builder-auto-003",
-      "source": "auto",
-      "timestamp": "2026-04-20"
-    },
-    {
-      "name": "Auto: shell2http build execution",
-      "tags": [
-        "go",
-        "shell2http"
-      ],
-      "build_system": "go",
-      "repo_name": "shell2http",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o shell2http ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from shell2http.",
-      "id": "builder-auto-004",
-      "source": "auto",
-      "timestamp": "2026-04-22"
-    },
-    {
-      "name": "Auto: shellz build execution",
-      "tags": [
-        "go",
-        "shellz"
-      ],
-      "build_system": "go",
-      "repo_name": "shellz",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -o shellz ./cmd/shellz"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from shellz.",
-      "id": "builder-auto-005",
-      "source": "auto",
-      "timestamp": "2026-04-22"
-    },
-    {
-      "name": "Auto: sh build execution",
-      "tags": [
-        "go",
-        "sh"
-      ],
-      "build_system": "go",
-      "repo_name": "sh",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o shfmt ./cmd/shfmt",
-            "go build -buildvcs=false -v -o gosh ./cmd/gosh"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from sh.",
-      "id": "builder-auto-006",
-      "source": "auto",
-      "timestamp": "2026-04-22"
-    },
-    {
-      "name": "Auto: shortscan build execution",
-      "tags": [
-        "go",
-        "shortscan"
-      ],
-      "build_system": "go",
-      "repo_name": "shortscan",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o shortscan ./cmd/shortscan"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from shortscan.",
-      "id": "builder-auto-007",
-      "source": "auto",
-      "timestamp": "2026-04-22"
-    },
-    {
-      "name": "Auto: siegfried build execution",
-      "tags": [
-        "go",
-        "siegfried"
-      ],
-      "build_system": "go",
-      "repo_name": "siegfried",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go build -buildvcs=false -v -o siegfried ./cmd/roy"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from siegfried.",
-      "id": "builder-auto-008",
-      "source": "auto",
-      "timestamp": "2026-04-22"
-    },
-    {
-      "name": "Auto: sj build execution",
-      "tags": [
-        "go",
-        "sj"
-      ],
-      "build_system": "go",
-      "repo_name": "sj",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o sj ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from sj.",
-      "id": "builder-auto-009",
-      "source": "auto",
-      "timestamp": "2026-04-27"
-    },
-    {
-      "name": "Auto: anew build execution",
-      "tags": [
-        "go",
-        "anew"
-      ],
-      "build_system": "go",
-      "repo_name": "anew",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o anew ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from anew.",
-      "id": "builder-auto-010",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: gf build execution",
-      "tags": [
-        "go",
-        "gf"
-      ],
-      "build_system": "go",
-      "repo_name": "gf",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod init github.com/tomnomnom/gf",
-            "go mod tidy",
-            "go build -o gf main.go"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gf.",
-      "id": "builder-auto-011",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: gron build execution",
-      "tags": [
-        "go",
-        "gron"
-      ],
-      "build_system": "go",
-      "repo_name": "gron",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false ./..."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gron.",
-      "id": "builder-auto-012",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: assetfinder build execution",
-      "tags": [
-        "go",
-        "assetfinder"
-      ],
-      "build_system": "go",
-      "repo_name": "assetfinder",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod init github.com/tomnomnom/assetfinder",
-            "go mod tidy",
-            "go build -buildvcs=false ./..."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from assetfinder.",
-      "id": "builder-auto-013",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: dnsx build execution",
-      "tags": [
-        "go",
-        "dnsx"
-      ],
-      "build_system": "go",
-      "repo_name": "dnsx",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build ./cmd/integration-test"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from dnsx.",
-      "id": "builder-auto-014",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: ffuf build execution",
-      "tags": [
-        "go",
-        "ffuf"
-      ],
-      "build_system": "go",
-      "repo_name": "ffuf",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o ffuf ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from ffuf.",
-      "id": "builder-auto-015",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: gobuster build execution",
-      "tags": [
-        "go",
-        "gobuster"
-      ],
-      "build_system": "go",
-      "repo_name": "gobuster",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gobuster ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gobuster.",
-      "id": "builder-auto-016",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
       "name": "Auto: gitleaks build execution",
       "tags": [
         "go",
@@ -2626,6 +2145,1093 @@
       "id": "builder-auto-073",
       "source": "auto",
       "timestamp": "2026-05-11"
+    },
+    {
+      "name": "Auto: dlevel build execution",
+      "tags": [
+        "go",
+        "dlevel"
+      ],
+      "build_system": "go",
+      "repo_name": "dlevel",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o dlevel ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dlevel.",
+      "id": "builder-auto-074",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: ecoji build execution",
+      "tags": [
+        "go",
+        "ecoji"
+      ],
+      "build_system": "go",
+      "repo_name": "ecoji",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd v2 && go mod tidy && go build -buildvcs=false -v -o ../ecoji ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ecoji.",
+      "id": "builder-auto-075",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: encode build execution",
+      "tags": [
+        "go",
+        "encode"
+      ],
+      "build_system": "go",
+      "repo_name": "encode",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o encode ./cmd/encode"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from encode.",
+      "id": "builder-auto-076",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: enola build execution",
+      "tags": [
+        "go",
+        "enola"
+      ],
+      "build_system": "go",
+      "repo_name": "enola",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o enola ./cmd/enola"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from enola.",
+      "id": "builder-auto-077",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: enumerepo build execution",
+      "tags": [
+        "go",
+        "enumerepo"
+      ],
+      "build_system": "go",
+      "repo_name": "enumerepo",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o enumerepo ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from enumerepo.",
+      "id": "builder-auto-078",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: exifLooter build execution",
+      "tags": [
+        "go",
+        "exifLooter"
+      ],
+      "build_system": "go",
+      "repo_name": "exifLooter",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o exiflooter ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from exifLooter.",
+      "id": "builder-auto-079",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: FFUF-Workflow-Tool build execution",
+      "tags": [
+        "go",
+        "FFUF-Workflow-Tool"
+      ],
+      "build_system": "go",
+      "repo_name": "FFUF-Workflow-Tool",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o ffuf-workflow ./cmd/ffuf-workflow"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from FFUF-Workflow-Tool.",
+      "id": "builder-auto-080",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: ffufPostprocessing build execution",
+      "tags": [
+        "go",
+        "ffufPostprocessing"
+      ],
+      "build_system": "go",
+      "repo_name": "ffufPostprocessing",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o ffufPostprocessing ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ffufPostprocessing.",
+      "id": "builder-auto-081",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: fico build execution",
+      "tags": [
+        "go",
+        "fico"
+      ],
+      "build_system": "go",
+      "repo_name": "fico",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o fico ./cmd"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fico.",
+      "id": "builder-auto-082",
+      "source": "auto",
+      "timestamp": "2026-05-12"
+    },
+    {
+      "name": "Auto: favirecon build execution",
+      "tags": [
+        "go",
+        "favirecon"
+      ],
+      "build_system": "go",
+      "repo_name": "favirecon",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o favirecon ./cmd/favirecon"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from favirecon.",
+      "id": "builder-auto-083",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: fwanalyzer build execution",
+      "tags": [
+        "go",
+        "fwanalyzer"
+      ],
+      "build_system": "go",
+      "repo_name": "fwanalyzer",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o build/fwanalyzer ./cmd/fwanalyzer"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fwanalyzer.",
+      "id": "builder-auto-084",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: fuzzuli build execution",
+      "tags": [
+        "go",
+        "fuzzuli"
+      ],
+      "build_system": "go",
+      "repo_name": "fuzzuli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o fuzzuli ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fuzzuli.",
+      "id": "builder-auto-085",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: git-who build execution",
+      "tags": [
+        "go",
+        "git-who"
+      ],
+      "build_system": "go",
+      "repo_name": "git-who",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o git-who ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from git-who.",
+      "id": "builder-auto-086",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: github-endpoints build execution",
+      "tags": [
+        "go",
+        "github-endpoints"
+      ],
+      "build_system": "go",
+      "repo_name": "github-endpoints",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o github-endpoints ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from github-endpoints.",
+      "id": "builder-auto-087",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gitdorks_go build execution",
+      "tags": [
+        "go",
+        "gitdorks_go"
+      ],
+      "build_system": "go",
+      "repo_name": "gitdorks_go",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o gitdorks_go ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gitdorks_go.",
+      "id": "builder-auto-088",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: go-fasttld build execution",
+      "tags": [
+        "go",
+        "go-fasttld"
+      ],
+      "build_system": "go",
+      "repo_name": "go-fasttld",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o dist/fasttld ./cmd/fasttld"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from go-fasttld.",
+      "id": "builder-auto-089",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: globalping-cli build execution",
+      "tags": [
+        "go",
+        "globalping-cli"
+      ],
+      "build_system": "go",
+      "repo_name": "globalping-cli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o globalping ./"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from globalping-cli.",
+      "id": "builder-auto-090",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: goawk build execution",
+      "tags": [
+        "go",
+        "goawk"
+      ],
+      "build_system": "go",
+      "repo_name": "goawk",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add --no-cache go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o goawk ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from goawk.",
+      "id": "builder-auto-091",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: GoLinkFinder build execution",
+      "tags": [
+        "go",
+        "GoLinkFinder"
+      ],
+      "build_system": "go",
+      "repo_name": "GoLinkFinder",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod init github.com/0xsha/GoLinkFinder",
+            "go mod tidy",
+            "go build -v -o GoLinkFinder ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from GoLinkFinder.",
+      "id": "builder-auto-092",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gitql build execution",
+      "tags": [
+        "go",
+        "gitql"
+      ],
+      "build_system": "go",
+      "repo_name": "gitql",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o gitql ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gitql.",
+      "id": "builder-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: godnsbench build execution",
+      "tags": [
+        "go",
+        "godnsbench"
+      ],
+      "build_system": "go",
+      "repo_name": "godnsbench",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o godnsbench ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from godnsbench.",
+      "id": "builder-auto-094",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gojq build execution",
+      "tags": [
+        "go",
+        "gojq"
+      ],
+      "build_system": "go",
+      "repo_name": "gojq",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gojq ./cmd/gojq"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gojq.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gocurl build execution",
+      "tags": [
+        "go",
+        "gocurl"
+      ],
+      "build_system": "go",
+      "repo_name": "gocurl",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gocurl ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gocurl.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gofireprox build execution",
+      "tags": [
+        "go",
+        "gofireprox"
+      ],
+      "build_system": "go",
+      "repo_name": "gofireprox",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gofireprox ./cmd/gofireprox"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gofireprox.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gotator build execution",
+      "tags": [
+        "go",
+        "gotator"
+      ],
+      "build_system": "go",
+      "repo_name": "gotator",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gotator ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gotator.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gronx build execution",
+      "tags": [
+        "go",
+        "gronx"
+      ],
+      "build_system": "go",
+      "repo_name": "gronx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gronx ./cmd/tasker"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gronx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gosmee build execution",
+      "tags": [
+        "go",
+        "gosmee"
+      ],
+      "build_system": "go",
+      "repo_name": "gosmee",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add --no-cache go git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gosmee ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gosmee.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: zlib build execution",
+      "tags": [
+        "cmake",
+        "zlib"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF -DBUILD_SHARED=ON -DBUILD_STATIC=ON && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from zlib.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gungnir build execution",
+      "tags": [
+        "go",
+        "gungnir"
+      ],
+      "build_system": "go",
+      "repo_name": "gungnir",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gungnir ./cmd/gungnir"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gungnir.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: msgpack-c build execution",
+      "tags": [
+        "cmake",
+        "msgpack-c"
+      ],
+      "build_system": "cmake",
+      "repo_name": "msgpack-c",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake",
+            "git fetch origin c_master:c_master && git checkout c_master",
+            "export LDFLAGS=\"-latomic\""
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from msgpack-c.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: tinyxml2 build execution",
+      "tags": [
+        "cmake",
+        "tinyxml2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "tinyxml2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from tinyxml2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: fftw3 build execution",
+      "tags": [
+        "other",
+        "fftw3"
+      ],
+      "build_system": "other",
+      "repo_name": "fftw3",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "echo \"The fftw3 repository at /workspace/repos/fftw3 is the source generator only and does not contain the generated C source files required to build the library.  Without running the generator scripts (which are not included in this repository) the build cannot proceed.  Therefore no build commands are executed.\""
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fftw3.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: anew build execution",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o anew ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anew.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-13"
+    },
+    {
+      "name": "Auto: gf build execution",
+      "tags": [
+        "go",
+        "gf"
+      ],
+      "build_system": "go",
+      "repo_name": "gf",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod init github.com/tomnomnom/gf",
+            "go mod tidy",
+            "go build -buildvcs=false -o gf ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gf.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-18"
+    },
+    {
+      "name": "Auto: gron build execution",
+      "tags": [
+        "go",
+        "gron"
+      ],
+      "build_system": "go",
+      "repo_name": "gron",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gron ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gron.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-19"
+    },
+    {
+      "name": "Auto: assetfinder build execution",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "go mod init github.com/tomnomnom/assetfinder",
+            "go mod tidy"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -v -o assetfinder ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from assetfinder.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-19"
+    },
+    {
+      "name": "Auto: dnsx build execution",
+      "tags": [
+        "go",
+        "dnsx"
+      ],
+      "build_system": "go",
+      "repo_name": "dnsx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": []
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dnsx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-19"
     }
   ]
 }

@@ -4,6 +4,7 @@ Main entry point for Atesor AI.
 Handles CLI, Docker setup, and starts the multi-agent porting workflow.
 """
 
+import fcntl
 import os
 import sys
 import time
@@ -26,7 +27,7 @@ from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
 from src.tools import execute_command
 
 # Configure logging
-def configure_logging(verbose: bool):
+def configure_logging(verbose: bool, repo_name: str = ""):
     # Capture everything at root level
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -41,7 +42,9 @@ def configure_logging(verbose: bool):
         root_logger.removeHandler(handler)
 
     # 1. File Handler (Always Capture Everything)
-    log_file = os.path.join(LOGS_DIR, "agent.log")
+    # Use per-repo log files to avoid cross-process corruption in batch mode
+    log_filename = f"agent_{repo_name}.log" if repo_name else "agent.log"
+    log_file = os.path.join(LOGS_DIR, log_filename)
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
@@ -102,7 +105,7 @@ def setup_docker_environment() -> bool:
         print(colored(f"Details: {e}", "yellow"))
         return False
 
-    # Step 1: Check/Build Docker Image
+    # Check/Build Docker Image
     print(colored("\nSetting up RISC-V development environment...", "cyan"))
 
     force_rebuild = os.environ.get("REBUILD_IMAGE") == "true"
@@ -132,66 +135,77 @@ def setup_docker_environment() -> bool:
             print(colored(f"{e}", "yellow"))
             return False
 
-    # Step 2: Create/Start Container
+    # Create/Start Container (file-locked for multi-process safety)
+    lock_path = os.path.join(LOGS_DIR, ".container_setup.lock")
+    os.makedirs(LOGS_DIR, exist_ok=True)
     container = None
-    for attempt in range(2):
-        try:
+    lock_fd = None
+    try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+        for attempt in range(2):
             try:
-                container = client.containers.get(CONTAINER_NAME)
+                try:
+                    container = client.containers.get(CONTAINER_NAME)
+                    if container.status != "running":
+                        print(
+                            colored(
+                                f"   Starting existing container '{CONTAINER_NAME}'...",
+                                "yellow",
+                            )
+                        )
+                        container.start()
+                        time.sleep(2)
+                    print(colored(f"Container '{CONTAINER_NAME}' is running", "green"))
+                except docker.errors.NotFound:
+                    print(colored(f"   Creating container '{CONTAINER_NAME}'...", "yellow"))
+
+                    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+                    container = client.containers.run(
+                        IMAGE_NAME,
+                        name=CONTAINER_NAME,
+                        detach=True,
+                        tty=True,
+                        platform="linux/riscv64",
+                        network_mode="bridge",
+                        dns=["8.8.8.8", "8.8.4.4"],
+                        volumes={
+                            os.path.abspath("./workspace"): {
+                                "bind": "/workspace",
+                                "mode": "rw",
+                            }
+                        },
+                        mem_limit="8g",
+                        cpu_quota=-1,
+                    )
+                    print(colored(f"Container created and started", "green"))
+                    time.sleep(5)
+
+                container.reload()
+                time.sleep(1)
                 if container.status != "running":
                     print(
                         colored(
-                            f"   Starting existing container '{CONTAINER_NAME}'...",
+                            f"   Container status: {container.status}, recreating...",
                             "yellow",
                         )
                     )
-                    container.start()
-                    time.sleep(2)
-                print(colored(f"Container '{CONTAINER_NAME}' is running", "green"))
+                    try:
+                        container.stop()
+                        container.remove()
+                    except Exception as e:
+                        logger.warning(f"Cleanup failed: {e}")
+                    continue
+
+                break
             except docker.errors.NotFound:
-                print(colored(f"   Creating container '{CONTAINER_NAME}'...", "yellow"))
-
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-                container = client.containers.run(
-                    IMAGE_NAME,
-                    name=CONTAINER_NAME,
-                    detach=True,
-                    tty=True,
-                    platform="linux/riscv64",
-                    network_mode="bridge",
-                    dns=["8.8.8.8", "8.8.4.4"],
-                    volumes={
-                        os.path.abspath("./workspace"): {
-                            "bind": "/workspace",
-                            "mode": "rw",
-                        }
-                    },
-                    mem_limit="8g",
-                    cpu_quota=-1,
-                )
-                print(colored(f"Container created and started", "green"))
-                time.sleep(5)
-
-            container.reload()
-            time.sleep(1)
-            if container.status != "running":
-                print(
-                    colored(
-                        f"   Container status: {container.status}, recreating...",
-                        "yellow",
-                    )
-                )
-                try:
-                    container.stop()
-                    container.remove()
-                except Exception as e:
-                    logger.warning(f"Cleanup failed: {e}")
                 continue
-
-            break
-        except docker.errors.NotFound:
-            continue
+    finally:
+        if lock_fd is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
     if container is None or container.status != "running":
         print(colored(f"ERROR: Failed to start container after 2 attempts", "red"))
@@ -202,7 +216,7 @@ def setup_docker_environment() -> bool:
     logger.info(f"Container '{CONTAINER_NAME}' is running with ID: {container.short_id}")
     logger.info(f"Workspace mounted at /workspace in container")
 
-    # Step 3: Verify container is working and architecture is correct
+    # Verify container is working and architecture is correct
     try:
         # Check architecture
         arch_result = container.exec_run("uname -m")
@@ -896,8 +910,18 @@ Examples:
 
     args = parser.parse_args()
 
-    # Configure logging early
-    configure_logging(args.verbose)
+    # Extract repo name early for per-repo logging
+    repo_name = ""
+    if args.repo:
+        repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
+
+    # Configure logging (per-repo log files avoid corruption in batch mode)
+    configure_logging(args.verbose, repo_name=repo_name)
+
+    # Switch LLM call log to per-repo file for batch safety
+    if repo_name:
+        from src.llm_logger import set_llm_log_repo
+        set_llm_log_repo(repo_name)
 
     # Handle cleanup
     if args.cleanup:

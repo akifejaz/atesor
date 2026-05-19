@@ -89,6 +89,52 @@ ALPINE_TOOL_MAP = {
     "libunwind": "libunwind-dev",
 }
 
+# Common package name mistakes that LLMs make when targeting Alpine Linux.
+# These names exist in Debian/Ubuntu but NOT in Alpine — use the corrections.
+ALPINE_PACKAGE_CORRECTIONS = {
+    "liblzma-dev": "xz-dev",
+    "liblz4-dev": "lz4-dev",
+    "libzdev-dev": "zlib-dev",
+    "libz-dev": "zlib-dev",
+    "libbz2-dev": "bzip2-dev",
+    "libzstd-dev": "zstd-dev",
+    "libcurl-dev": "curl-dev",
+    "libssl-dev": "openssl-dev",
+    "libcrypto-dev": "openssl-dev",
+    "libxml2-utils": "libxml2-dev",
+    "libtiff-dev": "tiff-dev",
+    "libopenjp2-dev": "openjpeg-dev",
+    "liblcms2-dev": "lcms2-dev",
+    "libfreetype6-dev": "freetype-dev",
+    "libfreetype-dev": "freetype-dev",
+    "libjpeg-dev": "libjpeg-turbo-dev",
+    "libpng12-dev": "libpng-dev",
+    "libsqlite3-dev": "sqlite-dev",
+    "libnghttp2-dev": "nghttp2-dev",
+    "libc-ares-dev": "c-ares-dev",
+    "libcares-dev": "c-ares-dev",
+    "libuv1-dev": "libuv-dev",
+    "libevent-dev": "libevent-dev",
+    "libgit2-dev": "libgit2-dev",
+    "libsodium23": "libsodium-dev",
+    "pkg-config": "pkgconf",
+    "libtool-bin": "libtool",
+    "doxygen": "doxygen",
+    "libprotobuf-dev": "protobuf-dev",
+    "libprotoc-dev": "protobuf-dev",
+    "libabsl-dev": "abseil-cpp-dev",
+    "libgtest-dev": "gtest-dev",
+    "libbenchmark-dev": "benchmark-dev",
+    "libsnappy-dev": "snappy-dev",
+    "libpcre2-dev": "pcre2-dev",
+    "libarchive-dev": "libarchive-dev",
+    "libjansson-dev": "jansson-dev",
+    "libyaml-dev": "yaml-dev",
+    "libre2-dev": "re2-dev",
+    "golang": "go",
+    "golang-go": "go",
+}
+
 # ============================================================================
 # RISC-V ARCHITECTURE KNOWLEDGE
 # ============================================================================
@@ -264,5 +310,18 @@ def get_system_knowledge_summary() -> str:
     lines.append("  - Do NOT use cross-compilation flags when building natively inside the sandbox")
     lines.append("  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) — explicit fences may be needed")
     lines.append("  - RISC-V ISA extensions vary by hardware — detect, do not assume")
+
+    lines.append("")
+    lines.append("### Alpine Package Name Corrections (common mistakes)")
+    lines.append("  These package names do NOT exist in Alpine. Use the correct names:")
+    for wrong, correct in ALPINE_PACKAGE_CORRECTIONS.items():
+        lines.append(f"  - `{wrong}` → use `{correct}`")
+
+    lines.append("")
+    lines.append("### Go Projects")
+    lines.append("  - Go is pre-installed in the sandbox — do NOT run `apk add go`")
+    lines.append("  - `GOPROXY`, `GONOSUMCHECK`, and `GOFLAGS=-buildvcs=false` are pre-set")
+    lines.append("  - For Go projects, standard build: `cd /workspace/repos/<name> && go build ./...` or `go build -o <binary> ./cmd/<name>`")
+    lines.append("  - If `go.mod requires go >= X.Y` and the installed Go is older, the build will fail — this is unfixable without a newer Go version")
 
     return "\n".join(lines)

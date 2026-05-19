@@ -54,6 +54,7 @@ class LLMCallLogger:
             os.makedirs(LOGS_DIR, exist_ok=True)
 
             self.log_file = os.path.join(LOGS_DIR, "agent-call.log")
+            self._logs_dir = LOGS_DIR
 
             # Write header if file is new
             if not os.path.exists(self.log_file):
@@ -67,6 +68,13 @@ class LLMCallLogger:
         except Exception as e:
             logger.error(f"Failed to initialize LLM call log: {e}")
             self.log_file = None
+            self._logs_dir = None
+
+    def set_repo_name(self, repo_name: str):
+        """Switch to a per-repo log file for multi-process batch safety."""
+        if not repo_name or not self._logs_dir:
+            return
+        self.log_file = os.path.join(self._logs_dir, f"agent-call_{repo_name}.log")
 
     def log_call(
         self,
@@ -154,3 +162,8 @@ def log_llm_call(
 ) -> str:
     """Convenience function to log an LLM call."""
     return _llm_logger.log_call(agent_role, prompt, response, model, cost_usd, metadata)
+
+
+def set_llm_log_repo(repo_name: str):
+    """Switch LLM call log to a per-repo file for batch safety."""
+    _llm_logger.set_repo_name(repo_name)

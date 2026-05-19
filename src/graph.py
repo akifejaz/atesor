@@ -483,10 +483,25 @@ def planner_node(state: AgentState) -> AgentState:
         json_match = extract_json_block(content)
         plan_data = json.loads(json_match)
 
+        # Validate that the LLM returned the required "phases" key
+        if "phases" not in plan_data or not isinstance(plan_data.get("phases"), list) or len(plan_data["phases"]) == 0:
+            logger.warning(
+                "LLM response missing 'phases' array — falling back to default plan. "
+                f"Keys received: {list(plan_data.keys())}"
+            )
+            state.task_plan = create_default_plan()
+            state.task_plan.complexity_score = plan_data.get("complexity_score", 5)
+            state.context_cache["task_plan"] = plan_data
+            state.current_phase = "planned"
+            return state
+
         # Create TaskPlan
         phases = []
         for p in plan_data["phases"]:
-            agent_str = p["agent"].lower()
+            if not isinstance(p, dict):
+                logger.warning(f"Skipping non-dict phase entry: {p}")
+                continue
+            agent_str = p.get("agent", "builder").lower()
             if agent_str in ["architect", "supervisor"]:
                 role = AgentRole.BUILDER  # Fallback for planning
             elif "scout" in agent_str:
@@ -512,13 +527,18 @@ def planner_node(state: AgentState) -> AgentState:
             )
             phases.append(phase)
 
-        state.task_plan = TaskPlan(
-            phases=phases,
-            can_parallelize=plan_data.get("can_parallelize", []),
-            estimated_total_cost=plan_data.get("estimated_total_cost", 0.0),
-            estimated_total_time=plan_data.get("estimated_total_time", "unknown"),
-            complexity_score=plan_data.get("complexity_score", 5),
-        )
+        # If all phase entries were invalid, fall back to default
+        if not phases:
+            logger.warning("No valid phases parsed from LLM response — using default plan")
+            state.task_plan = create_default_plan()
+        else:
+            state.task_plan = TaskPlan(
+                phases=phases,
+                can_parallelize=plan_data.get("can_parallelize", []),
+                estimated_total_cost=plan_data.get("estimated_total_cost", 0.0),
+                estimated_total_time=plan_data.get("estimated_total_time", "unknown"),
+                complexity_score=plan_data.get("complexity_score", 5),
+            )
 
         logger.info(
             f"Strategic plan created: {len(phases)} phases, "
@@ -950,6 +970,21 @@ SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan f
 4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
    - For C/C++ libraries, always install the `-dev` variant (e.g., `zlib-dev`, `openssl-dev`, `curl-dev`).
    - **IMPORTANT: Never repeat the same package name in an `apk add` command. List each package exactly once.**
+   - **CRITICAL Alpine package name corrections** (Debian/Ubuntu names that are WRONG on Alpine):
+     - `liblzma-dev` → use `xz-dev`
+     - `liblz4-dev` → use `lz4-dev`
+     - `libz-dev` / `libzdev-dev` → use `zlib-dev`
+     - `libbz2-dev` → use `bzip2-dev`
+     - `libzstd-dev` → use `zstd-dev`
+     - `libcurl-dev` → use `curl-dev`
+     - `libssl-dev` / `libcrypto-dev` → use `openssl-dev`
+     - `libtiff-dev` → use `tiff-dev`
+     - `libfreetype6-dev` / `libfreetype-dev` → use `freetype-dev`
+     - `libjpeg-dev` → use `libjpeg-turbo-dev`
+     - `libsqlite3-dev` → use `sqlite-dev`
+     - `liblcms2-dev` → use `lcms2-dev`
+     - `pkg-config` → use `pkgconf`
+     - `golang` / `golang-go` → use `go`
    - **Alpine/musl package gotchas** (these packages do NOT exist — do NOT try to install them):
      - `libiconv-dev` → musl has iconv built-in, no separate package needed
      - `libatomic-dev` → libatomic is part of gcc, already installed via `build-base`
@@ -957,6 +992,8 @@ SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan f
      - `libdl-dev` → part of musl, no separate package
    - Check the project README/INSTALL and CMakeLists.txt/meson.build for required dependencies.
    - For CMake projects, check `find_package()` calls in CMakeLists.txt — each required package needs a corresponding `-dev` install. Common: `absl` → `abseil-cpp-dev`, `Protobuf` → `protobuf-dev`, `OpenSSL` → `openssl-dev`, `ZLIB` → `zlib-dev`, `LibSSH2` → `libssh2-dev`.
+   - **Go projects**: Go is already pre-installed in the sandbox. Do NOT run `apk add go`. The Go toolchain, GOPROXY, and GOFLAGS are already configured. Just run `go build` directly.
+   - **Go build targets**: Check `go.mod` for the module path. For the build target, look at subdirectories with `main.go` files (commonly `./cmd/<name>/`). Use `go build ./cmd/...` or `go build ./...` — never guess paths. If `main.go` is at root, use `go build .`.
 5. **Verify source code location**: CMakeLists.txt or configure.ac may be in a subdirectory (e.g., `expat/`, `src/`). If the root has no build files, check subdirectories. If README says source is on a different branch (e.g., `c_master`, `cpp_master`), add `git fetch origin <branch>:<branch> && git checkout <branch>` as the FIRST command in setup phase. The `:<branch>` syntax is required for shallow clones to create a local branch.
    - **If both CMake and autotools are available** (both CMakeLists.txt and configure/configure.ac exist), prefer autotools (`./configure && make`) as it is usually more mature and handles code generation better on RISC-V.
    - **If `./configure` already exists**, use it directly — do NOT run autoreconf, bootstrap.sh, or autogen.sh unnecessarily.
@@ -1258,7 +1295,7 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             build_system="go",
             build_system_confidence=0.8,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add go git"], False, "30s"),
+                BuildPhase(1, "setup", ["apk update && apk add git"], False, "30s"),
                 BuildPhase(2, "build", build_cmds, False, "3m"),
             ],
             total_estimated_duration="4m",
@@ -1824,7 +1861,7 @@ FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compil
 | `possibly undefined macro: AM_GNU_GETTEXT` OR `syntax error: unexpected word (expecting ")")` in `./configure` OR `No rule to make target '/config.status'` | Old `m4/gettext.m4` missing `AM_GNU_GETTEXT_VERSION`. **DO NOT run autoreconf** (autopoint reverts fixes). Exact fix sequence — run ALL three commands: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`. The copy-first step is critical — without it autoconf produces a broken configure even if aclocal exits 0. |
 | `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
 | `cannot find main module, but found .git/config` | Missing go.mod (GOPATH-style repo) | Run `go mod init <github.com/owner/repo>` then `go mod tidy` |
-| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | Try `apk add --no-cache go` to see if a newer version is available |
+| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | This is unfixable — the sandbox Go version is pinned by Alpine. Escalate as a version incompatibility |
 | `Could NOT find <Package>` (CMake) | Missing dev library | Install the Alpine `-dev` package: `apk add <package>-dev` |
 | `Package '<pkg>' not found` (pkg-config) | Missing dev library | Install the Alpine `-dev` package: `apk add <pkg>-dev` |
 | `No such file or directory: nasm` | Missing assembler | `apk add nasm` |
@@ -1833,7 +1870,8 @@ FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compil
 | `cannot find -lm` / `cannot find -lpthread` | Missing C library dev | `apk add musl-dev` (usually already present with build-base) |
 | `cd: build: No such file or directory` | Build directory not created | Add `mkdir -p build` before any `cd build` command |
 | `Command blocked by safety validation` with `./Configure` | OpenSSL-style Configure script | Use `perl ./Configure` instead of `./Configure`, or set `LDFLAGS` env var instead of passing `-Wl,` flags directly |
-| `no such package` in apk add | Wrong Alpine package name | Check Alpine package names: e.g. `libatomic` is part of gcc (no separate -dev), `libiconv-dev` → `musl-dev` includes iconv on Alpine |
+| `no such package` in apk add | Wrong Alpine package name | Check Alpine package names: `liblzma-dev` → `xz-dev`, `liblz4-dev` → `lz4-dev`, `libz-dev` → `zlib-dev`, `libbz2-dev` → `bzip2-dev`, `libzstd-dev` → `zstd-dev`, `libcurl-dev` → `curl-dev`, `libssl-dev` → `openssl-dev`, `libtiff-dev` → `tiff-dev`, `libjpeg-dev` → `libjpeg-turbo-dev`, `libfreetype-dev` → `freetype-dev`, `libsqlite3-dev` → `sqlite-dev`, `liblcms2-dev` → `lcms2-dev`, `pkg-config` → `pkgconf`, `golang` → `go` |
+| `requires go >= X.Y (running go ...)` | Package needs newer Go than installed | This is unfixable — the sandbox Go version is pinned. Report as a version mismatch |
 | `./configure: No such file or directory` | Missing configure script | Run `autoreconf -fi` to generate it, or run `./autogen.sh -s -f` if autogen.sh exists (the `-s -f` flags enable dev setup + force regeneration). If autoreconf fails, try: `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null; aclocal; autoconf; automake --add-missing 2>/dev/null; ./configure` |
 | `PATH_MAX` undeclared / `fortified realpath will not work` | musl/Alpine fortify-headers issue | Add `-DPATH_MAX=4096` to CFLAGS: for CMake use `-DCMAKE_C_FLAGS="-DPATH_MAX=4096"`, for Make use `CFLAGS="-DPATH_MAX=4096"`. If still failing, also add `-U_FORTIFY_SOURCE` |
 | `please do not run arbitrary` / autogen.sh exits without creating configure | autogen.sh requires flags | Run `./autogen.sh -s -f` (dev setup + force) instead of plain `./autogen.sh`. If that doesn't work, run `autoreconf -fi` directly |
@@ -1844,6 +1882,7 @@ FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compil
 | `Parse error. Expected a command name` in CMakeLists.txt | CMake build system broken | Switch to autotools: run `autoreconf -fi` or `./autogen.sh -s -f` to generate `./configure`, then `./configure && make -j$(nproc)` |
 | `undefined reference to` with cmake build (multiple linking errors) | CMake build incomplete | If the project also has `configure.ac` or `./configure`, switch to autotools: `./configure && make -j$(nproc)` (or `autoreconf -fi && ./configure && make -j$(nproc)` if configure doesn't exist). Autotools often handles codegen and linking better than cmake for complex projects |
 | `pathspec did not match any file(s) known to git` after fetch | Shallow clone branch issue | Use `git fetch origin <branch>:<branch>` to create a local branch, then `git checkout <branch>`. The `:<branch>` syntax creates the local tracking branch that shallow clones don't have |
+| `No targets specified and no makefile found` | Running `make` without prior configure/cmake | If CMakeLists.txt exists: `mkdir -p build && cd build && cmake .. && make -j$(nproc)`. If configure.ac exists: `autoreconf -fi && ./configure && make -j$(nproc)`. If configure exists: `./configure && make -j$(nproc)` |
 | `ModuleNotFoundError: No module named 'jinja2'` / `'jsonschema'` | Python build-time dep | `pip3 install jinja2 jsonschema` or `apk add py3-jinja2 py3-jsonschema` |
 
 **CRITICAL: Each command runs in a separate shell starting at the repo root. A `cd` in one command does NOT carry over. Always chain `cd` with subsequent commands using `&&` (e.g., `cd build && cmake ..`).**
