@@ -23,7 +23,7 @@ load_dotenv()
 from src.models import check_api_keys, print_model_info, ModelProvider
 from src.state import AgentState, AgentRole, BuildStatus
 
-from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
+from src.config import OUTPUT_DIR, LOGS_DIR
 from src.tools import execute_command
 
 # Configure logging
@@ -96,8 +96,18 @@ def setup_docker_environment() -> bool:
     """
     Set up the Docker environment for RISC-V development.
 
-    This creates the sandbox container where all builds will happen.
+    Image / container / Dockerfile are selected based on the active platform
+    profile (Alpine or Debian). A self-check confirms the running container's
+    `/etc/os-release` matches the selected profile, refusing to proceed on
+    mismatch (the most common cause: user passes --platform debian but is
+    still pointing at the legacy Alpine container).
     """
+    from src.platforms import get_active_profile, get_container_name
+    profile = get_active_profile()
+    image_name = profile.image_name
+    container_name = get_container_name()
+    dockerfile = profile.dockerfile
+
     try:
         client = docker.from_env()
     except docker.errors.DockerException as e:
@@ -106,33 +116,60 @@ def setup_docker_environment() -> bool:
         return False
 
     # Check/Build Docker Image
-    print(colored("\nSetting up RISC-V development environment...", "cyan"))
+    print(colored(f"\nSetting up RISC-V development environment ({profile.display_name})...", "cyan"))
 
     force_rebuild = os.environ.get("REBUILD_IMAGE") == "true"
 
     try:
         if force_rebuild:
-            print(colored(f"Forcing rebuild of image '{IMAGE_NAME}'...", "yellow"))
+            print(colored(f"Forcing rebuild of image '{image_name}'...", "yellow"))
             raise docker.errors.ImageNotFound("Triggering rebuild")
 
-        client.images.get(IMAGE_NAME)
-        print(colored(f"Image '{IMAGE_NAME}' found", "green"))
+        client.images.get(image_name)
+        print(colored(f"Image '{image_name}' found", "green"))
     except docker.errors.ImageNotFound:
-        print(colored(f"   Building image '{IMAGE_NAME}'...", "yellow"))
+        print(colored(f"   Building image '{image_name}' from {dockerfile}...", "yellow"))
+        print(colored(
+            f"   Note: RISC-V images build under QEMU emulation. Expect 15-45 minutes "
+            f"on first build (subsequent runs reuse the cached image).",
+            "yellow",
+        ))
         try:
-            # Build the image
-            image, logs = client.images.build(
+            # Use low-level API to stream build progress so the user sees activity
+            build_stream = client.api.build(
                 path=".",
-                tag=IMAGE_NAME,
+                dockerfile=dockerfile,
+                tag=image_name,
                 rm=True,
                 forcerm=True,
-                pull=True,  # Ensure base image is up to date
+                pull=True,
                 platform="linux/riscv64",
+                decode=True,
             )
+            last_step = ""
+            for chunk in build_stream:
+                if "stream" in chunk:
+                    line = chunk["stream"].rstrip()
+                    if not line:
+                        continue
+                    # Show step headers prominently; condense noisy lines
+                    if line.startswith("Step "):
+                        last_step = line
+                        print(colored(f"   {line}", "cyan"))
+                    else:
+                        # Keep the user feeling alive: print a dot per log line, full text every 50
+                        print(f"   {line}")
+                elif "errorDetail" in chunk:
+                    raise docker.errors.BuildError(chunk["errorDetail"].get("message", "build failed"), build_stream)
+                elif "error" in chunk:
+                    raise docker.errors.BuildError(chunk["error"], build_stream)
             print(colored(f"Image built successfully", "green"))
         except docker.errors.BuildError as e:
             print(colored(f"ERROR: Failed to build Docker image", "red"))
             print(colored(f"{e}", "yellow"))
+            return False
+        except Exception as e:
+            print(colored(f"ERROR: Build stream error: {e}", "red"))
             return False
 
     # Create/Start Container (file-locked for multi-process safety)
@@ -147,25 +184,25 @@ def setup_docker_environment() -> bool:
         for attempt in range(2):
             try:
                 try:
-                    container = client.containers.get(CONTAINER_NAME)
+                    container = client.containers.get(container_name)
                     if container.status != "running":
                         print(
                             colored(
-                                f"   Starting existing container '{CONTAINER_NAME}'...",
+                                f"   Starting existing container '{container_name}'...",
                                 "yellow",
                             )
                         )
                         container.start()
                         time.sleep(2)
-                    print(colored(f"Container '{CONTAINER_NAME}' is running", "green"))
+                    print(colored(f"Container '{container_name}' is running", "green"))
                 except docker.errors.NotFound:
-                    print(colored(f"   Creating container '{CONTAINER_NAME}'...", "yellow"))
+                    print(colored(f"   Creating container '{container_name}'...", "yellow"))
 
                     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
                     container = client.containers.run(
-                        IMAGE_NAME,
-                        name=CONTAINER_NAME,
+                        image_name,
+                        name=container_name,
                         detach=True,
                         tty=True,
                         platform="linux/riscv64",
@@ -213,8 +250,40 @@ def setup_docker_environment() -> bool:
 
     print(colored(f"   Container ID: {container.short_id}", "cyan"))
 
-    logger.info(f"Container '{CONTAINER_NAME}' is running with ID: {container.short_id}")
+    logger.info(f"Container '{container_name}' is running with ID: {container.short_id}")
     logger.info(f"Workspace mounted at /workspace in container")
+
+    # ---- Self-check: container's actual distro must match the selected profile ----
+    try:
+        osr = container.exec_run("cat /etc/os-release")
+        if osr.exit_code == 0:
+            text = osr.output.decode("utf-8", errors="ignore")
+            container_id = ""
+            for line in text.splitlines():
+                if line.startswith("ID="):
+                    container_id = line.split("=", 1)[1].strip().strip('"').lower()
+                    break
+            # ubuntu profile is satisfied by either "ubuntu" or "debian" (same package map)
+            expected = {"alpine": {"alpine"}, "debian": {"debian", "ubuntu"}, "ubuntu": {"debian", "ubuntu"}}
+            allowed = expected.get(profile.name, {profile.name})
+            if container_id and container_id not in allowed:
+                print(colored(
+                    f"ERROR: Platform mismatch — container '{container_name}' is "
+                    f"'{container_id}' but --platform '{profile.name}' was selected.",
+                    "red",
+                ))
+                print(colored(
+                    f"  Fix: stop & remove the stale container, then re-run.\n"
+                    f"    docker rm -f {container_name}\n"
+                    f"  Or pick a profile that matches the container's distro.",
+                    "yellow",
+                ))
+                return False
+            logger.info(f"Container distro check OK: {container_id} ∈ {sorted(allowed)}")
+        else:
+            logger.warning(f"Could not read /etc/os-release from container (exit {osr.exit_code})")
+    except Exception as e:
+        logger.warning(f"Distro self-check skipped: {e}")
 
     # Verify container is working and architecture is correct
     try:
@@ -270,15 +339,15 @@ def setup_docker_environment() -> bool:
             try:
                 print(
                     colored(
-                        f"   Creating container '{CONTAINER_NAME}' (attempt {attempt + 1})...",
+                        f"   Creating container '{container_name}' (attempt {attempt + 1})...",
                         "yellow",
                     )
                 )
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
                 container = client.containers.run(
-                    IMAGE_NAME,
-                    name=CONTAINER_NAME,
+                    image_name,
+                    name=container_name,
                     detach=True,
                     tty=True,
                     platform="linux/riscv64",
@@ -520,15 +589,19 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
     from src.graph import app
     from src.state import create_initial_state, BuildStatus
     from langchain_core.messages import HumanMessage
+    from src.platforms import get_active_profile
+    profile = get_active_profile()
 
     logger.info("Starting RISC-V Porting Agent")
     logger.info(f"Repository: {repo_url}")
     logger.info(f"Max attempts: {max_attempts}")
+    logger.info(f"Platform profile: {profile.display_name}")
     logger.info("-" * 60)
 
     print(colored("\nStarting RISC-V Porting Agent", "cyan", attrs=["bold"]))
     print(colored(f"   Repository: {repo_url}", "white"))
     print(colored(f"   Max attempts: {max_attempts}", "white"))
+    print(colored(f"   Platform:    {profile.display_name}", "white"))
     print(colored("-" * 60, "cyan"))
 
     initial_state = create_initial_state(repo_url, max_attempts=max_attempts)
@@ -819,30 +892,38 @@ def cleanup_workspace(dry_run: bool = False) -> None:
 
 
 def cleanup_container(remove_image: bool = False):
-    """Stop and remove the sandbox container and optionally the image."""
+    """Stop and remove the active profile's sandbox container (and optionally the image).
+
+    Respects ATESOR_CONTAINER override so per-worker containers are cleaned up
+    correctly during batch runs.
+    """
+    from src.platforms import get_active_profile, get_container_name
+    profile = get_active_profile()
+    container_name = get_container_name()
+    image_name = profile.image_name
     try:
         client = docker.from_env()
 
         # Remove container
         try:
-            container = client.containers.get(CONTAINER_NAME)
+            container = client.containers.get(container_name)
             if container.status == "running":
-                print(colored(f"Stopping container '{CONTAINER_NAME}'...", "yellow"))
+                print(colored(f"Stopping container '{container_name}'...", "yellow"))
                 container.stop(timeout=10)
-            print(colored(f"Removing container '{CONTAINER_NAME}'...", "yellow"))
+            print(colored(f"Removing container '{container_name}'...", "yellow"))
             container.remove()
             print(colored("Container cleaned up", "green"))
         except docker.errors.NotFound:
-            print(colored(f"Container '{CONTAINER_NAME}' not found", "yellow"))
+            print(colored(f"Container '{container_name}' not found", "yellow"))
 
         # Remove image if requested
         if remove_image:
             try:
-                print(colored(f"Removing image '{IMAGE_NAME}'...", "yellow"))
-                client.images.remove(IMAGE_NAME)
-                print(colored(f"Image '{IMAGE_NAME}' removed", "green"))
+                print(colored(f"Removing image '{image_name}'...", "yellow"))
+                client.images.remove(image_name)
+                print(colored(f"Image '{image_name}' removed", "green"))
             except docker.errors.ImageNotFound:
-                print(colored(f"Image '{IMAGE_NAME}' not found", "yellow"))
+                print(colored(f"Image '{image_name}' not found", "yellow"))
             except Exception as e:
                 print(colored(f"Error removing image: {e}", "red"))
 
@@ -907,8 +988,32 @@ Examples:
     parser.add_argument(
         "--force", action="store_true", help="Skip recipe cache and re-run full pipeline"
     )
+    parser.add_argument(
+        "--platform",
+        choices=["alpine", "debian", "ubuntu", "auto"],
+        default="auto",
+        help="Sandbox platform profile (default: auto-detect from container's /etc/os-release)",
+    )
+    parser.add_argument(
+        "--container",
+        default=None,
+        help=(
+            "Override the sandbox container name (defaults to the platform profile's "
+            "name, e.g. 'atesor-ai-sandbox' or 'atesor-ai-sandbox-debian'). Used by "
+            "batch_test.py to assign each worker its own container so apt/apk locks "
+            "do not serialize across parallel runs."
+        ),
+    )
 
     args = parser.parse_args()
+
+    # Apply platform override BEFORE any module reads get_active_profile()
+    if args.platform != "auto":
+        os.environ["ATESOR_PLATFORM"] = args.platform
+
+    # Apply container override BEFORE any module reads get_container_name()
+    if args.container:
+        os.environ["ATESOR_CONTAINER"] = args.container
 
     # Extract repo name early for per-repo logging
     repo_name = ""

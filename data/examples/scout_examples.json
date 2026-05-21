@@ -377,42 +377,6 @@
       "reasoning": "Projects using CGO need gcc available. Install build-base and relevant -dev packages."
     },
     {
-      "name": "Auto: glow (go)",
-      "tags": [
-        "go",
-        "glow"
-      ],
-      "build_system": "go",
-      "repo_name": "glow",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update",
-              "apk add go"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false -v -o glow ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful glow build.",
-      "id": "scout-auto-026",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
       "name": "Auto: cvemap (go)",
       "tags": [
         "go",
@@ -3893,6 +3857,49 @@
       "id": "scout-auto-093",
       "source": "auto",
       "timestamp": "2026-05-19"
+    },
+    {
+      "name": "Auto: zlib (cmake)",
+      "tags": [
+        "cmake",
+        "zlib"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update",
+              "apt-get install -y --no-install-recommends build-essential cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful zlib build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-20",
+      "sandbox": "debian-riscv64"
     }
   ]
 }

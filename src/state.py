@@ -219,22 +219,6 @@ class BuildSystemInfo:
 
 
 @dataclass
-class CommunityPortStatus:
-    """Status of RISC-V port in the community."""
-
-    existing_port: bool = False
-    patches_available: bool = False
-    patch_urls: List[str] = field(default_factory=list)
-    community_discussion_urls: List[str] = field(default_factory=list)
-    last_checked: datetime = field(default_factory=datetime.now)
-
-
-# ============================================================================
-# MAIN STATE CLASS
-# ============================================================================
-
-
-@dataclass
 class AgentState:
     """
     Comprehensive state for the RISC-V porting agent.
@@ -256,16 +240,12 @@ class AgentState:
     build_plan: Optional[BuildPlan] = None
     build_status: BuildStatus = BuildStatus.PENDING
     tests_run: bool = False
-    tests_passed: bool = False
 
     # ========== Dependencies ==========
     dependencies: Optional[DependencyInfo] = None
-    missing_dependencies: List[str] = field(default_factory=list)
 
     # ========== Architecture Analysis ==========
     arch_specific_code: List[ArchSpecificCode] = field(default_factory=list)
-    risc_v_blockers: List[str] = field(default_factory=list)
-    community_port_status: Optional[CommunityPortStatus] = None
 
     # ========== Execution Tracking ==========
     attempt_count: int = 0
@@ -296,7 +276,8 @@ class AgentState:
     # ========== Output Artifacts ==========
     patches_generated: List[str] = field(default_factory=list)
     porting_recipe: Optional[str] = None
-    build_artifacts: List[Dict[str, Any]] = field(default_factory=list)  # Track built binaries/libraries
+    build_artifacts: List[Dict[str, Any]] = field(default_factory=list)  # Raw scan results
+    curated_artifacts: List[Dict[str, Any]] = field(default_factory=list)  # User-facing subset
 
     # ========== Debugging & Audit ==========
     audit_trail: List[Dict[str, Any]] = field(default_factory=list)

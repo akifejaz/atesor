@@ -37,6 +37,7 @@ class AgentExample:
     build_system: str = ""
     source: str = "manual"
     repo_name: str = ""
+    sandbox: str = ""
     timestamp: str = ""
 
     # Scout-specific
@@ -211,6 +212,7 @@ class AgentMemory:
             repo_name=ex_data.get("repo_name",
                                   ex_data.get("context", {}).get("repo_name", "")),
             timestamp=ex_data.get("timestamp", ""),
+            sandbox=ex_data.get("sandbox", ""),
             trigger=ex_data.get("trigger"),
             plan=ex_data.get("plan"),
             error_pattern=ex_data.get("error_pattern", ""),
@@ -234,12 +236,41 @@ class AgentMemory:
         if not self.examples:
             return []
 
+        # Hard-filter wrong-sandbox examples BEFORE scoring. Otherwise a stock
+        # cmake/go example using apk could still surface under Debian because
+        # the build_system match boost (+0.5) outweighs the sandbox penalty.
+        ctx_sandbox = context.get("sandbox")
+        if not ctx_sandbox:
+            try:
+                from .platforms import get_active_profile
+                ctx_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                ctx_sandbox = ""
+
+        def _sandbox_ok(ex: AgentExample) -> bool:
+            if not ctx_sandbox:
+                return True
+            ex_sandbox = ex.sandbox or ex.raw.get("sandbox", "") or "alpine-riscv64"
+            return ex_sandbox == ctx_sandbox
+
+        candidates = [ex for ex in self.examples if _sandbox_ok(ex)]
+        if not candidates:
+            # Nothing matches the active distro — better to inject zero examples
+            # (forces the LLM to follow Platform knowledge) than to bias it with
+            # wrong-distro commands. The first build on a new distro will be
+            # example-free; subsequent successful builds will populate the cache.
+            logger.info(
+                f"No {self.agent_type} examples for sandbox '{ctx_sandbox}'; "
+                "returning empty (will rely on Platform knowledge in prompt)."
+            )
+            return []
+
         scored = [
             (self._calculate_relevance(ex, context), ex)
-            for ex in self.examples
+            for ex in candidates
         ]
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [ex for _, ex in scored[:max_examples]]
+        return [ex for score, ex in scored[:max_examples] if score > 0]
 
     def _calculate_relevance(
         self, example: AgentExample, context: Dict[str, Any]
@@ -290,6 +321,23 @@ class AgentMemory:
         if context.get("has_cgo") and "cgo" in ex_tags:
             score += 0.2
 
+        # Sandbox / distro match (apk commands won't run on Debian and vice-versa).
+        # Same-sandbox is a strong positive; cross-sandbox is a hard penalty so
+        # generic build-system match alone doesn't surface the wrong-distro recipe.
+        ctx_sandbox = context.get("sandbox")
+        if not ctx_sandbox:
+            try:
+                from .platforms import get_active_profile
+                ctx_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                ctx_sandbox = ""
+        ex_sandbox = example.sandbox or example.raw.get("sandbox", "") or "alpine-riscv64"
+        if ctx_sandbox and ex_sandbox:
+            if ctx_sandbox == ex_sandbox:
+                score += 0.25
+            else:
+                score -= 0.35
+
         return min(score, 1.0)
 
     def format_examples_for_prompt(
@@ -332,6 +380,9 @@ class AgentMemory:
         example_data["id"] = f"{self.agent_type}-auto-{next_num:03d}"
         example_data["source"] = "auto"
         example_data["timestamp"] = datetime.now().strftime("%Y-%m-%d")
+        if not example_data.get("sandbox"):
+            from .platforms import get_active_profile
+            example_data["sandbox"] = f"{get_active_profile().name}-riscv64"
 
         lock_path = str(self._filepath) + ".lock"
         try:
@@ -353,13 +404,27 @@ class AgentMemory:
             return False
 
     def _is_duplicate(self, new_data: Dict[str, Any]) -> bool:
-        """Check if an example is a duplicate of existing ones."""
+        """Check if an example is a duplicate of existing ones (sandbox-aware)."""
         new_bs = new_data.get("build_system", "")
         new_repo = new_data.get("repo_name", "")
+        # Auto-stamp sandbox here too so callers that haven't set it get accurate dedup
+        new_sandbox = new_data.get("sandbox", "")
+        if not new_sandbox:
+            try:
+                from .platforms import get_active_profile
+                new_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                new_sandbox = ""
 
         for ex in self.examples:
             ex_bs = ex.build_system or ex.context.get("build_system", "")
             ex_repo = ex.repo_name or ex.context.get("repo_name", "")
+            # Treat an unset legacy sandbox as alpine-riscv64 (the original default)
+            ex_sandbox = ex.sandbox or ex.raw.get("sandbox", "") or "alpine-riscv64"
+
+            # Different sandbox → never a duplicate (apk vs apt commands differ)
+            if new_sandbox and ex_sandbox and new_sandbox != ex_sandbox:
+                continue
 
             if ex_repo and new_repo and ex_repo == new_repo and ex_bs == new_bs:
                 return True
@@ -434,24 +499,70 @@ class AgentMemory:
 # RECIPE CACHE
 # ============================================================================
 
+def _migrate_legacy_cache(cache: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Backward compat: old recipe cache stored one recipe per repo as a flat dict:
+        packages[repo_name] = {build_plan: ..., sandbox: "alpine-riscv64", ...}
+    New format nests by sandbox so multiple distros can coexist:
+        packages[repo_name][sandbox] = {build_plan: ..., ...}
+    Migrate transparently on load. Returns the same cache object, possibly mutated.
+    """
+    packages = cache.get("packages", {})
+    for repo_name, entry in list(packages.items()):
+        if not isinstance(entry, dict):
+            continue
+        # A nested entry has dict values whose keys look like recipes (contain build_plan).
+        # A flat (legacy) entry has build_plan at the top level.
+        if "build_plan" in entry:
+            legacy_sandbox = entry.get("sandbox") or "alpine-riscv64"
+            packages[repo_name] = {legacy_sandbox: entry}
+    cache["packages"] = packages
+    return cache
+
+
 def load_recipe_cache() -> Dict[str, Any]:
-    """Load the recipe cache from disk."""
+    """Load the recipe cache from disk (auto-migrating legacy flat entries)."""
     if not RECIPE_CACHE_PATH.exists():
-        return {"version": "1.0", "packages": {}}
+        return {"version": "2.0", "packages": {}}
     try:
         with open(RECIPE_CACHE_PATH, "r") as f:
-            return json.load(f)
+            cache = json.load(f)
+        return _migrate_legacy_cache(cache)
     except Exception as e:
         logger.error(f"Failed to load recipe cache: {e}")
-        return {"version": "1.0", "packages": {}}
+        return {"version": "2.0", "packages": {}}
 
 
-def get_cached_recipe(repo_name: str, architecture: str = "riscv64") -> Optional[Dict[str, Any]]:
-    """Look up a cached recipe for a package + architecture."""
+def _default_sandbox() -> str:
+    """Return the active platform's sandbox key, e.g. 'alpine-riscv64' or 'debian-riscv64'."""
+    try:
+        from .platforms import get_active_profile
+        return f"{get_active_profile().name}-riscv64"
+    except Exception:
+        return "alpine-riscv64"
+
+
+def get_cached_recipe(
+    repo_name: str,
+    architecture: str = "riscv64",
+    sandbox: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Look up a cached recipe for a package, scoped to a sandbox (distro+arch).
+
+    Falls back to the active platform's sandbox when `sandbox` is None. Returns
+    None if no recipe exists for that combination — even if a recipe exists for
+    a different sandbox (apk vs apt commands are not interchangeable).
+    """
+    if sandbox is None:
+        sandbox = _default_sandbox()
     cache = load_recipe_cache()
-    entry = cache.get("packages", {}).get(repo_name)
-    if entry and entry.get("architecture") == architecture:
-        return entry
+    pkg_entry = cache.get("packages", {}).get(repo_name)
+    if not isinstance(pkg_entry, dict):
+        return None
+    recipe = pkg_entry.get(sandbox)
+    if recipe and recipe.get("architecture", "riscv64") == architecture:
+        return recipe
     return None
 
 
@@ -465,9 +576,15 @@ def save_to_recipe_cache(
     artifacts: List[Dict[str, Any]],
     build_duration_seconds: float,
     architecture: str = "riscv64",
-    sandbox: str = "alpine-riscv64",
+    sandbox: Optional[str] = None,
 ) -> bool:
-    """Upsert a package entry in the recipe cache."""
+    """
+    Upsert a package recipe in the cache, scoped per sandbox (e.g. alpine-riscv64
+    vs debian-riscv64). Recipes for different sandboxes coexist under the same
+    repo_name so an Alpine zlib build does not overwrite a Debian zlib build.
+    """
+    if sandbox is None:
+        sandbox = _default_sandbox()
     lock_path = str(RECIPE_CACHE_PATH) + ".lock"
     try:
         lock = filelock.FileLock(lock_path, timeout=5)
@@ -482,7 +599,7 @@ def save_to_recipe_cache(
                     "commands": phase.get("commands", []),
                 })
 
-            packages[repo_name] = {
+            recipe = {
                 "repo_url": repo_url,
                 "build_system": build_system,
                 "architecture": architecture,
@@ -492,18 +609,36 @@ def save_to_recipe_cache(
                 "dependencies": dependencies,
                 "patches": patches[:10],
                 "artifacts": [
-                    {"type": a.get("type", "binary"), "path": a.get("filepath", "")}
+                    {
+                        "type": a.get("type", "binary"),
+                        "path": a.get("filepath") or a.get("path", ""),
+                        **({"role": a["role"]} if a.get("role") else {}),
+                    }
                     for a in artifacts[:20]
                 ],
                 "build_duration_seconds": round(build_duration_seconds, 1),
                 "recipe_file": f"output/{repo_name}_recipe.md",
             }
 
+            # Ensure nested layout (entry is a dict keyed by sandbox)
+            pkg_entry = packages.get(repo_name)
+            if not isinstance(pkg_entry, dict) or "build_plan" in (pkg_entry or {}):
+                # Either missing or legacy-flat; (re-)init as nested
+                pkg_entry = {}
+                if isinstance(packages.get(repo_name), dict) and "build_plan" in packages[repo_name]:
+                    # Preserve the legacy flat entry under its own sandbox key
+                    legacy = packages[repo_name]
+                    legacy_sb = legacy.get("sandbox") or "alpine-riscv64"
+                    pkg_entry[legacy_sb] = legacy
+            pkg_entry[sandbox] = recipe
+            packages[repo_name] = pkg_entry
+
+            cache.setdefault("version", "2.0")
             os.makedirs(RECIPE_CACHE_PATH.parent, exist_ok=True)
             with open(RECIPE_CACHE_PATH, "w") as f:
                 json.dump(cache, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Recipe cache updated for {repo_name}")
+        logger.info(f"Recipe cache updated for {repo_name} [{sandbox}]")
         return True
     except Exception as e:
         logger.error(f"Failed to save recipe cache for {repo_name}: {e}")

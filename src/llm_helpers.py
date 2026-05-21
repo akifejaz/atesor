@@ -1,0 +1,225 @@
+"""
+Shared LLM-invocation helpers: timeout-guarded calls + JSON-schema validation
+with retry-on-critique and deterministic fallback.
+
+This module exists to remove the duplicated boilerplate of
+  build_prompt → invoke_llm → extract_content → log_llm_call → extract_json_block
+  → json.loads → validate → (retry | fallback)
+that previously lived in every agent node.
+
+Design goals:
+  * Keep prompts small (we run on free-tier models — every token matters).
+  * Never let a malformed LLM response stall the workflow.
+  * Always log every attempt to the audit trail.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
+from langchain_core.messages import HumanMessage
+
+from .llm_logger import log_llm_call
+
+logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------
+# Public types
+# ----------------------------------------------------------------------------
+
+@dataclass
+class ValidationResult:
+    """Result of validating a parsed LLM response."""
+    ok: bool
+    reason: str = ""
+
+    @classmethod
+    def good(cls) -> "ValidationResult":
+        return cls(True, "")
+
+    @classmethod
+    def bad(cls, reason: str) -> "ValidationResult":
+        return cls(False, reason)
+
+
+@dataclass
+class LLMCallOutcome:
+    """Outcome of an LLM call after validation+retry."""
+    data: Optional[dict]          # parsed JSON if validation succeeded, else None
+    used_fallback: bool           # True when the deterministic fallback was used
+    attempts: int                 # how many LLM invocations we actually made
+    last_error: str = ""          # human-readable reason of the final failure
+
+
+# ----------------------------------------------------------------------------
+# Helpers re-exported from graph.py (kept here to avoid circular imports)
+# ----------------------------------------------------------------------------
+
+def extract_content(content: Any) -> str:
+    """Safely turn an LLM message body (str | list[dict] | other) into a string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(item.get("text", item)) if isinstance(item, dict) else str(item)
+            for item in content
+        )
+    return str(content)
+
+
+def extract_json_block(text: str) -> str:
+    """Slice from the first `{` to the last `}` — tolerant to surrounding prose."""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end >= start:
+        return text[start : end + 1]
+    return text
+
+
+# ----------------------------------------------------------------------------
+# Core helper: validated LLM call with retry + fallback
+# ----------------------------------------------------------------------------
+
+# Default critique appended to the *next* attempt when validation fails.
+# Kept short on purpose — the previous prompt is already in the LLM's context
+# on the retry turn, we don't need to repeat it.
+_DEFAULT_CRITIQUE = (
+    "Your previous response was rejected. Reason: {reason}\n"
+    "Re-read the original instructions and emit ONLY a valid JSON object "
+    "that conforms to the schema. No prose, no markdown fences, no commentary."
+)
+
+
+def llm_call_with_validation(
+    *,
+    invoke_fn: Callable[[Any, list], Any],   # graph.invoke_llm
+    llm: Any,                                 # BaseChatModel instance
+    prompt: str,                              # fully-rendered prompt
+    validator: Callable[[dict], ValidationResult],
+    fallback_factory: Optional[Callable[[], Optional[dict]]] = None,
+    role: str = "agent",
+    audit_metadata: Optional[dict] = None,
+    cost_estimate: float = 0.01,
+    max_retries: int = 2,                     # total LLM calls = max_retries + 1
+    critique_template: str = _DEFAULT_CRITIQUE,
+    timeout: int = 120,
+) -> LLMCallOutcome:
+    """
+    Call `llm` with `prompt`, parse JSON, validate, retry-with-critique on
+    failure, then fall back to `fallback_factory()` if all retries are exhausted.
+
+    Every attempt is logged via `log_llm_call`. Always returns; never raises.
+
+    `validator` receives the parsed dict and returns a ValidationResult.
+    If `fallback_factory` is None, returns `(data=None, used_fallback=False)`
+    on exhaustion so the caller can decide.
+    """
+    metadata = dict(audit_metadata or {})
+    messages: list = [HumanMessage(content=prompt)]
+    attempts = 0
+    last_reason = "no attempts made"
+
+    for attempt in range(max_retries + 1):
+        attempts += 1
+        try:
+            response = invoke_fn(llm, messages, timeout=timeout) if _accepts_timeout(invoke_fn) \
+                else invoke_fn(llm, messages)
+        except Exception as exc:
+            last_reason = f"LLM invocation raised: {exc}"
+            logger.warning(f"[{role}] attempt {attempts}: {last_reason}")
+            # If we still have retries left, fall through to the critique loop.
+            if attempt < max_retries:
+                messages.append(HumanMessage(
+                    content=critique_template.format(reason=last_reason)
+                ))
+                continue
+            break
+
+        raw = extract_content(getattr(response, "content", response))
+        log_llm_call(
+            agent_role=role,
+            prompt=_format_messages_for_log(messages),
+            response=raw,
+            model=getattr(llm, "model_name", "unknown"),
+            cost_usd=cost_estimate,
+            metadata={**metadata, "attempt": attempts},
+        )
+
+        try:
+            data = json.loads(extract_json_block(raw))
+            if not isinstance(data, dict):
+                raise ValueError("top-level JSON is not an object")
+        except (json.JSONDecodeError, ValueError) as exc:
+            last_reason = f"JSON parse failure: {exc}"
+            logger.warning(f"[{role}] attempt {attempts}: {last_reason}")
+            if attempt < max_retries:
+                messages.append(HumanMessage(
+                    content=critique_template.format(reason=last_reason)
+                ))
+            continue
+
+        verdict = validator(data)
+        if verdict.ok:
+            return LLMCallOutcome(
+                data=data, used_fallback=False, attempts=attempts, last_error=""
+            )
+
+        last_reason = f"schema validation failed: {verdict.reason}"
+        logger.warning(f"[{role}] attempt {attempts}: {last_reason}")
+        if attempt < max_retries:
+            messages.append(HumanMessage(
+                content=critique_template.format(reason=last_reason)
+            ))
+
+    # Exhausted retries — use fallback if provided.
+    if fallback_factory is not None:
+        try:
+            fb = fallback_factory()
+            logger.error(
+                f"[{role}] all {attempts} attempts failed ({last_reason}); "
+                f"using deterministic fallback."
+            )
+            return LLMCallOutcome(
+                data=fb, used_fallback=True, attempts=attempts, last_error=last_reason
+            )
+        except Exception as exc:
+            logger.exception(f"[{role}] fallback factory raised: {exc}")
+
+    return LLMCallOutcome(
+        data=None, used_fallback=False, attempts=attempts, last_error=last_reason
+    )
+
+
+# ----------------------------------------------------------------------------
+# Internal utilities
+# ----------------------------------------------------------------------------
+
+def _accepts_timeout(fn: Callable) -> bool:
+    """Detect whether the invoker accepts a `timeout=` kwarg (graph.invoke_llm does)."""
+    try:
+        import inspect
+        return "timeout" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _format_messages_for_log(messages: list) -> str:
+    """Render the message thread into a single string for the audit log."""
+    parts = []
+    for i, m in enumerate(messages):
+        content = getattr(m, "content", str(m))
+        parts.append(f"--- message {i} ({type(m).__name__}) ---\n{content}")
+    return "\n".join(parts)
+
+
+__all__ = [
+    "ValidationResult",
+    "LLMCallOutcome",
+    "llm_call_with_validation",
+    "extract_content",
+    "extract_json_block",
+]

@@ -1,139 +1,24 @@
 """
-Static knowledge base for RISC-V porting on Alpine Linux (musl/riscv64).
-Covers tool installation, architecture detection, common porting patterns, and known issues.
+Static knowledge base for RISC-V porting.
+
+Distro-specific bits (package names, install commands, libc-specific
+errors) live in `src.platforms.PlatformProfile`. This module covers the
+distro-agnostic RISC-V architecture knowledge plus a renderer that
+composes the full system_knowledge prompt block from a given profile.
 """
 
-# ============================================================================
-# ALPINE LINUX (riscv64) PACKAGE MAP
-# ============================================================================
+from typing import Optional
 
-ALPINE_TOOL_MAP = {
-    # Build systems
-    "cmake": "cmake",
-    "make": "make",
-    "ninja": "ninja",
-    "meson": "meson",
-    "autotools": "automake autoconf libtool",
-    "gcc": "build-base",
-    "g++": "build-base",
-    "pkgconfig": "pkgconf",
-    "nasm": "nasm",
-    "yasm": "yasm",
-    "perl": "perl",
-    "fortran": "gfortran",
-    # Languages
-    "go": "go",
-    "rust": "rust cargo",
-    "python3": "python3 py3-pip",
-    "node": "nodejs npm",
-    "java": "openjdk17",
-    # Core C/C++ development libraries
-    "zlib": "zlib-dev",
-    "openssl": "openssl-dev",
-    "curl": "curl-dev",
-    "git": "git",
-    "libatomic": "libatomic",
-    # Compression libraries
-    "zstd": "zstd-dev",
-    "lz4": "lz4-dev",
-    "brotli": "brotli-dev",
-    "xz": "xz-dev",
-    "bzip2": "bzip2-dev",
-    "snappy": "snappy-dev",
-    # Image libraries
-    "libpng": "libpng-dev",
-    "libjpeg": "libjpeg-turbo-dev",
-    "libjpeg-turbo": "libjpeg-turbo-dev",
-    "libwebp": "libwebp-dev",
-    "libtiff": "tiff-dev",
-    "openjpeg": "openjpeg-dev",
-    "libheif": "libheif-dev",
-    "lcms2": "lcms2-dev",
-    "freetype": "freetype-dev",
-    # Audio/Video
-    "opus": "opus-dev",
-    "flac": "flac-dev",
-    "ogg": "libogg-dev",
-    "vorbis": "libvorbis-dev",
-    "dav1d": "dav1d-dev",
-    # Cryptography
-    "mbedtls": "mbedtls-dev",
-    "libsodium": "libsodium-dev",
-    # Networking
-    "libssh2": "libssh2-dev",
-    "nghttp2": "nghttp2-dev",
-    "c-ares": "c-ares-dev",
-    "libuv": "libuv-dev",
-    "libevent": "libevent-dev",
-    # Data formats
-    "libxml2": "libxml2-dev",
-    "expat": "expat-dev",
-    "jansson": "jansson-dev",
-    "yaml": "yaml-dev",
-    "pcre2": "pcre2-dev",
-    # Archive
-    "libarchive": "libarchive-dev",
-    # Database
-    "sqlite": "sqlite-dev",
-    # C++ libraries
-    "abseil-cpp": "abseil-cpp-dev",
-    "absl": "abseil-cpp-dev",
-    "protobuf": "protobuf-dev",
-    "protoc": "protoc",
-    "gtest": "gtest-dev",
-    "benchmark": "benchmark-dev",
-    # System
-    "linux-headers": "linux-headers",
-    "musl-dev": "musl-dev",
-    "libexecinfo": "libexecinfo-dev",
-    "libunwind": "libunwind-dev",
-}
+from .platforms import (
+    ALPINE_RISCV,
+    PlatformProfile,
+    get_active_profile,
+)
 
-# Common package name mistakes that LLMs make when targeting Alpine Linux.
-# These names exist in Debian/Ubuntu but NOT in Alpine — use the corrections.
-ALPINE_PACKAGE_CORRECTIONS = {
-    "liblzma-dev": "xz-dev",
-    "liblz4-dev": "lz4-dev",
-    "libzdev-dev": "zlib-dev",
-    "libz-dev": "zlib-dev",
-    "libbz2-dev": "bzip2-dev",
-    "libzstd-dev": "zstd-dev",
-    "libcurl-dev": "curl-dev",
-    "libssl-dev": "openssl-dev",
-    "libcrypto-dev": "openssl-dev",
-    "libxml2-utils": "libxml2-dev",
-    "libtiff-dev": "tiff-dev",
-    "libopenjp2-dev": "openjpeg-dev",
-    "liblcms2-dev": "lcms2-dev",
-    "libfreetype6-dev": "freetype-dev",
-    "libfreetype-dev": "freetype-dev",
-    "libjpeg-dev": "libjpeg-turbo-dev",
-    "libpng12-dev": "libpng-dev",
-    "libsqlite3-dev": "sqlite-dev",
-    "libnghttp2-dev": "nghttp2-dev",
-    "libc-ares-dev": "c-ares-dev",
-    "libcares-dev": "c-ares-dev",
-    "libuv1-dev": "libuv-dev",
-    "libevent-dev": "libevent-dev",
-    "libgit2-dev": "libgit2-dev",
-    "libsodium23": "libsodium-dev",
-    "pkg-config": "pkgconf",
-    "libtool-bin": "libtool",
-    "doxygen": "doxygen",
-    "libprotobuf-dev": "protobuf-dev",
-    "libprotoc-dev": "protobuf-dev",
-    "libabsl-dev": "abseil-cpp-dev",
-    "libgtest-dev": "gtest-dev",
-    "libbenchmark-dev": "benchmark-dev",
-    "libsnappy-dev": "snappy-dev",
-    "libpcre2-dev": "pcre2-dev",
-    "libarchive-dev": "libarchive-dev",
-    "libjansson-dev": "jansson-dev",
-    "libyaml-dev": "yaml-dev",
-    "libre2-dev": "re2-dev",
-    "golang": "go",
-    "golang-go": "go",
-}
+
+# Backward-compat aliases — older code/tests may import these names.
+ALPINE_TOOL_MAP = ALPINE_RISCV.package_map
+ALPINE_PACKAGE_CORRECTIONS = ALPINE_RISCV.name_corrections
 
 # ============================================================================
 # RISC-V ARCHITECTURE KNOWLEDGE
@@ -281,16 +166,26 @@ RISCV_TRIPLETS = {
 }
 
 
-def get_system_knowledge_summary() -> str:
-    """Produce a compact knowledge summary for injection into agent prompts."""
+def get_system_knowledge_summary(profile: Optional[PlatformProfile] = None) -> str:
+    """
+    Produce a compact knowledge summary for injection into agent prompts.
+
+    Distro-specific text (install command, package map, libc, corrections)
+    is rendered from `profile`. RISC-V architecture knowledge is always
+    included. Defaults to the active platform profile.
+    """
+    if profile is None:
+        profile = get_active_profile()
+
     lines = [
-        "## RISC-V Porting Knowledge (Alpine Linux / musl / riscv64)",
+        f"## RISC-V Porting Knowledge ({profile.display_name})",
         "",
         "### Package Installation",
-        "Use `apk add <package>`. Common mappings:",
+        f"Install command: `{profile.pkg_update} && {profile.pkg_install} <package>`",
+        "Canonical name → distro package:",
     ]
-    for tool, pkg in ALPINE_TOOL_MAP.items():
-        lines.append(f"  - {tool} → `{pkg}`")
+    for canonical, pkg in profile.package_map.items():
+        lines.append(f"  - {canonical} → `{pkg}`")
 
     lines.append("")
     lines.append("### Architecture Detection (C/C++ preprocessor)")
@@ -305,23 +200,19 @@ def get_system_knowledge_summary() -> str:
 
     lines.append("")
     lines.append("### Key Facts")
-    lines.append("  - Alpine uses **musl libc**, not glibc — some GNU extensions are missing")
-    lines.append("  - Native target triplet: `riscv64-alpine-linux-musl`")
+    lines.append(f"  - libc: **{profile.libc}** — adjust GNU-extension usage accordingly")
+    lines.append(f"  - Native target triplet: `{profile.target_triplet}`")
     lines.append("  - Do NOT use cross-compilation flags when building natively inside the sandbox")
     lines.append("  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) — explicit fences may be needed")
     lines.append("  - RISC-V ISA extensions vary by hardware — detect, do not assume")
+    for note in profile.extra_notes:
+        lines.append(f"  - {note}")
 
-    lines.append("")
-    lines.append("### Alpine Package Name Corrections (common mistakes)")
-    lines.append("  These package names do NOT exist in Alpine. Use the correct names:")
-    for wrong, correct in ALPINE_PACKAGE_CORRECTIONS.items():
-        lines.append(f"  - `{wrong}` → use `{correct}`")
-
-    lines.append("")
-    lines.append("### Go Projects")
-    lines.append("  - Go is pre-installed in the sandbox — do NOT run `apk add go`")
-    lines.append("  - `GOPROXY`, `GONOSUMCHECK`, and `GOFLAGS=-buildvcs=false` are pre-set")
-    lines.append("  - For Go projects, standard build: `cd /workspace/repos/<name> && go build ./...` or `go build -o <binary> ./cmd/<name>`")
-    lines.append("  - If `go.mod requires go >= X.Y` and the installed Go is older, the build will fail — this is unfixable without a newer Go version")
+    if profile.name_corrections:
+        lines.append("")
+        lines.append(f"### Package Name Corrections ({profile.display_name})")
+        lines.append("  Common LLM mistakes — these names are WRONG on this distro. Use the correct names:")
+        for wrong, correct in profile.name_corrections.items():
+            lines.append(f"  - `{wrong}` → use `{correct}`")
 
     return "\n".join(lines)

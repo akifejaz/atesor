@@ -12,7 +12,8 @@ import time
 from typing import Optional, Tuple
 
 from src.state import CommandResult
-from src.config import CONTAINER_NAME
+# Note: config values (_IN_DOCKER, WORKSPACE_ROOT) are imported lazily inside functions
+# to keep the module-level import surface minimal and avoid cycles.
 
 logger = logging.getLogger(__name__)
 
@@ -196,15 +197,23 @@ _validator = CommandValidator()
 # DOCKER CONFIGURATION
 # ============================================================================
 
-class DockerConfig:
-    """Docker container configuration."""
-    
-    CONTAINER_NAME = CONTAINER_NAME
+class _DockerConfigMeta(type):
+    """Metaclass so `DockerConfig.CONTAINER_NAME` resolves the *current* container
+    (respecting ATESOR_CONTAINER override) at access time, not at import time."""
+    @property
+    def CONTAINER_NAME(cls) -> str:
+        from src.platforms import get_container_name
+        return get_container_name()
+
+
+class DockerConfig(metaclass=_DockerConfigMeta):
+    """Docker container configuration. CONTAINER_NAME is profile-driven."""
+
     WORKSPACE_PATH = "/workspace"  # Path inside container
-    
+
     @staticmethod
     def is_container_running() -> bool:
-        """Check if Docker container is running."""
+        """Check if the active profile's Docker container is running."""
         try:
             result = subprocess.run(
                 ["docker", "inspect", "-f", "{{.State.Running}}", DockerConfig.CONTAINER_NAME],
@@ -265,9 +274,9 @@ def execute_command(
                 duration_seconds=0.0,
             )
     
-    # Auto-correct wrong Alpine package names in apk commands
-    if _is_apk_command(command):
-        command = _fix_apk_package_names(command)
+    # Auto-correct wrong package names for the active distro
+    if _is_pkg_command(command):
+        command = _fix_pkg_names(command)
 
     # Execute command
     try:
@@ -285,7 +294,7 @@ def execute_command(
             
             # Build docker exec command
             docker_cmd = ["docker", "exec"]
-            
+
             # Add working directory if specified
             if cwd:
                 # Translate host path to container path if necessary
@@ -302,10 +311,12 @@ def execute_command(
                 docker_cmd.extend(["-w", container_cwd])
             
             # Add container name and command
-            # Wrap apk commands with flock to serialize across concurrent agents
+            # Wrap package-manager commands with flock to serialize across concurrent agents
             exec_command = command
-            if _is_apk_command(command):
-                exec_command = f"flock -w 120 /tmp/apk.lock sh -c '{command}'"
+            if _is_pkg_command(command):
+                from src.platforms import get_active_profile
+                lock = get_active_profile().pkg_lock_file
+                exec_command = f"flock -w 120 {lock} sh -c '{command}'"
             docker_cmd.extend([DockerConfig.CONTAINER_NAME, "bash", "-c", exec_command])
             
             logger.debug(f"Executing in Docker: {' '.join(docker_cmd[:5])}... (cwd: {cwd})")
@@ -334,14 +345,14 @@ def execute_command(
         if result.returncode == 0:
             logger.debug(f"Command succeeded: {command[:50]}...")
         else:
-            # Retry apk commands that fail due to database lock contention
+            # Retry package-manager commands that fail due to database lock contention
             # (common when multiple agents share one container in batch mode)
-            if _is_apk_lock_error(result) and _is_apk_command(command):
-                APK_LOCK_RETRIES = 5
-                for retry in range(1, APK_LOCK_RETRIES + 1):
+            if _is_pkg_lock_error(result) and _is_pkg_command(command):
+                PKG_LOCK_RETRIES = 5
+                for retry in range(1, PKG_LOCK_RETRIES + 1):
                     delay = 5 * retry + random.uniform(0, 3)
                     logger.info(
-                        f"apk lock contention, retry {retry}/{APK_LOCK_RETRIES} "
+                        f"pkg lock contention, retry {retry}/{PKG_LOCK_RETRIES} "
                         f"after {delay:.0f}s: {command[:60]}"
                     )
                     time.sleep(delay)
@@ -353,11 +364,11 @@ def execute_command(
                         text=True,
                         timeout=timeout,
                     )
-                    if not _is_apk_lock_error(retry_result):
+                    if not _is_pkg_lock_error(retry_result):
                         result = retry_result
                         duration = time.time() - start_time
                         if result.returncode == 0:
-                            logger.info(f"apk command succeeded on retry {retry}")
+                            logger.info(f"pkg command succeeded on retry {retry}")
                         break
 
             if result.returncode != 0:
@@ -395,30 +406,61 @@ def execute_command(
         )
 
 
-def _is_apk_lock_error(result) -> bool:
-    """Check if a command failed due to apk database lock contention."""
-    return result.returncode != 0 and (
-        "Unable to lock database" in (getattr(result, 'stderr', '') or '')
-        or "Unable to lock database" in (getattr(result, 'stdout', '') or '')
+def _is_pkg_lock_error(result) -> bool:
+    """Detect package-manager lock contention (apk, apt, dpkg)."""
+    text = (getattr(result, 'stderr', '') or '') + (getattr(result, 'stdout', '') or '')
+    if result.returncode == 0:
+        return False
+    return (
+        "Unable to lock database" in text          # apk
+        or "Could not get lock" in text            # apt-get
+        or "dpkg frontend lock" in text            # apt-get
+        or "Resource temporarily unavailable" in text and "lock" in text
     )
 
 
-def _is_apk_command(command: str) -> bool:
-    """Check if a command involves the apk package manager."""
+# Backward-compat alias
+_is_apk_lock_error = _is_pkg_lock_error
+
+
+def _is_pkg_command(command: str) -> bool:
+    """Check if a command invokes the system package manager (apk, apt, dpkg)."""
     cmd = command.strip()
-    return cmd.startswith("apk ") or "apk add" in cmd or "apk update" in cmd or "apk del" in cmd
+    for prefix in ("apk ", "apt-get ", "apt ", "dpkg "):
+        if cmd.startswith(prefix):
+            return True
+    for needle in ("apk add", "apk update", "apk del",
+                   "apt-get install", "apt-get update", "apt-get remove",
+                   "apt install", "apt update", "apt remove"):
+        if needle in cmd:
+            return True
+    return False
 
 
-def _fix_apk_package_names(command: str) -> str:
-    """Auto-correct common Debian/Ubuntu package names to Alpine equivalents."""
-    from src.knowledge import ALPINE_PACKAGE_CORRECTIONS
+# Backward-compat alias
+_is_apk_command = _is_pkg_command
+
+
+def _fix_pkg_names(command: str) -> str:
+    """Auto-correct package names that are wrong for the active distro."""
+    from src.platforms import get_active_profile
+    profile = get_active_profile()
+    corrections = profile.name_corrections
+    if not corrections:
+        return command
     fixed = command
-    for wrong, correct in ALPINE_PACKAGE_CORRECTIONS.items():
-        # Only replace whole package names (word boundaries)
+    for wrong, correct in corrections.items():
         fixed = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, fixed)
     if fixed != command:
-        logger.info(f"Auto-corrected apk package names: {command[:80]} → {fixed[:80]}")
+        logger.info(
+            f"Auto-corrected package names for {profile.name}: "
+            f"{command[:80]} → {fixed[:80]}"
+        )
     return fixed
+
+
+# Backward-compat alias
+_fix_apk_package_names = _fix_pkg_names
 
 
 # ============================================================================

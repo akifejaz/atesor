@@ -1,0 +1,54 @@
+# Atesor AI - RISC-V Porting Sandbox (Debian / Ubuntu variant)
+FROM ubuntu:jammy
+
+LABEL maintainer="Atesor AI"
+LABEL description="RISC-V 64-bit Debian sandbox for automated software porting"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Core build essentials only. Project-specific libs (libpng-dev, golang, gfortran,
+# libprotobuf-dev, etc.) are installed on-demand by the agent. Keeping this layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    ca-certificates \
+    file \
+    tar \
+    xz-utils \
+    pkg-config \
+    meson \
+    ninja-build \
+    autoconf \
+    automake \
+    libtool \
+    patch \
+    diffutils \
+    zlib1g-dev \
+    libssl-dev \
+    python3 \
+    python3-pip \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up environment variables for native compilation inside the sandbox
+ENV CC=gcc
+ENV CXX=g++
+# Go environment: use direct proxy to avoid network issues in isolated containers
+ENV GOPATH=/root/go
+ENV PATH="${GOPATH}/bin:/usr/local/go/bin:${PATH}"
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GONOSUMCHECK=*
+ENV GOFLAGS=-buildvcs=false
+
+# Workspace structure matches the Alpine sandbox so the agent code is identical
+WORKDIR /workspace
+RUN mkdir -p /workspace/repos /workspace/output /workspace/logs /workspace/patches
+
+VOLUME /workspace/output
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD gcc --version || exit 1
+
+CMD ["tail", "-f", "/dev/null"]

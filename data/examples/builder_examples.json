@@ -218,36 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: gitleaks build execution",
-      "tags": [
-        "go",
-        "gitleaks"
-      ],
-      "build_system": "go",
-      "repo_name": "gitleaks",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gitleaks ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gitleaks.",
-      "id": "builder-auto-017",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
       "name": "Auto: chisel build execution",
       "tags": [
         "go",
@@ -3232,6 +3202,43 @@
       "id": "builder-auto-095",
       "source": "auto",
       "timestamp": "2026-05-19"
+    },
+    {
+      "name": "Auto: zlib build execution",
+      "tags": [
+        "cmake",
+        "zlib"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zlib.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-20",
+      "sandbox": "debian-riscv64"
     }
   ]
 }

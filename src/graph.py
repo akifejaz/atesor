@@ -39,6 +39,10 @@ from .tools import execute_command, apply_patch
 from .knowledge import get_system_knowledge_summary
 from .memory import format_few_shot_examples, save_learned_example, save_to_recipe_cache
 from .llm_logger import log_llm_call
+from .llm_helpers import (
+    llm_call_with_validation,
+    ValidationResult,
+)
 from .artifact_scanner import ArtifactScanner
 
 # Configure logging
@@ -110,6 +114,31 @@ def extract_json_block(text: str) -> str:
     if start != -1 and end != -1 and end >= start:
         return text[start : end + 1]
     return text
+
+
+def _build_platform_banner() -> str:
+    """
+    Compact, high-signal banner describing the active sandbox / package manager.
+    Injected at the TOP of scout & fixer prompts so the LLM cannot ignore it
+    (knowledge appendices buried at the bottom tend to lose to early-context
+    few-shot examples in free-tier models).
+    """
+    try:
+        from .platforms import get_active_profile
+        p = get_active_profile()
+        pm = p.pkg_install.split()[0]  # "apk" / "apt-get"
+        install_example = p.install_cmd(["<pkg>"])
+        other_pms = "apt-get / apt / dpkg" if pm == "apk" else "apk / apk-tools"
+        return (
+            f"- Distro: **{p.display_name}**\n"
+            f"- Package manager: **{pm}** (full install: `{install_example}`)\n"
+            f"- NEVER emit {other_pms} commands — they do not exist in this container.\n"
+            f"- Use canonical package names from the Platform knowledge below; the agent\n"
+            f"  auto-corrects to distro names when possible, but emitting the wrong\n"
+            f"  package manager is unrecoverable."
+        )
+    except Exception:
+        return "- Platform: unknown (default to apt-get on debian/ubuntu, apk on alpine)"
 
 
 def _to_host_path(path: str) -> str:
@@ -230,7 +259,7 @@ def init_node(state: AgentState) -> AgentState:
         # Warn if build system could not be detected
         if state.build_system_info and state.build_system_info.type == "unknown":
             logger.warning(
-                f"⚠️  WARNING: Unable to identify build system in {state.repo_name}. "
+                f" WARNING: Unable to identify build system in {state.repo_name}. "
                 "Exhaustive search was performed but no build configuration files found. "
                 "The system will attempt configuration-free analysis or request manual input."
             )
@@ -294,88 +323,51 @@ def init_node(state: AgentState) -> AgentState:
 # NODE: PLANNER (Strategic Planning)
 # ============================================================================
  
-PLANNER_PROMPT = """You are a strategic planner for RISC-V software porting. Analyze the repository and produce a phased execution plan.
+PLANNER_PROMPT = """You are the strategic planner for a RISC-V (riscv64) software porting agent.
 
-## Context
+## Repository
+- Name: {repo_name} ({repo_url})
+- Path: {repo_path}
+- Build system: {build_system_info}
+- Dependencies (detected): {dependencies_info}
+- Existing arch support: {existing_archs}
+- Arch-specific code patterns: {arch_patterns}
 
-**Repository:** {repo_name} ({repo_url})
-**Path:** {repo_path}
-**Build System:** {build_system_info}
-**Dependencies:** {dependencies_info}
-**Target:** {target_arch}
-
-### Architecture Analysis
-{arch_patterns}
-
-Existing architecture support: {existing_archs}
-
-### Codebase Structure
+## Codebase structure
 {repo_tree}
 
-### RISC-V Porting Knowledge
+## RISC-V / platform knowledge
 {system_knowledge}
 
-## Planning Principles
+## Your task
+Produce a short phased plan delegated to specialist agents. Keep it minimal —
+one scout phase + one builder phase is usually enough; only add more if the
+repo has unusual structure (e.g. autogen needed, subprojects, branch switch).
 
-1. **Pattern-based porting:** Study how the codebase handles existing architectures (x86, ARM), then replicate that pattern for RISC-V. If no patterns exist, use a generic build approach.
-2. **Native compilation:** We build natively inside an Alpine Linux riscv64 Docker container — never use cross-compilation flags (`--host`, `GOOS/GOARCH`, `-DCMAKE_SYSTEM_PROCESSOR`).
-3. **Alpine/musl awareness:** Alpine uses musl libc, not glibc. Watch for glibc-only APIs (`execinfo.h`, `backtrace`, `mallinfo`, `REG_RIP`).
-4. **ISA extension safety:** Do not assume specific RISC-V extensions (V, Zba, Zbb). Use detection macros (`__riscv`, `__riscv_xlen`, `__riscv_atomic`, `__riscv_vector`).
-5. **Minimal intervention:** Prefer configuration changes over code modification, conditional compilation over replacing code.
-6. **Dependency awareness:** For C/C++ projects, identify required libraries by reading CMakeLists.txt (`find_package`, `pkg_check_modules`), meson.build (`dependency()`), or configure.ac (`AC_CHECK_LIB`, `PKG_CHECK_MODULES`). Install all `-dev` packages upfront.
-7. **SIMD strategy:** Many C/C++ libraries use x86 SIMD (SSE/AVX). For RISC-V, first try disabling SIMD via build options (e.g., `-DWITH_SIMD=OFF`). If no option exists, the code must compile with scalar fallbacks.
+Agent roles:
+- **scout**: read build files, decide build commands, produce a BuildPlan
+- **builder**: execute commands, compile, verify artifacts
+- **fixer**: diagnose & patch failures (only added if predicted to be needed)
 
-## Risk Factors to Evaluate
-- x86/ARM SIMD intrinsics (SSE, AVX, NEON) — need SIMDe or scalar fallback
-- Inline assembly — must be guarded or replaced
-- Stale `config.guess`/`config.sub` that predate RISC-V support
-- glibc-only APIs on musl
-- Missing `-latomic` for atomic operations
-- Hardcoded cache line sizes or page sizes
+Before answering, silently check: did I cover (a) the right build system, (b)
+required `-dev` deps, (c) any arch-specific risks worth a fixer phase? If
+unsure on build system, default to one scout phase that figures it out.
 
-## Output
-
-Return ONLY a valid JSON object:
+## Output schema
+Return ONLY a JSON object with this exact shape:
 {{
-  "strategy": "brief description of your porting approach",
-  "complexity_score": 1-10,
-  "estimated_total_time": "duration estimate",
-  "estimated_total_cost": 0.01,
+  "strategy": "<one sentence describing the porting approach>",
+  "complexity_score": <int 1-10>,
+  "estimated_total_time": "<e.g. '5m'>",
+  "estimated_total_cost": <float USD>,
   "can_parallelize": [],
   "phases": [
-    {{
-      "id": 1,
-      "name": "phase_name",
-      "description": "what this phase does and why",
-      "agent": "scout|builder|fixer",
-      "use_scripted_ops": true,
-      "depends_on": [],
-      "estimated_cost": 0.01
-    }}
+    {{"id": 1, "name": "<short>", "description": "<what & why>",
+      "agent": "scout|builder|fixer", "use_scripted_ops": <bool>,
+      "depends_on": [], "estimated_cost": <float>}}
   ]
 }}
-
-Agent assignment:
-- **scout**: Information gathering, dependency detection, build plan creation
-- **builder**: Build configuration, compilation, artifact generation
-- **fixer**: Error diagnosis, patching, rebuilding after failures
-
-## Example
-
-For a CMake project with existing ARM64 support:
-{{
-  "strategy": "Mirror existing ARM64 CMake pattern for RISC-V; install build-base and cmake via apk",
-  "complexity_score": 5,
-  "estimated_total_time": "10 minutes",
-  "estimated_total_cost": 0.03,
-  "can_parallelize": [],
-  "phases": [
-    {{"id": 1, "name": "analyze_and_plan", "description": "Detect build system, dependencies, and arch-specific code", "agent": "scout", "use_scripted_ops": true, "depends_on": [], "estimated_cost": 0.01}},
-    {{"id": 2, "name": "build", "description": "Configure and compile for RISC-V", "agent": "builder", "use_scripted_ops": false, "depends_on": [1], "estimated_cost": 0.02}}
-  ]
-}}
-
-Generate the plan now."""
+No prose, no markdown fences."""
 
 
 @agent_node(AgentRole.PLANNER)
@@ -460,42 +452,42 @@ def planner_node(state: AgentState) -> AgentState:
         system_knowledge=system_knowledge,
     )
 
-    # Call LLM
+    # Validated LLM call: retry-with-critique up to 2x, then deterministic fallback.
+    def _validate_plan(data: dict) -> ValidationResult:
+        phases = data.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return ValidationResult.bad("'phases' must be a non-empty array of phase objects")
+        if not all(isinstance(p, dict) and "name" in p for p in phases):
+            return ValidationResult.bad("each phase must be an object with at least a 'name' key")
+        return ValidationResult.good()
+
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=get_model_for_role(AgentRole.PLANNER),
+        prompt=prompt,
+        validator=_validate_plan,
+        fallback_factory=lambda: None,  # we materialize the default TaskPlan below
+        role=AgentRole.PLANNER.value,
+        audit_metadata={"repo": state.repo_name, "phase": "planner"},
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.PLANNER)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)  # Estimate
-
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.PLANNER.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={"repo": state.repo_name, "phase": "planner"}
-        )
-
-        # Parse JSON response
-        json_match = extract_json_block(content)
-        plan_data = json.loads(json_match)
-
-        # Validate that the LLM returned the required "phases" key
-        if "phases" not in plan_data or not isinstance(plan_data.get("phases"), list) or len(plan_data["phases"]) == 0:
+        if outcome.used_fallback or outcome.data is None:
             logger.warning(
-                "LLM response missing 'phases' array — falling back to default plan. "
-                f"Keys received: {list(plan_data.keys())}"
+                f"Planner: using deterministic fallback after {outcome.attempts} attempts "
+                f"({outcome.last_error or 'no data'})"
             )
             state.task_plan = create_default_plan()
-            state.task_plan.complexity_score = plan_data.get("complexity_score", 5)
-            state.context_cache["task_plan"] = plan_data
+            state.context_cache["task_plan"] = {"fallback": True, "reason": outcome.last_error}
             state.current_phase = "planned"
             return state
 
-        # Create TaskPlan
+        plan_data = outcome.data
+
+        # Create TaskPlan from validated payload
         phases = []
         for p in plan_data["phases"]:
             if not isinstance(p, dict):
@@ -527,7 +519,6 @@ def planner_node(state: AgentState) -> AgentState:
             )
             phases.append(phase)
 
-        # If all phase entries were invalid, fall back to default
         if not phases:
             logger.warning("No valid phases parsed from LLM response — using default plan")
             state.task_plan = create_default_plan()
@@ -546,12 +537,10 @@ def planner_node(state: AgentState) -> AgentState:
             f"estimated cost: ${state.task_plan.estimated_total_cost:.3f}"
         )
 
-        # Store plan in context
         state.context_cache["task_plan"] = plan_data
 
     except Exception as e:
-        logger.error(f"Planning failed: {e}")
-        # Fall back to default plan
+        logger.error(f"Planning post-processing failed: {e}")
         state.task_plan = create_default_plan()
 
     state.current_phase = "planned"
@@ -562,35 +551,35 @@ def planner_node(state: AgentState) -> AgentState:
 # NODE: SUMMARIZER (New - Professional Documentation)
 # ============================================================================
 
-SUMMARIZER_PROMPT = """You are a technical writer producing a RISC-V porting guide for **{repo_name}**.
+SUMMARIZER_PROMPT = """You are writing the RISC-V porting report for **{repo_name}**.
 
-## Build Context
-- **Repository:** {repo_url}
-- **Build System:** {build_system}
-- **Duration:** {duration}
-- **API Calls:** {api_calls} (est. cost: ${cost:.4f})
+## Build context
+- Repo: {repo_url}
+- Build system: {build_system}
+- Duration: {duration} | API calls: {api_calls} (~${cost:.4f})
 
-## Architecture Issues Found
+## Architecture issues observed
 {arch_issues}
 
-## Fixes Applied
+## Fixes applied
 {fixes}
 
-## Build Steps
+## Build steps actually executed
 {build_steps}
 
-## Task
+## Required sections (use exactly these H2 headings, in order)
+1. `## Executive Summary` — status (success / partial / failed), 1-2 sentence portability verdict.
+2. `## Prerequisites` — exact package install command(s) for the target distro.
+3. `## Build Instructions` — copy-pasteable shell commands, one fenced block per logical step, in order.
+4. `## Architecture Notes` — only the arch-specific things this project needed (preprocessor macros, SIMD handling, libc differences). Omit if N/A.
+5. `## Verification` — how to confirm produced binaries are riscv64 (`file`, `readelf -h`).
+6. `## Known Issues & Recommendations` — leftover concerns + upstream contribution ideas.
 
-Write a professional Markdown porting report with these sections:
-
-1. **Executive Summary** — Build status, key findings, overall portability assessment.
-2. **Prerequisites** — Required Alpine packages, tools, and environment setup.
-3. **Build Instructions** — Exact step-by-step commands to reproduce the build on riscv64.
-4. **Architecture Notes** — What was architecture-specific, what was changed, and why. Include RISC-V preprocessor macros used (`__riscv`, `__riscv_xlen`, etc.) if applicable.
-5. **Verification** — How to confirm the build produced valid RISC-V ELF binaries (e.g., `file <binary>`, `readelf -h`).
-6. **Known Issues & Recommendations** — Remaining portability concerns and upstream contribution opportunities.
-
-Be precise and technical. Use fenced code blocks for all commands. Do not include generic advice — only information specific to this project's RISC-V port."""
+Rules:
+- Every command in fenced ```bash blocks.
+- Only mention packages/flags that were actually used.
+- No generic RISC-V tutorial content — be specific to this project.
+- If a section has nothing useful to say, write a single sentence acknowledging that and move on."""
 
 
 def create_default_plan() -> TaskPlan:
@@ -611,69 +600,42 @@ def create_default_plan() -> TaskPlan:
 # NODE: SUPERVISOR (Orchestration)
 # ============================================================================
  
-SUPERVISOR_PROMPT = """You are the workflow supervisor for a RISC-V porting system. Analyze the current state and decide the next action.
+SUPERVISOR_PROMPT = """You are the routing supervisor for a RISC-V porting agent. The
+heuristic router already produced a recommendation; you decide whether to
+follow it or override.
 
-## Current State
-- **Phase:** {current_phase}
-- **Build Status:** {build_status}
-- **Attempt:** {attempt_count} / {max_attempts}
-- **Previous Agent:** {current_agent}
+## State snapshot
+- Phase: {current_phase} | Build status: {build_status}
+- Attempt {attempt_count}/{max_attempts} | Last agent: {current_agent}
+- Stats: scripted ops={scripted_ops_count}, API calls={api_calls}, cost=${cost:.4f}
 
-### Build Plan
+### Build plan
 {build_plan_summary}
 
-### Execution History
-Scripted ops: {scripted_ops_count} | API calls: {api_calls} | Cost: ${cost:.4f}
-
+### Recent agent history
 {agent_history}
 
-### Architecture Issues
+### Architecture issues
 {arch_issues_summary}
 
-### Errors
+### Recent errors
 {error_summary}
 
-### Additional Context
+### Extra context
 {additional_context}
 
-## Available Actions
+## Verification step (do this before answering)
+1. Has the same error category fired 3+ times in a row? → ESCALATE
+2. Is the build green and verified? → FINISH
+3. Is there no build plan yet? → SCOUT
+4. Has the last build failed with a fixable error? → FIX
+5. Otherwise → BUILD
 
-| Action | When to Use |
-|--------|-------------|
-| **SCOUT** | No build plan exists, or build plan needs revision after new information |
-| **BUILD** | Build plan ready, no blocking issues, ready to compile |
-| **FIX** | Build failed with actionable errors that can be patched |
-| **FINISH** | Build succeeded, or max attempts exhausted |
-| **ESCALATE** | Unrecoverable error, loop detected, or critical dependency missing |
-
-## Decision Rules
-
-- If build succeeded → **FINISH**
-- If max attempts reached → **FINISH** (with partial report)
-- If same error repeats 3+ times → **ESCALATE**
-- If no build plan → **SCOUT**
-- If build failed with fixable error → **FIX**
-- If build plan ready and no blockers → **BUILD**
-- If critical failure (missing toolchain, network) → **ESCALATE**
-
-## Examples
-
-Build ready:
-{{"next_agent": "BUILD", "reasoning": "Build plan exists, no blockers, attempt 1.", "confidence": "high", "expected_outcome": "Build executes or produces actionable errors", "fallback_plan": "FIX agent handles errors"}}
-
-Build failed:
-{{"next_agent": "FIX", "reasoning": "Build failed with missing header error, fixable by installing dev package.", "confidence": "high", "expected_outcome": "Fixer installs dependency and adjusts build", "fallback_plan": "ESCALATE if fix fails twice"}}
-
-Stuck in loop:
-{{"next_agent": "ESCALATE", "reasoning": "Same compilation error after 3 fix attempts. Requires human expertise.", "confidence": "high", "expected_outcome": "Escalation report generated", "fallback_plan": "N/A"}}
-
-Return ONLY a JSON object:
+## Output schema (JSON only, no prose)
 {{
   "next_agent": "SCOUT|BUILD|FIX|FINISH|ESCALATE",
-  "reasoning": "2-3 sentence justification",
-  "confidence": "high|medium|low",
-  "expected_outcome": "what should happen next",
-  "fallback_plan": "what to do if this fails"
+  "reasoning": "<2 sentences max>",
+  "confidence": "high|medium|low"
 }}"""
 
 
@@ -887,150 +849,70 @@ def supervisor_node(state: AgentState) -> AgentState:
 # NODE: SCOUT (Architecture Analysis)
 # ============================================================================
  
-SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan for **{repo_name}**.
+SCOUT_PROMPT = """You are the build scout for a RISC-V porting agent. Produce a
+minimal, executable BuildPlan for **{repo_name}** built natively at `{repo_path}`.
 
-## Target Environment
-- **Architecture:** {target_arch} ({arch_identifiers})
-- **OS:** Alpine Linux (musl libc, not glibc)
-- **Compilation:** Native (not cross-compilation)
-- **Working directory:** `{repo_path}`
+## ACTIVE SANDBOX (use ONLY these package commands)
+{platform_banner}
 
-## Repository Analysis
-- **Build system:** {build_system}
-- **Module directory:** {module_dir}
-- **Architecture-specific code:** {arch_code_count} instances
-- **Dependencies detected:** {deps_count}
-- **Cached docs:** {doc_count}
+## Target
+- Architecture: {target_arch} ({arch_identifiers})
+- Native compilation only (DO NOT set `--host`, `GOOS/GOARCH`, `-DCMAKE_SYSTEM_PROCESSOR`).
 
-### Project Structure
+## Repo facts
+- Build system: {build_system} | Module dir: `{module_dir}`
+- Arch-specific code: {arch_code_count} occurrences | Cached docs: {doc_count}
+- Project context: {go_main_info}
+
+### Project structure
 {repo_tree}
 
-### Architecture Patterns Found
+### Arch patterns
 {arch_build_patterns}
 
-### Detected Dependencies
+### Detected dependencies
 {dependencies}
 
-### Architecture Concerns
+### Arch concerns
 {arch_concerns}
 
-### System Environment
+### Sandbox tools available
 {system_info}
 
-### Documentation
+### Documentation excerpts
 {documentation}
 
-### Go Main Package Info
-{go_main_info}
-
-## RISC-V / Alpine Knowledge
+## Platform knowledge (USE THIS — don't invent package names)
 {system_knowledge}
 
 {few_shot_examples}
 
-## Build Plan Rules
+## Build plan rules
+1. Each command runs in a fresh shell at `{repo_path}`. **Always chain `cd` with `&&`** — e.g. `cd build && cmake ..`, never two commands.
+2. Group commands into ≤3 phases: `setup` (install deps) → `configure` (optional) → `build`. Skip phases that have nothing to do.
+3. Install only `-dev` packages you can justify from CMakeLists.txt / configure.ac / meson.build / go.mod. No guessing.
+4. Use the package names from the platform knowledge above. Do NOT use names from a different distro.
+5. If the project has both CMake and autotools, prefer the one whose dependencies are easier to satisfy; if unsure, prefer autotools.
+6. For Go: if `go.mod` is missing, first phase must `go mod init <module_path>` then `go mod tidy`. Always pass `-buildvcs=false` to `go build`.
+7. Disable optional features that pull in heavy or x86-specific deps (tests, SIMD, examples, docs).
+8. NEVER reference paths or files you can't see in the project structure.
 
-1. **All commands must be executable as-is** inside a Docker container at `{repo_path}`. No placeholders like `/path/to/` or `<value>`.
-   - **CRITICAL: Each command runs in a separate shell starting at `{repo_path}`**. A `cd` in one command does NOT carry over to the next. Always chain `cd` with subsequent commands using `&&`. Example: `cd build && cmake ..` NOT separate `cd build` then `cmake ..`.
-2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`, `-DCMAKE_SYSTEM_PROCESSOR=riscv64`). The build runs natively on {architecture}. The compiler already targets riscv64.
-3. **Use the correct build system:**
-   - Go: Check `Go Main Package Info` for whether `go.mod` exists.
-     - **If `needs_go_init: true`** (no go.mod found): First run `go mod init <module_name>` then `go mod tidy` then `go build .`.
-       Use the GitHub repo path as module name (e.g. `github.com/tomnomnom/assetfinder`).
-     - **If `has_go_mod: true`**: Run `go mod tidy` then `go build ./...` or target path from `build_command`.
-     - **Always** use `go build ./...` or specific path — never just `go build` alone when a main path is known.
-   - CMake: `mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)`
-     - **CRITICAL**: If you split cmake steps across phases, ALWAYS include `mkdir -p build` BEFORE any `cd build` command. Never assume the build directory exists.
-     - **Read CMakeLists.txt** to discover optional features that may cause build issues on RISC-V:
-       - Look for `option(...)` and `find_package(...)` to find toggleable features and required dependencies.
-       - **Disable tests/examples/docs** to speed up build: e.g. `-DBUILD_TESTING=OFF`, `-DBUILD_TESTS=OFF`, `-DBUILD_EXAMPLES=OFF`, `-DBUILD_PROGRAMS=OFF`
-       - **Disable x86-specific SIMD** if the project has SSE/AVX options: e.g. `-DENABLE_SSE=OFF`, `-DWITH_SIMD=OFF`, `-DHWY_ENABLE_TESTS=OFF`
-       - **Install required `-dev` packages** for each `find_package()`/`pkg_check_modules()` call in CMakeLists.txt. Common Alpine mappings:
-         - `ZLIB` → `zlib-dev`, `PNG` → `libpng-dev`, `JPEG/JPEGTURBO` → `libjpeg-turbo-dev`
-         - `OpenSSL` → `openssl-dev`, `CURL` → `curl-dev`, `LibXml2` → `libxml2-dev`
-         - `Threads` → already available, `EXPAT` → `expat-dev`, `BZip2` → `bzip2-dev`
-     - If CMake fails with "Could NOT find ..." → install the missing `-dev` package via `apk add`
-   - Make: `make -j$(nproc)` — read the Makefile first to check for required variables or config targets.
-   - Autotools: Check if `./configure` exists.
-     - If `./configure` exists: Run `./configure && make -j$(nproc)` (do NOT pass `--host` when building natively)
-     - If `./configure` does NOT exist but `autogen.sh` exists: **CRITICAL**: Run `./autogen.sh -s -f` (MUST pass `-s` for dev setup mode and `-f` to force — without these flags, many autogen.sh scripts silently exit without generating configure). Then `./configure && make -j$(nproc)`
-     - If `./configure` does NOT exist but `configure.ac`/`configure.in` exists: Run `autoreconf -fi` to generate it, then `./configure && make -j$(nproc)`
-     - If `autoreconf -fi` fails with "undefined macro" or "macro not found": **Copy gettext.m4 FIRST, then run aclocal**: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`, then run `./configure && make -j$(nproc)`.
-     - **IMPORTANT**: If the repo has an `m4/` directory, include `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true` as the FIRST command in the setup phase to ensure modern gettext M4 macros are present before running autoreconf or aclocal
-   - **Build system preference**: If a project has BOTH CMakeLists.txt AND configure.ac/autogen.sh, and the CMake build fails with parse errors or missing features, fall back to autotools.
-   - Meson: `meson setup build && ninja -C build`
-     - Install `meson` and `ninja` via `apk add meson ninja`
-     - If the project uses NASM/YASM for assembly: `apk add nasm`
-   - Cargo: `cargo build --release`
-   - Custom build systems (e.g., OpenSSL, SQLite):
-     - If the project uses `./Configure` (capital C, Perl script): `perl ./Configure <target> && make -j$(nproc)`
-     - For OpenSSL specifically: use `perl ./Configure linux64-riscv64 no-asm no-tests no-docs` (do NOT use -Wl, flags — pass `-latomic` via LDFLAGS env var instead: `export LDFLAGS="-latomic"`)
-     - If the project provides a standalone amalgamation file (e.g. sqlite3.c): compile directly with `gcc -o output source.c -lpthread -ldl`
-     - Always read the project's INSTALL/README for the correct build procedure
-4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
-   - For C/C++ libraries, always install the `-dev` variant (e.g., `zlib-dev`, `openssl-dev`, `curl-dev`).
-   - **IMPORTANT: Never repeat the same package name in an `apk add` command. List each package exactly once.**
-   - **CRITICAL Alpine package name corrections** (Debian/Ubuntu names that are WRONG on Alpine):
-     - `liblzma-dev` → use `xz-dev`
-     - `liblz4-dev` → use `lz4-dev`
-     - `libz-dev` / `libzdev-dev` → use `zlib-dev`
-     - `libbz2-dev` → use `bzip2-dev`
-     - `libzstd-dev` → use `zstd-dev`
-     - `libcurl-dev` → use `curl-dev`
-     - `libssl-dev` / `libcrypto-dev` → use `openssl-dev`
-     - `libtiff-dev` → use `tiff-dev`
-     - `libfreetype6-dev` / `libfreetype-dev` → use `freetype-dev`
-     - `libjpeg-dev` → use `libjpeg-turbo-dev`
-     - `libsqlite3-dev` → use `sqlite-dev`
-     - `liblcms2-dev` → use `lcms2-dev`
-     - `pkg-config` → use `pkgconf`
-     - `golang` / `golang-go` → use `go`
-   - **Alpine/musl package gotchas** (these packages do NOT exist — do NOT try to install them):
-     - `libiconv-dev` → musl has iconv built-in, no separate package needed
-     - `libatomic-dev` → libatomic is part of gcc, already installed via `build-base`
-     - `librt-dev`, `libpthread-dev` → part of musl, no separate packages
-     - `libdl-dev` → part of musl, no separate package
-   - Check the project README/INSTALL and CMakeLists.txt/meson.build for required dependencies.
-   - For CMake projects, check `find_package()` calls in CMakeLists.txt — each required package needs a corresponding `-dev` install. Common: `absl` → `abseil-cpp-dev`, `Protobuf` → `protobuf-dev`, `OpenSSL` → `openssl-dev`, `ZLIB` → `zlib-dev`, `LibSSH2` → `libssh2-dev`.
-   - **Go projects**: Go is already pre-installed in the sandbox. Do NOT run `apk add go`. The Go toolchain, GOPROXY, and GOFLAGS are already configured. Just run `go build` directly.
-   - **Go build targets**: Check `go.mod` for the module path. For the build target, look at subdirectories with `main.go` files (commonly `./cmd/<name>/`). Use `go build ./cmd/...` or `go build ./...` — never guess paths. If `main.go` is at root, use `go build .`.
-5. **Verify source code location**: CMakeLists.txt or configure.ac may be in a subdirectory (e.g., `expat/`, `src/`). If the root has no build files, check subdirectories. If README says source is on a different branch (e.g., `c_master`, `cpp_master`), add `git fetch origin <branch>:<branch> && git checkout <branch>` as the FIRST command in setup phase. The `:<branch>` syntax is required for shallow clones to create a local branch.
-   - **If both CMake and autotools are available** (both CMakeLists.txt and configure/configure.ac exist), prefer autotools (`./configure && make`) as it is usually more mature and handles code generation better on RISC-V.
-   - **If `./configure` already exists**, use it directly — do NOT run autoreconf, bootstrap.sh, or autogen.sh unnecessarily.
-6. **If architecture-specific code is found**, note it in `architecture_concerns`. Common RISC-V issues:
-   - x86 SIMD intrinsics (SSE/AVX/NEON) — disable via build option or add scalar fallback
-   - Inline assembly — must be guarded for RISC-V or replaced with C code
-   - `__builtin_ia32_*` — x86-specific GCC builtins
-   - Stale `config.guess`/`config.sub` — update via `apk add automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .`
-   - Missing `-latomic` for atomic operations on RISC-V
-   - glibc-only APIs on musl (e.g., `execinfo.h`, `backtrace`, `mallinfo`)
-6. **Do NOT reference non-existent directories or files.**
+## Self-check (do silently before responding)
+- Did I read the actual build files (or admit I couldn't)?
+- Does every package install command exist for the target distro?
+- Do my commands actually run if pasted into a shell at `{repo_path}`?
 
-## Output Format
-
-Return ONLY a JSON object:
+## Output schema (JSON only)
 {{
   "build_system": "go|cmake|make|autotools|cargo|meson|other",
-  "build_system_confidence": 0.95,
+  "build_system_confidence": <0-1 float>,
   "phases": [
-    {{
-      "id": 1,
-      "name": "setup",
-      "commands": ["apk add <needed packages>"],
-      "can_parallelize": false,
-      "expected_duration": "30s"
-    }},
-    {{
-      "id": 2,
-      "name": "build",
-      "commands": ["<actual build commands>"],
-      "can_parallelize": false,
-      "expected_duration": "2m"
-    }}
+    {{"id": 1, "name": "setup", "commands": ["..."], "can_parallelize": false, "expected_duration": "30s"}},
+    {{"id": 2, "name": "build", "commands": ["..."], "can_parallelize": false, "expected_duration": "2m"}}
   ],
-  "total_estimated_duration": "3m",
-  "notes": ["any important observations"],
-  "architecture_concerns": ["list of RISC-V-specific issues found"]
+  "total_estimated_duration": "<sum>",
+  "notes": ["..."],
+  "architecture_concerns": ["..."]
 }}"""
 
 def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
@@ -1058,14 +940,20 @@ def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
             if "/home/" in cmd and "/workspace/" not in cmd:
                 return False, f"Suspicious absolute path in command: '{cmd}'"
 
-            # Check for `apk add go mod` or `apk add go build` style hallucinations
-            if cmd.strip().startswith("apk add"):
-                parts = cmd.split()
-                pkg_names = [p for p in parts[2:] if not p.startswith("-")]
+            # Check for `apk add go mod` / `apt-get install go build` style hallucinations
+            # where Go subcommands are mistaken for package names
+            stripped = cmd.strip()
+            if (stripped.startswith("apk add")
+                    or stripped.startswith("apt-get install")
+                    or stripped.startswith("apt install")):
+                parts = stripped.split()
+                # apk add <pkgs> / apt-get install <pkgs>
+                skip = 2 if stripped.startswith("apk") else 2
+                pkg_names = [p for p in parts[skip:] if not p.startswith("-")]
                 for pkg in pkg_names:
                     if pkg in go_subcommands:
                         return False, (
-                            f"Hallucination: '{cmd}' — '{pkg}' is a Go subcommand, not an apk package. "
+                            f"Hallucination: '{cmd}' — '{pkg}' is a Go subcommand, not a package. "
                             f"Use 'go {pkg}' as a separate command."
                         )
 
@@ -1137,9 +1025,13 @@ def scout_node(state: AgentState) -> AgentState:
     )
 
     go_main_info = state.context_cache.get("go_main_info", {})
-    go_main_str = (
-        json.dumps(go_main_info, indent=2) if go_main_info else "Not a Go project"
-    )
+    build_type_lower = (build_sys.type if build_sys else "").lower()
+    if go_main_info:
+        go_main_str = json.dumps(go_main_info, indent=2)
+    elif build_type_lower == "go":
+        go_main_str = "Go project detected; main package not auto-discovered (scout should inspect the repo for main.go or cmd/ subdirs)"
+    else:
+        go_main_str = "Not a Go project"
 
     few_shot_context = {
         "build_system": build_sys.type if build_sys else "unknown",
@@ -1167,6 +1059,7 @@ def scout_node(state: AgentState) -> AgentState:
         target_arch="RISC-V (riscv64)",
         arch_identifiers="rv64, riscv, riscv64, RISCV64",
         repo_name=state.repo_name,
+        platform_banner=_build_platform_banner(),
         build_system=(build_sys.type if build_sys else "unknown")
         .replace("{", "{{")
         .replace("}", "}}"),
@@ -1193,37 +1086,72 @@ def scout_node(state: AgentState) -> AgentState:
         few_shot_examples=few_shot_examples,
     )
 
+    def _validate_scout(data: dict) -> ValidationResult:
+        phases = data.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return ValidationResult.bad("'phases' must be a non-empty array")
+        for i, p in enumerate(phases):
+            if not isinstance(p, dict):
+                return ValidationResult.bad(f"phase {i} is not an object")
+            if not p.get("name"):
+                return ValidationResult.bad(f"phase {i} missing 'name'")
+            cmds = p.get("commands")
+            if not isinstance(cmds, list) or not cmds:
+                return ValidationResult.bad(f"phase {i} ({p.get('name')}) must have a non-empty 'commands' array")
+            if not all(isinstance(c, str) and c.strip() for c in cmds):
+                return ValidationResult.bad(f"phase {i} ({p.get('name')}) has empty/non-string command")
+        # Dry-build a BuildPlan to reuse the existing semantic validator
+        try:
+            trial_phases = [
+                BuildPhase(id=p.get("id", i + 1), name=p["name"], commands=p["commands"],
+                           can_parallelize=p.get("can_parallelize", False),
+                           expected_duration=p.get("expected_duration", "unknown"))
+                for i, p in enumerate(phases)
+            ]
+            trial_plan = BuildPlan(
+                build_system=data.get("build_system", build_sys.type if build_sys else "unknown"),
+                build_system_confidence=data.get("build_system_confidence", 0.5),
+                phases=trial_phases,
+                total_estimated_duration=data.get("total_estimated_duration", "unknown"),
+            )
+            ok, reason = validate_build_plan(trial_plan)
+            if not ok:
+                return ValidationResult.bad(f"{reason}. Avoid absolute paths like /path/to/, /home/, /root/")
+        except Exception as exc:
+            return ValidationResult.bad(f"could not materialize BuildPlan: {exc}")
+        return ValidationResult.good()
+
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=get_model_for_role(AgentRole.SCOUT),
+        prompt=prompt,
+        validator=_validate_scout,
+        fallback_factory=lambda: None,  # we build the BuildPlan fallback below
+        role=AgentRole.SCOUT.value,
+        audit_metadata={
+            "repo": state.repo_name,
+            "build_system": state.build_system_info.type if state.build_system_info else "unknown",
+        },
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.SCOUT)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)
+        if outcome.data is None:
+            raise ValueError(outcome.last_error or "scout produced no valid plan")
 
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.SCOUT.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={"repo": state.repo_name, "build_system": state.build_system_info.type if state.build_system_info else 'unknown'}
-        )
-
-        json_match = extract_json_block(content)
-        plan_data = json.loads(json_match)
-
-        phases = []
-        for i, p in enumerate(plan_data["phases"]):
-            phase = BuildPhase(
+        plan_data = outcome.data
+        phases = [
+            BuildPhase(
                 id=p.get("id", i + 1),
                 name=p["name"],
                 commands=p["commands"],
                 can_parallelize=p.get("can_parallelize", False),
                 expected_duration=p.get("expected_duration", "unknown"),
             )
-            phases.append(phase)
+            for i, p in enumerate(plan_data["phases"])
+        ]
 
         state.build_plan = BuildPlan(
             build_system=plan_data.get(
@@ -1233,36 +1161,18 @@ def scout_node(state: AgentState) -> AgentState:
                 "build_system_confidence", build_sys.confidence if build_sys else 0.5
             ),
             phases=phases,
-            total_estimated_duration=plan_data.get(
-                "total_estimated_duration", "unknown"
-            ),
+            total_estimated_duration=plan_data.get("total_estimated_duration", "unknown"),
             notes=plan_data.get("notes", []),
         )
         state.last_successful_phase = 0
-
-        is_valid, reason = validate_build_plan(state.build_plan)
-        if not is_valid:
-            logger.warning(f"Plan validation failed: {reason}")
-            state.add_error(
-                create_error_record(
-                    message=f"Invalid build plan: {reason}. Please avoid absolute paths and placeholders.",
-                    category=ErrorCategory.CONFIGURATION,
-                )
-            )
-            state.build_plan = None
-
-            if state.attempt_count >= 2:
-                logger.info("Using fallback build plan after repeated failures")
-                state.build_plan = create_fallback_build_plan(state)
-        else:
-            logger.info(f"Build plan created and validated: {len(phases)} phases")
+        logger.info(f"Build plan created and validated: {len(phases)} phases")
 
     except Exception as e:
         logger.error(f"Scout failed: {e}")
-        logger.info("Using fallback build plan due to LLM parsing error")
+        logger.info("Using fallback build plan due to scout failure")
         state.add_error(
             create_error_record(
-                message=f"Scout LLM failed: {e}",
+                message=f"Scout failed: {e}",
                 category=ErrorCategory.UNKNOWN,
             )
         )
@@ -1274,14 +1184,19 @@ def scout_node(state: AgentState) -> AgentState:
 
 def create_fallback_build_plan(state: AgentState) -> BuildPlan:
     """Create a basic fallback build plan based on detected build system."""
+    from .platforms import get_active_profile
+    profile = get_active_profile()
     build_sys = state.build_system_info
     build_type = build_sys.type if build_sys else "unknown"
+
+    def _setup(canonical_pkgs: List[str]) -> str:
+        """Render the install command for canonical package names via active profile."""
+        return profile.install_cmd([profile.resolve(p) for p in canonical_pkgs])
 
     if build_type == "go":
         go_main_info = state.context_cache.get("go_main_info", {})
         needs_init = go_main_info.get("needs_go_init", False)
         build_cmd = go_main_info.get("build_command", "go build -buildvcs=false ./...")
-        # Infer module name from repo URL
         module_name = state.repo_url.replace("https://", "").rstrip("/") if state.repo_url else f"github.com/unknown/{state.repo_name}"
 
         build_cmds = []
@@ -1295,62 +1210,60 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             build_system="go",
             build_system_confidence=0.8,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add git"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["git"])], False, "30s"),
                 BuildPhase(2, "build", build_cmds, False, "3m"),
             ],
             total_estimated_duration="4m",
-            notes=["Fallback Go build plan"],
+            notes=[f"Fallback Go build plan ({profile.name})"],
         )
     elif build_type == "cmake":
         return BuildPlan(
             build_system="cmake",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base cmake"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc", "cmake"])], False, "30s"),
                 BuildPhase(2, "configure", ["mkdir -p build", "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"], False, "1m"),
                 BuildPhase(3, "build", ["cd build && make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="7m",
-            notes=["Fallback CMake build plan"],
+            notes=[f"Fallback CMake build plan ({profile.name})"],
         )
     elif build_type == "make":
         return BuildPlan(
             build_system="make",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
                 BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Fallback Make build plan"],
+            notes=[f"Fallback Make build plan ({profile.name})"],
         )
     elif build_type == "cargo":
         return BuildPlan(
             build_system="cargo",
             build_system_confidence=0.8,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add rust cargo"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["rust"])], False, "30s"),
                 BuildPhase(2, "build", ["cargo build --release"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Fallback Cargo build plan"],
+            notes=[f"Fallback Cargo build plan ({profile.name})"],
         )
     elif build_type == "meson":
         return BuildPlan(
             build_system="meson",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base meson ninja"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc", "meson", "ninja"])], False, "30s"),
                 BuildPhase(2, "configure", ["meson setup builddir"], False, "1m"),
                 BuildPhase(3, "build", ["ninja -C builddir"], False, "5m"),
             ],
             total_estimated_duration="7m",
-            notes=["Fallback Meson build plan"],
+            notes=[f"Fallback Meson build plan ({profile.name})"],
         )
     elif build_type == "autotools":
-        # Check if configure script exists in the repo
         has_configure = os.path.exists(os.path.join(_to_host_path(state.repo_path), "configure")) if state.repo_path else True
-        # Native build: do NOT use --host flag (we are compiling on riscv64 natively)
         configure_phase_cmds = ["./configure"]
         if not has_configure:
             configure_phase_cmds = [
@@ -1363,27 +1276,26 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             build_system_confidence=0.6,
             phases=[
                 BuildPhase(1, "setup", [
-                    "apk update && apk add build-base autoconf automake libtool gettext-dev pkgconf",
+                    _setup(["gcc", "autotools", "pkgconfig"]),
                     "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
                 ], False, "30s"),
                 BuildPhase(2, "configure", configure_phase_cmds, False, "3m"),
                 BuildPhase(3, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="9m",
-            notes=["Fallback Autotools build plan"],
+            notes=[f"Fallback Autotools build plan ({profile.name})"],
         )
     else:
-        # Unknown build system - try to guess from files present
         logger.warning(f"Unknown build system '{build_type}', using generic fallback")
         return BuildPlan(
             build_system=build_type,
             build_system_confidence=0.3,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
                 BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Generic fallback - build system not recognized"],
+            notes=[f"Generic fallback - build system not recognized ({profile.name})"],
         )
 
 
@@ -1408,8 +1320,8 @@ def _fixup_top_builddir_in_submakefiles(docker_repo_path: str) -> None:
     correct relative top_builddir assignment.
     """
     try:
-        from src.config import CONTAINER_NAME
-        container = CONTAINER_NAME
+        from src.platforms import get_container_name
+        container = get_container_name()
         # Shell script: walk subdirs, find Makefiles using $(top_builddir)
         # that don't already define it, and inject `top_builddir = <relpath>`
         script = (
@@ -1693,15 +1605,18 @@ def validate_fix_command(command: str) -> tuple[bool, str]:
         if re.search(pattern, command, re.IGNORECASE):
             return False, reason
 
-    # Reject `apk add go mod` style hallucinations where Go subcommands are used as package names
+    # Reject `apk add go mod` / `apt-get install go build` style hallucinations
+    # where Go subcommands are used as package names
     _go_subcommands = {"mod", "build", "get", "install", "run", "test", "tool", "generate", "fmt", "vet"}
-    if command.strip().startswith("apk add"):
-        parts = command.split()
+    stripped = command.strip()
+    pkg_install_prefixes = ("apk add", "apt-get install", "apt install")
+    if any(stripped.startswith(pfx) for pfx in pkg_install_prefixes):
+        parts = stripped.split()
         pkg_names = [p for p in parts[2:] if not p.startswith("-")]
         for pkg in pkg_names:
             if pkg in _go_subcommands:
                 return False, (
-                    f"Hallucination: '{command}' — '{pkg}' is a Go subcommand, not an apk package. "
+                    f"Hallucination: '{command}' — '{pkg}' is a Go subcommand, not a package. "
                     f"Use 'go {pkg}' as a separate command."
                 )
 
@@ -1799,128 +1714,83 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
 # NODE: FIXER (Error Resolution)
 # ============================================================================
  
-FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compilation failure for **{repo_name}**.
+FIXER_PROMPT = """You are the build doctor for a RISC-V porting agent. Diagnose
+the failure for **{repo_name}** and emit a minimal fix.
 
-## Build Context
-- **Target:** {target_arch}
-- **Build System:** {build_system}
-- **Phase:** {current_phase}
-- **Attempt:** {attempt_count} / {max_attempts}
+## ACTIVE SANDBOX (use ONLY these package commands)
+{platform_banner}
 
-## Failure Details
+## Build context
+- Target: {target_arch} | Build system: {build_system}
+- Attempt {attempt_count}/{max_attempts} | Phase: {current_phase}
 
-**Failed Command:**
+## Failure
+**Failed command:**
 ```
 {failed_command}
 ```
-
-**Error Output:**
+**Error (truncated):**
 ```
 {error_output}
 ```
+**Exit code:** {exit_code}
 
-**Exit Code:** {exit_code}
-
-### Previous Fix Attempts
+### Previous fix attempts (most recent last — DO NOT repeat any of these)
 {previous_fixes}
 
-## Available Context
-
-### Repository Structure
+### Repo structure
 {repo_tree}
 
-### Known Architecture Issues
+### Known arch concerns
 {known_arch_issues}
 
-### Current Build Plan
+### Current build plan
 {build_plan}
 
-### RISC-V / Alpine Knowledge
+## Platform knowledge (canonical — use these package names + commands)
 {system_knowledge}
 
 {few_shot_examples}
 
-## Diagnostic Process
+## Diagnostic procedure
+1. **Read the error.** What's the *root cause*, not the symptom?
+2. **Classify**: missing dep / wrong package name / arch-specific code / configure
+   gone stale / build-system mismatch / glibc-only API / unrelated env issue.
+3. **Pick the cheapest fix** in this order: (a) install a missing `-dev` package,
+   (b) change a build flag, (c) regenerate configure / copy `config.{{guess,sub}}`,
+   (d) add a `#ifdef __riscv` guard, (e) patch source.
+4. **Check the few-shot examples above** — if one matches the error pattern, use it.
+5. **Verify your fix does not duplicate a previous failed attempt.**
 
-1. **Classify** the error: compilation, linking, configuration, dependency, or architecture incompatibility.
-2. **Identify root cause** — the actual problem, not the symptom. Check if it relates to known arch issues.
-3. **Check history** — have previous fixes attempted this? Don't repeat failed approaches.
-4. **Design minimal fix** — prefer (in order): configuration change > conditional compilation > portable replacement > feature disable.
+## Critical rules
+- Each command runs in a fresh shell at the repo root. Chain `cd` with `&&`.
+- Do NOT propose unrelated cleanups. Fix only what's broken.
+- For Go: `-buildvcs=false` is required; never install Go via the package manager (it is preinstalled in the sandbox).
+- For autotools failures involving gettext macros: copy macros BEFORE `aclocal`,
+  do NOT run `autoreconf` (it reverts the fix via `autopoint`).
+- If the error indicates an unfixable mismatch (e.g. project needs newer Go
+  than the sandbox provides), say so in `reflection.root_cause` and propose
+  ESCALATE rather than a hack.
 
-## Common RISC-V Fix Patterns
-
-| Error Pattern | Likely Cause | Fix |
-|---------------|-------------|-----|
-| `#error` with `x86_64` / `__x86_64__` check | Missing arch case | Add `#elif defined(__riscv)` branch |
-| `_mm_*`, `__m128`, SSE/AVX intrinsics | x86 SIMD | Disable SIMD via CMake option (`-DWITH_SIMD=OFF`, `-DENABLE_SSE=OFF`) or add `#ifdef __riscv` with scalar fallback |
-| `asm("mov ..."` or `__asm__` with x86 | Inline assembly | Use C equivalent or add RISC-V asm |
-| `__builtin_ia32_*` | GCC x86 builtins | Replace with portable `__builtin_*` or C code |
-| `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags: `cmake .. -DCMAKE_EXE_LINKER_FLAGS=-latomic` or `LDFLAGS=-latomic` |
-| `execinfo.h` / `backtrace()` | glibc-only API | `apk add libexecinfo-dev` and add `-lexecinfo` to link flags, or guard with `#ifdef __GLIBC__` |
-| `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .` |
-| `possibly undefined macro: AM_GNU_GETTEXT` OR `syntax error: unexpected word (expecting ")")` in `./configure` OR `No rule to make target '/config.status'` | Old `m4/gettext.m4` missing `AM_GNU_GETTEXT_VERSION`. **DO NOT run autoreconf** (autopoint reverts fixes). Exact fix sequence — run ALL three commands: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`. The copy-first step is critical — without it autoconf produces a broken configure even if aclocal exits 0. |
-| `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
-| `cannot find main module, but found .git/config` | Missing go.mod (GOPATH-style repo) | Run `go mod init <github.com/owner/repo>` then `go mod tidy` |
-| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | This is unfixable — the sandbox Go version is pinned by Alpine. Escalate as a version incompatibility |
-| `Could NOT find <Package>` (CMake) | Missing dev library | Install the Alpine `-dev` package: `apk add <package>-dev` |
-| `Package '<pkg>' not found` (pkg-config) | Missing dev library | Install the Alpine `-dev` package: `apk add <pkg>-dev` |
-| `No such file or directory: nasm` | Missing assembler | `apk add nasm` |
-| `undefined reference to 'dlopen'` | Missing libdl | Add `-ldl` to linker flags (on musl, `dlopen` is in libc, so ensure `-ldl` is linked) |
-| `fatal error: linux/*.h` | Missing kernel headers | `apk add linux-headers` |
-| `cannot find -lm` / `cannot find -lpthread` | Missing C library dev | `apk add musl-dev` (usually already present with build-base) |
-| `cd: build: No such file or directory` | Build directory not created | Add `mkdir -p build` before any `cd build` command |
-| `Command blocked by safety validation` with `./Configure` | OpenSSL-style Configure script | Use `perl ./Configure` instead of `./Configure`, or set `LDFLAGS` env var instead of passing `-Wl,` flags directly |
-| `no such package` in apk add | Wrong Alpine package name | Check Alpine package names: `liblzma-dev` → `xz-dev`, `liblz4-dev` → `lz4-dev`, `libz-dev` → `zlib-dev`, `libbz2-dev` → `bzip2-dev`, `libzstd-dev` → `zstd-dev`, `libcurl-dev` → `curl-dev`, `libssl-dev` → `openssl-dev`, `libtiff-dev` → `tiff-dev`, `libjpeg-dev` → `libjpeg-turbo-dev`, `libfreetype-dev` → `freetype-dev`, `libsqlite3-dev` → `sqlite-dev`, `liblcms2-dev` → `lcms2-dev`, `pkg-config` → `pkgconf`, `golang` → `go` |
-| `requires go >= X.Y (running go ...)` | Package needs newer Go than installed | This is unfixable — the sandbox Go version is pinned. Report as a version mismatch |
-| `./configure: No such file or directory` | Missing configure script | Run `autoreconf -fi` to generate it, or run `./autogen.sh -s -f` if autogen.sh exists (the `-s -f` flags enable dev setup + force regeneration). If autoreconf fails, try: `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null; aclocal; autoconf; automake --add-missing 2>/dev/null; ./configure` |
-| `PATH_MAX` undeclared / `fortified realpath will not work` | musl/Alpine fortify-headers issue | Add `-DPATH_MAX=4096` to CFLAGS: for CMake use `-DCMAKE_C_FLAGS="-DPATH_MAX=4096"`, for Make use `CFLAGS="-DPATH_MAX=4096"`. If still failing, also add `-U_FORTIFY_SOURCE` |
-| `please do not run arbitrary` / autogen.sh exits without creating configure | autogen.sh requires flags | Run `./autogen.sh -s -f` (dev setup + force) instead of plain `./autogen.sh`. If that doesn't work, run `autoreconf -fi` directly |
-| `Unable to autodetect a usable HTTPS backend` | Missing SSL library for CMake | Install `openssl-dev` and pass `-DUSE_HTTPS=OpenSSL` to cmake |
-| `Could not find a package configuration file provided by` | Missing CMake dependency | Install the missing `-dev` package. Common mappings: `absl` → `abseil-cpp-dev`, `GTest` → `gtest-dev`, `Protobuf` → `protobuf-dev` |
-| `does not appear to contain CMakeLists.txt` | Wrong source directory or branch | Check if CMakeLists.txt is in a subdirectory (e.g., `expat/`, `src/`). Also check README — source may be on a different git branch. Run `git fetch origin <branch>:<branch> && git checkout <branch>` (the `:<branch>` creates a local tracking branch). Common branches: `c_master`, `main`, `develop`. Use `git branch -a` to list available branches |
-| `IMPORTED_LOCATION not set for imported target` | Missing dev package for cmake target | Install the missing `-dev` package. e.g., `PNG::PNG` → `libpng-dev`, `TIFF::TIFF` → `libtiff-dev`. If still failing, disable the feature via cmake option |
-| `Parse error. Expected a command name` in CMakeLists.txt | CMake build system broken | Switch to autotools: run `autoreconf -fi` or `./autogen.sh -s -f` to generate `./configure`, then `./configure && make -j$(nproc)` |
-| `undefined reference to` with cmake build (multiple linking errors) | CMake build incomplete | If the project also has `configure.ac` or `./configure`, switch to autotools: `./configure && make -j$(nproc)` (or `autoreconf -fi && ./configure && make -j$(nproc)` if configure doesn't exist). Autotools often handles codegen and linking better than cmake for complex projects |
-| `pathspec did not match any file(s) known to git` after fetch | Shallow clone branch issue | Use `git fetch origin <branch>:<branch>` to create a local branch, then `git checkout <branch>`. The `:<branch>` syntax creates the local tracking branch that shallow clones don't have |
-| `No targets specified and no makefile found` | Running `make` without prior configure/cmake | If CMakeLists.txt exists: `mkdir -p build && cd build && cmake .. && make -j$(nproc)`. If configure.ac exists: `autoreconf -fi && ./configure && make -j$(nproc)`. If configure exists: `./configure && make -j$(nproc)` |
-| `ModuleNotFoundError: No module named 'jinja2'` / `'jsonschema'` | Python build-time dep | `pip3 install jinja2 jsonschema` or `apk add py3-jinja2 py3-jsonschema` |
-
-**CRITICAL: Each command runs in a separate shell starting at the repo root. A `cd` in one command does NOT carry over. Always chain `cd` with subsequent commands using `&&` (e.g., `cd build && cmake ..`).**
-
-## Output Format
-
-Return ONLY a JSON object:
+## Output schema (JSON only)
 {{
   "strategies": [
-    {{
-      "id": 1,
-      "description": "Brief description of the fix",
+    {{"id": 1, "description": "<one line>",
       "actions": [
-        {{
-          "type": "command",
-          "command": "shell command to run"
-        }}
-      ]
-    }}
+        {{"type": "command", "command": "<shell>"}}
+        // or {{"type": "create_file", "path": "<rel>", "content": "..."}}
+        // or {{"type": "patch", "file": "<rel>", "content": "<unified diff>"}}
+      ]}}
   ],
   "recommended_strategy_id": 1,
   "reflection": {{
-    "root_cause": "Why the error occurred",
-    "this_fix_will_work_because": "Why this fix addresses the root cause"
+    "root_cause": "<why it broke>",
+    "this_fix_will_work_because": "<why the chosen fix addresses the root cause>"
   }}
 }}
 
-**Action types:**
-- `"command"` — Run a shell command. Fields: `type`, `command`
-- `"create_file"` — Create a new file. Fields: `type`, `path` (relative to repo root), `content`
-- `"patch"` — Apply a unified diff. Fields: `type`, `file` (relative path), `content` (MUST be a proper unified diff with `--- a/file` and `+++ b/file` headers and `@@ -line,count +line,count @@` hunks). **Prefer using `"command"` with `sed` for simple edits instead of patch.**
-
-**Rules:**
-- At least one strategy with at least one action.
-- No empty commands, empty files, or placeholder paths (`/path/to/`, `/home/`, `/root/`).
-- For missing packages: `apk add <package>`.
-- Provide exact, executable fixes — not analysis or pseudocode.
-- Do not repeat a fix that already failed (check previous fix attempts above)."""
+Rules: ≥1 strategy with ≥1 action; no placeholder paths (`/path/to/`, `/home/`);
+prefer `command` with `sed` over `patch` for simple edits."""
 
 
 @agent_node(AgentRole.FIXER)
@@ -1985,6 +1855,7 @@ def fixer_node(state: AgentState) -> AgentState:
     prompt = FIXER_PROMPT.format(
         repo_name=state.repo_name,
         target_arch="RISC-V (riscv64)",
+        platform_banner=_build_platform_banner(),
         build_system=state.build_plan.build_system if state.build_plan else "unknown",
         current_phase=state.current_phase,
         attempt_count=state.attempt_count,
@@ -2001,44 +1872,45 @@ def fixer_node(state: AgentState) -> AgentState:
         few_shot_examples=few_shot_examples,
     )
 
+    def _validate_fix(data: dict) -> ValidationResult:
+        ok, reason = validate_fixer_response(data)
+        if not ok:
+            return ValidationResult.bad(reason)
+        return ValidationResult.good()
+
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=get_model_for_role(AgentRole.FIXER),
+        prompt=prompt,
+        validator=_validate_fix,
+        fallback_factory=lambda: None,  # no deterministic fix — escalate via FAILED status
+        role=AgentRole.FIXER.value,
+        audit_metadata={
+            "repo": state.repo_name,
+            "error_category": state.last_error_category.value if state.last_error_category else "unknown",
+            "attempt": state.attempt_count,
+        },
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.FIXER)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)
-
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.FIXER.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={
-                "repo": state.repo_name,
-                "error_category": state.last_error_category.value if state.last_error_category else 'unknown',
-                "attempt": state.attempt_count
-            }
-        )
-
-        # Parse JSON
-        json_match = extract_json_block(content)
-        fix_data = json.loads(json_match)
-
-        # Validate the FIXER response
-        is_valid, validation_error = validate_fixer_response(fix_data)
-        if not is_valid:
-            logger.error(f"FIXER response validation failed: {validation_error}")
+        if outcome.data is None:
+            logger.error(
+                f"FIXER produced no valid response after {outcome.attempts} attempts: "
+                f"{outcome.last_error}"
+            )
             state.add_error(
                 create_error_record(
-                    message=f"FIXER proposed invalid fix: {validation_error}",
+                    message=f"FIXER proposed invalid fix: {outcome.last_error}",
                     category=ErrorCategory.CONFIGURATION,
                 )
             )
             state.build_status = BuildStatus.FAILED
             return state
+
+        fix_data = outcome.data
 
         # Get recommended strategy
         recommended_id = fix_data.get("recommended_strategy_id", 1)
@@ -2253,6 +2125,25 @@ def _save_learning_data(state: AgentState):
         repo = state.repo_name or "unknown"
         bs = state.build_plan.build_system if state.build_plan else "unknown"
 
+        # --- Curate artifacts so recipe + report show only user-facing deliverables ---
+        if state.build_artifacts and not state.curated_artifacts:
+            try:
+                from .artifact_curator import curate_artifacts
+                curator_llm = None
+                try:
+                    curator_llm = get_model_for_role(AgentRole.SUMMARIZER)
+                except Exception as e:
+                    logger.info(f"Curator LLM unavailable, using rule-based fallback: {e}")
+                state.curated_artifacts = curate_artifacts(
+                    raw_artifacts=state.build_artifacts,
+                    repo_name=repo,
+                    build_system=bs,
+                    llm=curator_llm,
+                )
+            except Exception as e:
+                logger.warning(f"Artifact curation failed (non-fatal): {e}")
+                state.curated_artifacts = []
+
         # --- Scout learning ---
         if state.build_plan and state.build_plan.phases:
             scout_data = {
@@ -2324,7 +2215,7 @@ def _save_learning_data(state: AgentState):
                 },
                 dependencies=[],
                 patches=[f.strategy for f in (state.fixes_attempted or []) if f.success],
-                artifacts=state.build_artifacts or [],
+                artifacts=state.curated_artifacts or state.build_artifacts or [],
                 build_duration_seconds=duration,
             )
 
@@ -2374,12 +2265,25 @@ def finish_node(state: AgentState) -> AgentState:
                 build_steps += f"{cmd}\n"
             build_steps += "```\n"
 
-    # Prepare artifacts information
+    # Prepare artifacts information (prefer curated list — primary first, no noise)
     artifacts_info = ""
-    if state.build_artifacts:
+    artifacts_to_show = state.curated_artifacts or state.build_artifacts
+    if artifacts_to_show:
+        primary = [a for a in artifacts_to_show if a.get("role") == "primary"]
+        secondary = [a for a in artifacts_to_show if a.get("role") == "secondary"]
+        rest = [a for a in artifacts_to_show if not a.get("role")]
+
         artifacts_info = "\n### Build Artifacts Generated\n\n"
-        for artifact in state.build_artifacts:
-            artifacts_info += f"- **{artifact['type']}** ({artifact['architecture']}): `{artifact['filepath']}`\n"
+        for label, group in (("Primary", primary), ("Secondary (tests / examples)", secondary), ("Other", rest)):
+            if not group:
+                continue
+            if label != "Other" or (not primary and not secondary):
+                artifacts_info += f"**{label}:**\n" if label != "Other" else ""
+            for art in group:
+                arch = art.get("architecture", "?")
+                path = art.get("filepath") or art.get("path", "")
+                artifacts_info += f"- **{art.get('type', 'binary')}** ({arch}): `{path}`\n"
+            artifacts_info += "\n"
 
     build_steps += artifacts_info
 
@@ -2509,7 +2413,7 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
                         }
                     )
 
-            if "apk add" in cmd or "apt-get" in cmd:
+            if any(tok in cmd for tok in ("apk add", "apt-get install", "apt install", "dpkg ")):
                 missing = state.context_cache.get("missing_tools", [])
                 if missing:
                     predictions.append(

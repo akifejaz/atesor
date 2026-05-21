@@ -15,7 +15,6 @@ from src.state import (
     BuildSystemInfo,
     DependencyInfo,
     ArchSpecificCode,
-    CommunityPortStatus,
     CommandResult,
 )
 from src.tools import execute_command
@@ -287,21 +286,23 @@ class ScriptedOperations:
         package_pattern = r"find_package\s*\(\s*(\w+)"
         packages = re.findall(package_pattern, content, re.IGNORECASE)
 
-        # Map common CMake packages to system packages (Alpine/apk names)
-        package_map = {
+        # Map common CMake packages to canonical names; PlatformProfile resolves to distro package at install time
+        from .platforms import get_active_profile
+        profile = get_active_profile()
+        canonical_map = {
             "Threads": "musl-dev",
-            "OpenSSL": "openssl-dev",
-            "ZLIB": "zlib-dev",
-            "PNG": "libpng-dev",
-            "JPEG": "libjpeg-turbo-dev",
-            "Boost": "boost-dev",
-            "Qt5": "qt5-qtbase-dev",
-            "Protobuf": "protobuf-dev",
+            "OpenSSL": "openssl",
+            "ZLIB": "zlib",
+            "PNG": "libpng",
+            "JPEG": "libjpeg-turbo",
+            "Boost": "boost-dev",      # rare canonical, kept as Alpine name
+            "Qt5": "qt5-qtbase-dev",   # rare canonical, kept as Alpine name
+            "Protobuf": "protobuf",
         }
 
         for pkg in packages:
-            if pkg in package_map:
-                deps.system_packages.append(package_map[pkg])
+            if pkg in canonical_map:
+                deps.system_packages.append(profile.resolve(canonical_map[pkg]))
             deps.libraries.append(pkg)
 
         # Common build tools for CMake
@@ -513,19 +514,21 @@ class ScriptedOperations:
         lib_pattern = r"-l(\w+)"
         libs = re.findall(lib_pattern, content)
 
-        # Map to system packages (common ones for Alpine/apk)
-        lib_map = {
-            "ssl": "openssl-dev",
-            "crypto": "openssl-dev",
-            "z": "zlib-dev",
+        # Map -l flags to canonical names; profile resolves to distro package
+        from .platforms import get_active_profile
+        profile = get_active_profile()
+        canonical_lib_map = {
+            "ssl": "openssl",
+            "crypto": "openssl",
+            "z": "zlib",
             "pthread": "musl-dev",
             "dl": "musl-dev",
             "m": "musl-dev",
         }
 
         for lib in libs:
-            if lib in lib_map:
-                deps.system_packages.append(lib_map[lib])
+            if lib in canonical_lib_map:
+                deps.system_packages.append(profile.resolve(canonical_lib_map[lib]))
             deps.libraries.append(lib)
 
         deps.build_tools = ["make", "gcc", "g++"]
