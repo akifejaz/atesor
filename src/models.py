@@ -76,27 +76,69 @@ def check_api_keys() -> Tuple[bool, str, str]:
 
 def create_llm(role: AgentRole) -> BaseChatModel:
     """Create an LLM instance for a specific agent role."""
+    return _create_llm_with_model(role, _resolve_model_name(role))
+
+
+def create_llm_pool(role: AgentRole) -> list:
+    """
+    Return [primary_llm, *fallback_llms] for the given role.
+
+    Fallbacks are read from `OPENROUTER_FALLBACK_MODELS` (comma-separated
+    model ids) when the active provider is OpenRouter — the most failure-prone
+    of the three because the free tier 404s when upstream models go down.
+    For OpenAI and Gemini we only return the primary (those providers' SDKs
+    already retry transient errors transparently).
+
+    Callers that want resilience to `Model not found` / 404 from the primary
+    pass this list into `llm_call_with_validation(fallback_llms=...)`.
+    """
+    primary = create_llm(role)
     provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
-    
+    if provider != ModelProvider.OPENROUTER.value:
+        return [primary]
+    raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
+    fallback_ids = [m.strip() for m in raw.split(",") if m.strip()]
+    fallbacks = []
+    for model_id in fallback_ids:
+        try:
+            fallbacks.append(_create_llm_with_model(role, model_id))
+        except Exception as exc:
+            logger.warning(f"Skipping fallback model '{model_id}': {exc}")
+    return [primary, *fallbacks]
+
+
+def _resolve_model_name(role: AgentRole) -> str:
+    provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
+    if provider not in MODEL_CONFIG:
+        provider = ModelProvider.GEMINI.value
+    role_key = role.value if hasattr(role, "value") else str(role)
+    if role_key not in MODEL_CONFIG[provider]:
+        role_key = "supervisor"
+    return MODEL_CONFIG[provider][role_key]["model"]
+
+
+def _create_llm_with_model(role: AgentRole, model_name: str) -> BaseChatModel:
+    """Build a configured LLM for `role` using an explicit `model_name`.
+
+    Temperature comes from MODEL_CONFIG[provider][role]. Provider plumbing
+    (api key, base_url) is identical across the role's primary and fallback
+    models — only the model id changes.
+    """
+    provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
     if provider not in MODEL_CONFIG:
         logger.warning(f"Unknown provider {provider}, falling back to Gemini")
         provider = ModelProvider.GEMINI.value
-        
-    role_key = role.value if hasattr(role, 'value') else str(role)
+    role_key = role.value if hasattr(role, "value") else str(role)
     if role_key not in MODEL_CONFIG[provider]:
         logger.warning(f"Role {role_key} not found in {provider} config, using supervisor config")
         role_key = "supervisor"
-        
-    config = MODEL_CONFIG[provider][role_key]
-    model_name = config["model"]
-    temperature = config["temperature"]
-    
+    temperature = MODEL_CONFIG[provider][role_key]["temperature"]
+
     if provider == ModelProvider.OPENAI.value:
         return ChatOpenAI(model=model_name, temperature=temperature, request_timeout=120)
     elif provider == ModelProvider.GEMINI.value:
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, timeout=120)
     elif provider == ModelProvider.OPENROUTER.value:
-        # OpenRouter uses ChatOpenAI with a base_url
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,
@@ -104,7 +146,6 @@ def create_llm(role: AgentRole) -> BaseChatModel:
             openai_api_base="https://openrouter.ai/api/v1",
             request_timeout=120,
         )
-    
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -120,6 +161,7 @@ def print_model_info():
 # Export functions
 __all__ = [
     "create_llm",
+    "create_llm_pool",
     "AgentRole",
     "check_api_keys",
     "print_model_info",

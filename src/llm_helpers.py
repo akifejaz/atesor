@@ -107,6 +107,7 @@ def llm_call_with_validation(
     max_retries: int = 2,                     # total LLM calls = max_retries + 1
     critique_template: str = _DEFAULT_CRITIQUE,
     timeout: int = 120,
+    fallback_llms: Optional[list] = None,     # rotate to next model on provider errors
 ) -> LLMCallOutcome:
     """
     Call `llm` with `prompt`, parse JSON, validate, retry-with-critique on
@@ -117,20 +118,41 @@ def llm_call_with_validation(
     `validator` receives the parsed dict and returns a ValidationResult.
     If `fallback_factory` is None, returns `(data=None, used_fallback=False)`
     on exhaustion so the caller can decide.
+
+    `fallback_llms` (optional): when the primary `llm` raises a provider error
+    (404 / 500 / "Provider returned error" / "Model not found"), the helper
+    rotates to the next LLM in the list and continues the retry loop with a
+    fresh attempt budget. This handles transient OpenRouter free-tier outages
+    without escalating the whole agent state.
     """
     metadata = dict(audit_metadata or {})
     messages: list = [HumanMessage(content=prompt)]
     attempts = 0
     last_reason = "no attempts made"
+    # LLM rotation: primary + optional fallbacks. We try each LLM up to
+    # (max_retries + 1) times before swapping.
+    llm_pool = [llm] + list(fallback_llms or [])
+    pool_idx = 0
+    active_llm = llm_pool[0]
 
     for attempt in range(max_retries + 1):
         attempts += 1
         try:
-            response = invoke_fn(llm, messages, timeout=timeout) if _accepts_timeout(invoke_fn) \
-                else invoke_fn(llm, messages)
+            response = invoke_fn(active_llm, messages, timeout=timeout) if _accepts_timeout(invoke_fn) \
+                else invoke_fn(active_llm, messages)
         except Exception as exc:
             last_reason = f"LLM invocation raised: {exc}"
-            logger.warning(f"[{role}] attempt {attempts}: {last_reason}")
+            logger.warning(f"[{role}] attempt {attempts} (model={_model_id(active_llm)}): {last_reason}")
+            # Provider-side error → try next model in the pool (if any left)
+            if _is_provider_error(exc) and pool_idx + 1 < len(llm_pool):
+                pool_idx += 1
+                active_llm = llm_pool[pool_idx]
+                logger.warning(
+                    f"[{role}] rotating to fallback model #{pool_idx}: "
+                    f"{_model_id(active_llm)}"
+                )
+                # Don't add critique — keep the original prompt for the new model
+                continue
             # If we still have retries left, fall through to the critique loop.
             if attempt < max_retries:
                 messages.append(HumanMessage(
@@ -144,9 +166,9 @@ def llm_call_with_validation(
             agent_role=role,
             prompt=_format_messages_for_log(messages),
             response=raw,
-            model=getattr(llm, "model_name", "unknown"),
+            model=getattr(active_llm, "model_name", "unknown"),
             cost_usd=cost_estimate,
-            metadata={**metadata, "attempt": attempts},
+            metadata={**metadata, "attempt": attempts, "pool_idx": pool_idx},
         )
 
         try:
@@ -205,6 +227,29 @@ def _accepts_timeout(fn: Callable) -> bool:
         return "timeout" in inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return False
+
+
+# Patterns in raised exceptions that indicate a *provider-side* failure
+# (model not found, rate limit, upstream 5xx) — i.e. retrying the same
+# model is unlikely to help; rotating to a different model often does.
+_PROVIDER_ERROR_PATTERNS = (
+    "model not found",
+    "404",
+    "provider returned error",
+    "no endpoints found",
+    "internal server error",
+    "502", "503", "504",
+    "upstream",
+)
+
+
+def _is_provider_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(p in msg for p in _PROVIDER_ERROR_PATTERNS)
+
+
+def _model_id(llm: Any) -> str:
+    return getattr(llm, "model_name", None) or getattr(llm, "model", "unknown")
 
 
 def _format_messages_for_log(messages: list) -> str:

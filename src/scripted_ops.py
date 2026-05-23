@@ -471,21 +471,25 @@ class ScriptedOperations:
 
         if main_files:
             result["has_main"] = True
-            # Prefer: cmd/<reponame> > cmd/* without "test"/"example" > root > other
+            # Prefer: cmd/<reponame> > cmd/* without test/example > root > other
             repo_basename = os.path.basename(repo_path).lower()
             def score_main(m):
                 d = m["dir"].lower()
-                if not d:
-                    return 3  # root main
+                # Hard-penalize codegen helpers, contrib utilities, examples, tests
+                if any(seg in d.split("/") for seg in ("gen", "contrib", "example", "examples", "test", "tests", "internal", "tools", "scripts", "hack", "vendor")):
+                    if not d.startswith(f"cmd/{repo_basename}"):
+                        return 0
                 if d == f"cmd/{repo_basename}":
                     return 10  # perfect match
                 if d.startswith("cmd/") and "test" not in d and "example" not in d and "integration" not in d:
                     return 7
+                if not d:
+                    return 6  # root main — prefer over arbitrary subdirs
                 if d.startswith("cmd/"):
                     return 2
                 if "test" in d or "example" in d or "integration" in d:
                     return 1
-                return 4
+                return 3
 
             main = max(main_files, key=score_main)
             result["all_main_paths"] = [m["dir"] or "." for m in main_files]

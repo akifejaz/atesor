@@ -218,331 +218,209 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: chisel build execution",
+      "name": "Auto: fuzzuli build execution",
       "tags": [
         "go",
-        "chisel"
+        "fuzzuli"
       ],
       "build_system": "go",
-      "repo_name": "chisel",
+      "repo_name": "fuzzuli",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "apk update",
-            "apk add go"
+            "cd /workspace/repos/fuzzuli && go mod tidy"
           ]
         },
         {
           "name": "build",
           "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o chisel ."
+            "cd /workspace/repos/fuzzuli && go build -buildvcs=false -v -o fuzzuli ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from chisel.",
-      "id": "builder-auto-018",
+      "reasoning": "Auto-learned build execution from fuzzuli.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-28"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: croc build execution",
+      "name": "Auto: fwanalyzer build execution",
       "tags": [
         "go",
-        "croc"
+        "fwanalyzer"
       ],
       "build_system": "go",
-      "repo_name": "croc",
+      "repo_name": "fwanalyzer",
       "phases": [
         {
           "name": "setup",
           "commands": [
             "apk update",
-            "apk add --no-cache go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o croc ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from croc.",
-      "id": "builder-auto-019",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: asnmap build execution",
-      "tags": [
-        "go",
-        "asnmap"
-      ],
-      "build_system": "go",
-      "repo_name": "asnmap",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o asnmap ./cmd/asnmap"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from asnmap.",
-      "id": "builder-auto-020",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: gau build execution",
-      "tags": [
-        "go",
-        "gau"
-      ],
-      "build_system": "go",
-      "repo_name": "gau",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gau ./cmd/gau"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gau.",
-      "id": "builder-auto-021",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: glow build execution",
-      "tags": [
-        "go",
-        "glow"
-      ],
-      "build_system": "go",
-      "repo_name": "glow",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o glow ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from glow.",
-      "id": "builder-auto-022",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: cvemap build execution",
-      "tags": [
-        "go",
-        "cvemap"
-      ],
-      "build_system": "go",
-      "repo_name": "cvemap",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o vulnx ./cmd/vulnx"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from cvemap.",
-      "id": "builder-auto-023",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: gum build execution",
-      "tags": [
-        "go",
-        "gum"
-      ],
-      "build_system": "go",
-      "repo_name": "gum",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gum ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gum.",
-      "id": "builder-auto-024",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: age build execution",
-      "tags": [
-        "go",
-        "age"
-      ],
-      "build_system": "go",
-      "repo_name": "age",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build ./cmd/age"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from age.",
-      "id": "builder-auto-025",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: fping build execution",
-      "tags": [
-        "autotools",
-        "fping"
-      ],
-      "build_system": "autotools",
-      "repo_name": "fping",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base automake autoconf libtool",
-            "cp /usr/share/automake-*/config.guess ./",
-            "cp /usr/share/automake-*/config.sub ./"
-          ]
-        },
-        {
-          "name": "prepare",
-          "commands": [
-            "./autogen.sh"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from fping.",
-      "id": "builder-auto-026",
-      "source": "auto",
-      "timestamp": "2026-04-28"
-    },
-    {
-      "name": "Auto: airixss build execution",
-      "tags": [
-        "go",
-        "airixss"
-      ],
-      "build_system": "go",
-      "repo_name": "airixss",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "init_module",
-          "commands": [
-            "go mod init github.com/ferreiraklet/airixss",
+            "apk add go",
             "go mod tidy"
           ]
         },
         {
           "name": "build",
           "commands": [
-            "go build -buildvcs=false -o airixss ."
+            "go build -buildvcs=false -v -o fwanalyzer ./cmd/fwanalyzer"
           ]
         }
       ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from airixss.",
-      "id": "builder-auto-027",
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fwanalyzer.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: allxfr build execution",
+      "name": "Auto: galer build execution",
       "tags": [
         "go",
-        "allxfr"
+        "galer"
       ],
       "build_system": "go",
-      "repo_name": "allxfr",
+      "repo_name": "galer",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o galer ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from galer.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gdu build execution",
+      "tags": [
+        "go",
+        "gdu"
+      ],
+      "build_system": "go",
+      "repo_name": "gdu",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gdu ./cmd/gdu"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gdu.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: getJS build execution",
+      "tags": [
+        "go",
+        "getJS"
+      ],
+      "build_system": "go",
+      "repo_name": "getJS",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "go mod tidy"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -v -o getJS ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from getJS.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: git-who build execution",
+      "tags": [
+        "go",
+        "git-who"
+      ],
+      "build_system": "go",
+      "repo_name": "git-who",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false -v -o git-who ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from git-who.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gitdorks_go build execution",
+      "tags": [
+        "go",
+        "gitdorks_go"
+      ],
+      "build_system": "go",
+      "repo_name": "gitdorks_go",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gitdorks_go.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gitql build execution",
+      "tags": [
+        "go",
+        "gitql"
+      ],
+      "build_system": "go",
+      "repo_name": "gitql",
       "phases": [
         {
           "name": "setup",
@@ -555,24 +433,25 @@
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build ./..."
+            "go build -buildvcs=false -v -o gitql ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from allxfr.",
-      "id": "builder-auto-028",
+      "reasoning": "Auto-learned build execution from gitql.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: AnalyticsRelationships build execution",
+      "name": "Auto: glider build execution",
       "tags": [
         "go",
-        "AnalyticsRelationships"
+        "glider"
       ],
       "build_system": "go",
-      "repo_name": "AnalyticsRelationships",
+      "repo_name": "glider",
       "phases": [
         {
           "name": "setup",
@@ -585,174 +464,299 @@
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o AnalyticsRelationships ."
+            "go build -buildvcs=false -v -o glider ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from AnalyticsRelationships.",
-      "id": "builder-auto-029",
+      "reasoning": "Auto-learned build execution from glider.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: anyproxy build execution",
+      "name": "Auto: goawk build execution",
       "tags": [
         "go",
-        "anyproxy"
+        "goawk"
       ],
       "build_system": "go",
-      "repo_name": "anyproxy",
+      "repo_name": "goawk",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "apk update && apk add go git"
+            "apk update && apk add git"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build ./grace"
+            "go build ./scripts/csvbench/count"
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from anyproxy.",
-      "id": "builder-auto-030",
+      "reasoning": "Auto-learned build execution from goawk.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: assh build execution",
+      "name": "Auto: gofireprox build execution",
       "tags": [
         "go",
-        "assh"
+        "gofireprox"
       ],
       "build_system": "go",
-      "repo_name": "assh",
+      "repo_name": "gofireprox",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "apk update",
-            "apk add go git"
+            "apk update && apk add git"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o assh ./main.go"
+            "go build ./cmd/gofireprox"
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from assh.",
-      "id": "builder-auto-031",
+      "reasoning": "Auto-learned build execution from gofireprox.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: byp4xx build execution",
+      "name": "Auto: GoLinkFinder build execution",
       "tags": [
         "go",
-        "byp4xx"
+        "GoLinkFinder"
       ],
       "build_system": "go",
-      "repo_name": "byp4xx",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod init github.com/byp4xx/byp4xx",
-            "go mod tidy",
-            "go build -buildvcs=false -o byp4xx ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from byp4xx.",
-      "id": "builder-auto-032",
-      "source": "auto",
-      "timestamp": "2026-04-29"
-    },
-    {
-      "name": "Auto: cariddi build execution",
-      "tags": [
-        "go",
-        "cariddi"
-      ],
-      "build_system": "go",
-      "repo_name": "cariddi",
+      "repo_name": "GoLinkFinder",
       "phases": [
         {
           "name": "setup",
           "commands": [
             "apk update",
-            "apk add go git"
+            "apk add go"
           ]
         },
         {
           "name": "build",
           "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o cariddi ./cmd/cariddi"
+            "cd /workspace/repos/GoLinkFinder && go mod tidy",
+            "cd /workspace/repos/GoLinkFinder && go build -buildvcs=false -v -o GoLinkFinder ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from cariddi.",
-      "id": "builder-auto-033",
+      "reasoning": "Auto-learned build execution from GoLinkFinder.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: certgraph build execution",
+      "name": "Auto: goodls build execution",
       "tags": [
         "go",
-        "certgraph"
+        "goodls"
       ],
       "build_system": "go",
-      "repo_name": "certgraph",
+      "repo_name": "goodls",
       "phases": [
         {
           "name": "setup",
           "commands": [
             "apk update",
-            "apk add go git"
+            "apk add go"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o certgraph ."
+            "go build -buildvcs=false -v -o goodls ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from certgraph.",
-      "id": "builder-auto-034",
+      "reasoning": "Auto-learned build execution from goodls.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-04-29"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: cJSON build execution",
+      "name": "Auto: doggo build execution",
+      "tags": [
+        "go",
+        "doggo"
+      ],
+      "build_system": "go",
+      "repo_name": "doggo",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/doggo"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from doggo.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gospider build execution",
+      "tags": [
+        "go",
+        "gospider"
+      ],
+      "build_system": "go",
+      "repo_name": "gospider",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gospider ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gospider.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gronx build execution",
+      "tags": [
+        "go",
+        "gronx"
+      ],
+      "build_system": "go",
+      "repo_name": "gronx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o tasker ./cmd/tasker"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gronx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gstring build execution",
+      "tags": [
+        "go",
+        "gstring"
+      ],
+      "build_system": "go",
+      "repo_name": "gstring",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add go"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false -v -o gstring ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gstring.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gungnir build execution",
+      "tags": [
+        "go",
+        "gungnir"
+      ],
+      "build_system": "go",
+      "repo_name": "gungnir",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gungnir"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gungnir.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: zlib build execution",
       "tags": [
         "cmake",
-        "cJSON"
+        "zlib"
       ],
       "build_system": "cmake",
-      "repo_name": "cJSON",
+      "repo_name": "zlib",
       "phases": [
         {
           "name": "setup",
@@ -764,8 +768,7 @@
         {
           "name": "configure",
           "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON"
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF -DZLIB_BUILD_MINIZIP=OFF"
           ]
         },
         {
@@ -776,10 +779,11 @@
         }
       ],
       "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from cJSON.",
-      "id": "builder-auto-035",
+      "reasoning": "Auto-learned build execution from zlib.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-04"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
       "name": "Auto: zstd build execution",
@@ -800,8 +804,7 @@
         {
           "name": "configure",
           "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
           ]
         },
         {
@@ -813,9 +816,10 @@
       ],
       "timeout_recommendation": "600s",
       "reasoning": "Auto-learned build execution from zstd.",
-      "id": "builder-auto-036",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-04"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
       "name": "Auto: lz4 build execution",
@@ -829,7 +833,7 @@
         {
           "name": "setup",
           "commands": [
-            "apk add build-base"
+            "apk update && apk add build-base"
           ]
         },
         {
@@ -841,9 +845,10 @@
       ],
       "timeout_recommendation": "120s",
       "reasoning": "Auto-learned build execution from lz4.",
-      "id": "builder-auto-037",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-04"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
       "name": "Auto: brotli build execution",
@@ -853,6 +858,42 @@
       ],
       "build_system": "cmake",
       "repo_name": "brotli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update",
+            "apk add build-base cmake pkgconf"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from brotli.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: zlib-ng build execution",
+      "tags": [
+        "cmake",
+        "zlib-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib-ng",
       "phases": [
         {
           "name": "setup",
@@ -875,149 +916,11 @@
         }
       ],
       "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from brotli.",
-      "id": "builder-auto-038",
-      "source": "auto",
-      "timestamp": "2026-05-04"
-    },
-    {
-      "name": "Auto: ogg build execution",
-      "tags": [
-        "cmake",
-        "ogg"
-      ],
-      "build_system": "cmake",
-      "repo_name": "ogg",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf musl-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from ogg.",
-      "id": "builder-auto-039",
-      "source": "auto",
-      "timestamp": "2026-05-04"
-    },
-    {
-      "name": "Auto: jansson build execution",
-      "tags": [
-        "cmake",
-        "jansson"
-      ],
-      "build_system": "cmake",
-      "repo_name": "jansson",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DJANSSON_BUILD_EXAMPLES=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from jansson.",
-      "id": "builder-auto-040",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libyaml build execution",
-      "tags": [
-        "cmake",
-        "libyaml"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libyaml",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libyaml.",
-      "id": "builder-auto-041",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: zlib-ng build execution",
-      "tags": [
-        "cmake",
-        "zlib-ng"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zlib-ng",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
       "reasoning": "Auto-learned build execution from zlib-ng.",
-      "id": "builder-auto-042",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-05"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
       "name": "Auto: minizip-ng build execution",
@@ -1031,44 +934,14 @@
         {
           "name": "setup",
           "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from minizip-ng.",
-      "id": "builder-auto-043",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: snappy build execution",
-      "tags": [
-        "cmake",
-        "snappy"
-      ],
-      "build_system": "cmake",
-      "repo_name": "snappy",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
             "apk update",
-            "apk add build-base cmake"
+            "apk add build-base cmake pkgconf zlib-dev bzip2-dev xz-dev zstd-dev openssl-dev"
           ]
         },
         {
           "name": "configure",
           "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DMZ_ZIP_ENABLE_TESTS=OFF -DMZ_ZIP_ENABLE_EXAMPLES=OFF -DMZ_ZIP_ENABLE_DOC=OFF"
           ]
         },
         {
@@ -1079,10 +952,11 @@
         }
       ],
       "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from snappy.",
-      "id": "builder-auto-044",
+      "reasoning": "Auto-learned build execution from minizip-ng.",
+      "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-05"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
       "name": "Auto: xz build execution",
@@ -1096,1968 +970,53 @@
         {
           "name": "setup",
           "commands": [
-            "apk update && apk add build-base musl-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
+            "apk update && apk add build-base cmake pkgconf"
           ]
         },
         {
           "name": "build",
           "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
             "cd build && make -j$(nproc)"
           ]
         }
       ],
-      "timeout_recommendation": "600s",
+      "timeout_recommendation": "120s",
       "reasoning": "Auto-learned build execution from xz.",
-      "id": "builder-auto-045",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libjpeg-turbo build execution",
-      "tags": [
-        "cmake",
-        "libjpeg-turbo"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libjpeg-turbo",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake zlib-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from libjpeg-turbo.",
-      "id": "builder-auto-046",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libtiff build execution",
-      "tags": [
-        "cmake",
-        "libtiff"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libtiff",
-      "phases": [
-        {
-          "name": "install_dependencies",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake zlib-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_TOOLS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libtiff.",
-      "id": "builder-auto-047",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: openjpeg build execution",
-      "tags": [
-        "cmake",
-        "openjpeg"
-      ],
-      "build_system": "cmake",
-      "repo_name": "openjpeg",
-      "phases": [
-        {
-          "name": "install_dependencies",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf curl-dev musl-dev libatomic"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from openjpeg.",
-      "id": "builder-auto-048",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: c-ares build execution",
-      "tags": [
-        "cmake",
-        "c-ares"
-      ],
-      "build_system": "cmake",
-      "repo_name": "c-ares",
-      "phases": [
-        {
-          "name": "install_dependencies",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "rm -rf build",
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCARES_BUILD_TOOLS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from c-ares.",
-      "id": "builder-auto-049",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libavif build execution",
-      "tags": [
-        "cmake",
-        "libavif"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libavif",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf zlib-dev libpng-dev libjpeg-turbo-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libavif.",
-      "id": "builder-auto-050",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: Little-CMS build execution",
-      "tags": [
-        "cmake",
-        "Little-CMS"
-      ],
-      "build_system": "cmake",
-      "repo_name": "Little-CMS",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf",
-            "apk add zlib-dev libjpeg-turbo-dev libpng-dev tiff-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from Little-CMS.",
-      "id": "builder-auto-051",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: freetype build execution",
-      "tags": [
-        "cmake",
-        "freetype"
-      ],
-      "build_system": "cmake",
-      "repo_name": "freetype",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf zlib-dev libpng-dev bzip2-dev brotli-dev harfbuzz-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from freetype.",
-      "id": "builder-auto-052",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: dav1d build execution",
-      "tags": [
-        "meson",
-        "dav1d"
-      ],
-      "build_system": "meson",
-      "repo_name": "dav1d",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base meson ninja musl-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "meson setup build --buildtype=release --default-library=static",
-            "ninja -C build"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from dav1d.",
-      "id": "builder-auto-053",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: opus build execution",
-      "tags": [
-        "cmake",
-        "opus"
-      ],
-      "build_system": "cmake",
-      "repo_name": "opus",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from opus.",
-      "id": "builder-auto-054",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: vorbis build execution",
-      "tags": [
-        "cmake",
-        "vorbis"
-      ],
-      "build_system": "cmake",
-      "repo_name": "vorbis",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf libogg-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from vorbis.",
-      "id": "builder-auto-055",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: speex build execution",
-      "tags": [
-        "autotools",
-        "speex"
-      ],
-      "build_system": "autotools",
-      "repo_name": "speex",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base automake autoconf libtool",
-            "cp /usr/share/automake-*/config.guess .",
-            "cp /usr/share/automake-*/config.sub ."
-          ]
-        },
-        {
-          "name": "prepare",
-          "commands": [
-            "./autogen.sh"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from speex.",
-      "id": "builder-auto-056",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: curl build execution",
-      "tags": [
-        "cmake",
-        "curl"
-      ],
-      "build_system": "cmake",
-      "repo_name": "curl",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev nghttp2-dev c-ares-dev perl"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from curl.",
-      "id": "builder-auto-057",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libssh2 build execution",
-      "tags": [
-        "cmake",
-        "libssh2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libssh2",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf openssl-dev zlib-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libssh2.",
-      "id": "builder-auto-058",
-      "source": "auto",
-      "timestamp": "2026-05-05"
-    },
-    {
-      "name": "Auto: libuv build execution",
-      "tags": [
-        "cmake",
-        "libuv"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libuv",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libuv.",
-      "id": "builder-auto-059",
-      "source": "auto",
-      "timestamp": "2026-05-06"
-    },
-    {
-      "name": "Auto: flac build execution",
-      "tags": [
-        "cmake",
-        "flac"
-      ],
-      "build_system": "cmake",
-      "repo_name": "flac",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake libogg-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from flac.",
-      "id": "builder-auto-060",
-      "source": "auto",
-      "timestamp": "2026-05-06"
-    },
-    {
-      "name": "Auto: openssl build execution",
-      "tags": [
-        "other",
-        "openssl"
-      ],
-      "build_system": "other",
-      "repo_name": "openssl",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk add --no-cache build-base perl linux-headers"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "perl ./Configure linux64-riscv64 no-asm no-tests no-docs --prefix=/usr/local",
-            "make depend"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from openssl.",
-      "id": "builder-auto-061",
-      "source": "auto",
-      "timestamp": "2026-05-06"
-    },
-    {
-      "name": "Auto: sqlite build execution",
-      "tags": [
-        "make",
-        "sqlite"
-      ],
-      "build_system": "make",
-      "repo_name": "sqlite",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from sqlite.",
-      "id": "builder-auto-062",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: libarchive build execution",
-      "tags": [
-        "cmake",
-        "libarchive"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libarchive",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf zlib-dev openssl-dev bzip2-dev xz-dev mbedtls-dev nettle-dev libxml2-dev expat-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS='-latomic' -DCMAKE_SHARED_LINKER_FLAGS='-latomic'"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libarchive.",
-      "id": "builder-auto-063",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: libxml2 build execution",
-      "tags": [
-        "cmake",
-        "libxml2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libxml2",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake python3-dev icu-dev zlib-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from libxml2.",
-      "id": "builder-auto-064",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: pcre2 build execution",
-      "tags": [
-        "cmake",
-        "pcre2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "pcre2",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake zlib-dev musl-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF -DBUILD_DOCS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from pcre2.",
-      "id": "builder-auto-065",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: sqlite build execution",
-      "tags": [
-        "autotools",
-        "sqlite"
-      ],
-      "build_system": "autotools",
-      "repo_name": "sqlite",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk add build-base zlib-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from sqlite.",
-      "id": "builder-auto-066",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: highway build execution",
-      "tags": [
-        "cmake",
-        "highway"
-      ],
-      "build_system": "cmake",
-      "repo_name": "highway",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DHWY_ENABLE_TESTS=OFF -DHWY_ENABLE_EXAMPLES=OFF -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from highway.",
-      "id": "builder-auto-067",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: mbedtls build execution",
-      "tags": [
-        "cmake",
-        "mbedtls"
-      ],
-      "build_system": "cmake",
-      "repo_name": "mbedtls",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake python3"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from mbedtls.",
-      "id": "builder-auto-068",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: libgit2 build execution",
-      "tags": [
-        "cmake",
-        "libgit2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libgit2",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake pkgconf openssl-dev zlib-dev libssh2-dev curl-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && export LDFLAGS=\"-latomic\" && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DUSE_SSH=ON -DUSE_HTTPS=ON"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libgit2.",
-      "id": "builder-auto-069",
-      "source": "auto",
-      "timestamp": "2026-05-07"
-    },
-    {
-      "name": "Auto: libexpat build execution",
-      "tags": [
-        "cmake",
-        "libexpat"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libexpat",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake ../expat -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libexpat.",
-      "id": "builder-auto-070",
-      "source": "auto",
-      "timestamp": "2026-05-08"
-    },
-    {
-      "name": "Auto: OpenBLAS build execution",
-      "tags": [
-        "make",
-        "OpenBLAS"
-      ],
-      "build_system": "make",
-      "repo_name": "OpenBLAS",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base musl-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc) TARGET=RISCV64"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from OpenBLAS.",
-      "id": "builder-auto-071",
-      "source": "auto",
-      "timestamp": "2026-05-08"
-    },
-    {
-      "name": "Auto: libsodium build execution",
-      "tags": [
-        "autotools",
-        "libsodium"
-      ],
-      "build_system": "autotools",
-      "repo_name": "libsodium",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base automake autoconf libtool",
-            "cp /usr/share/automake-*/config.guess ./",
-            "cp /usr/share/automake-*/config.sub ./"
-          ]
-        },
-        {
-          "name": "prepare",
-          "commands": [
-            "./autogen.sh -s -f"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libsodium.",
-      "id": "builder-auto-072",
-      "source": "auto",
-      "timestamp": "2026-05-08"
-    },
-    {
-      "name": "Auto: libheif build execution",
-      "tags": [
-        "cmake",
-        "libheif"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libheif",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake zlib-dev libjpeg-turbo-dev pkgconf"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libheif.",
-      "id": "builder-auto-073",
-      "source": "auto",
-      "timestamp": "2026-05-11"
-    },
-    {
-      "name": "Auto: dlevel build execution",
-      "tags": [
-        "go",
-        "dlevel"
-      ],
-      "build_system": "go",
-      "repo_name": "dlevel",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o dlevel ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from dlevel.",
-      "id": "builder-auto-074",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: ecoji build execution",
-      "tags": [
-        "go",
-        "ecoji"
-      ],
-      "build_system": "go",
-      "repo_name": "ecoji",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd v2 && go mod tidy && go build -buildvcs=false -v -o ../ecoji ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from ecoji.",
-      "id": "builder-auto-075",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: encode build execution",
-      "tags": [
-        "go",
-        "encode"
-      ],
-      "build_system": "go",
-      "repo_name": "encode",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o encode ./cmd/encode"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from encode.",
-      "id": "builder-auto-076",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: enola build execution",
-      "tags": [
-        "go",
-        "enola"
-      ],
-      "build_system": "go",
-      "repo_name": "enola",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o enola ./cmd/enola"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from enola.",
-      "id": "builder-auto-077",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: enumerepo build execution",
-      "tags": [
-        "go",
-        "enumerepo"
-      ],
-      "build_system": "go",
-      "repo_name": "enumerepo",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o enumerepo ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from enumerepo.",
-      "id": "builder-auto-078",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: exifLooter build execution",
-      "tags": [
-        "go",
-        "exifLooter"
-      ],
-      "build_system": "go",
-      "repo_name": "exifLooter",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o exiflooter ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from exifLooter.",
-      "id": "builder-auto-079",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: FFUF-Workflow-Tool build execution",
-      "tags": [
-        "go",
-        "FFUF-Workflow-Tool"
-      ],
-      "build_system": "go",
-      "repo_name": "FFUF-Workflow-Tool",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o ffuf-workflow ./cmd/ffuf-workflow"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from FFUF-Workflow-Tool.",
-      "id": "builder-auto-080",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: ffufPostprocessing build execution",
-      "tags": [
-        "go",
-        "ffufPostprocessing"
-      ],
-      "build_system": "go",
-      "repo_name": "ffufPostprocessing",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o ffufPostprocessing ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from ffufPostprocessing.",
-      "id": "builder-auto-081",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: fico build execution",
-      "tags": [
-        "go",
-        "fico"
-      ],
-      "build_system": "go",
-      "repo_name": "fico",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o fico ./cmd"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fico.",
-      "id": "builder-auto-082",
-      "source": "auto",
-      "timestamp": "2026-05-12"
-    },
-    {
-      "name": "Auto: favirecon build execution",
-      "tags": [
-        "go",
-        "favirecon"
-      ],
-      "build_system": "go",
-      "repo_name": "favirecon",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o favirecon ./cmd/favirecon"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from favirecon.",
-      "id": "builder-auto-083",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: fwanalyzer build execution",
-      "tags": [
-        "go",
-        "fwanalyzer"
-      ],
-      "build_system": "go",
-      "repo_name": "fwanalyzer",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add --no-cache go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o build/fwanalyzer ./cmd/fwanalyzer"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fwanalyzer.",
-      "id": "builder-auto-084",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: fuzzuli build execution",
-      "tags": [
-        "go",
-        "fuzzuli"
-      ],
-      "build_system": "go",
-      "repo_name": "fuzzuli",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o fuzzuli ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fuzzuli.",
-      "id": "builder-auto-085",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: git-who build execution",
-      "tags": [
-        "go",
-        "git-who"
-      ],
-      "build_system": "go",
-      "repo_name": "git-who",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o git-who ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from git-who.",
-      "id": "builder-auto-086",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: github-endpoints build execution",
-      "tags": [
-        "go",
-        "github-endpoints"
-      ],
-      "build_system": "go",
-      "repo_name": "github-endpoints",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o github-endpoints ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from github-endpoints.",
-      "id": "builder-auto-087",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gitdorks_go build execution",
-      "tags": [
-        "go",
-        "gitdorks_go"
-      ],
-      "build_system": "go",
-      "repo_name": "gitdorks_go",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o gitdorks_go ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gitdorks_go.",
-      "id": "builder-auto-088",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: go-fasttld build execution",
-      "tags": [
-        "go",
-        "go-fasttld"
-      ],
-      "build_system": "go",
-      "repo_name": "go-fasttld",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o dist/fasttld ./cmd/fasttld"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from go-fasttld.",
-      "id": "builder-auto-089",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: globalping-cli build execution",
-      "tags": [
-        "go",
-        "globalping-cli"
-      ],
-      "build_system": "go",
-      "repo_name": "globalping-cli",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add --no-cache go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o globalping ./"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from globalping-cli.",
-      "id": "builder-auto-090",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: goawk build execution",
-      "tags": [
-        "go",
-        "goawk"
-      ],
-      "build_system": "go",
-      "repo_name": "goawk",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add --no-cache go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o goawk ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from goawk.",
-      "id": "builder-auto-091",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: GoLinkFinder build execution",
-      "tags": [
-        "go",
-        "GoLinkFinder"
-      ],
-      "build_system": "go",
-      "repo_name": "GoLinkFinder",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod init github.com/0xsha/GoLinkFinder",
-            "go mod tidy",
-            "go build -v -o GoLinkFinder ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from GoLinkFinder.",
-      "id": "builder-auto-092",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gitql build execution",
-      "tags": [
-        "go",
-        "gitql"
-      ],
-      "build_system": "go",
-      "repo_name": "gitql",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy && go build -buildvcs=false -v -o gitql ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gitql.",
-      "id": "builder-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: godnsbench build execution",
-      "tags": [
-        "go",
-        "godnsbench"
-      ],
-      "build_system": "go",
-      "repo_name": "godnsbench",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o godnsbench ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from godnsbench.",
-      "id": "builder-auto-094",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gojq build execution",
-      "tags": [
-        "go",
-        "gojq"
-      ],
-      "build_system": "go",
-      "repo_name": "gojq",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gojq ./cmd/gojq"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gojq.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-13"
+      "timestamp": "2026-05-22",
+      "sandbox": "alpine-riscv64"
     },
     {
-      "name": "Auto: gocurl build execution",
+      "name": "Auto: age build execution",
       "tags": [
         "go",
-        "gocurl"
+        "age"
       ],
       "build_system": "go",
-      "repo_name": "gocurl",
+      "repo_name": "age",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "apk update",
-            "apk add go"
+            "apt-get update && apt-get install -y --no-install-recommends git"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o gocurl ."
+            "go build ./cmd/age"
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gocurl.",
+      "reasoning": "Auto-learned build execution from age.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gofireprox build execution",
-      "tags": [
-        "go",
-        "gofireprox"
-      ],
-      "build_system": "go",
-      "repo_name": "gofireprox",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gofireprox ./cmd/gofireprox"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gofireprox.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gotator build execution",
-      "tags": [
-        "go",
-        "gotator"
-      ],
-      "build_system": "go",
-      "repo_name": "gotator",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gotator ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gotator.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gronx build execution",
-      "tags": [
-        "go",
-        "gronx"
-      ],
-      "build_system": "go",
-      "repo_name": "gronx",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gronx ./cmd/tasker"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gronx.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gosmee build execution",
-      "tags": [
-        "go",
-        "gosmee"
-      ],
-      "build_system": "go",
-      "repo_name": "gosmee",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add --no-cache go git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gosmee ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gosmee.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: zlib build execution",
-      "tags": [
-        "cmake",
-        "zlib"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zlib",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF -DBUILD_SHARED=ON -DBUILD_STATIC=ON && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from zlib.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: gungnir build execution",
-      "tags": [
-        "go",
-        "gungnir"
-      ],
-      "build_system": "go",
-      "repo_name": "gungnir",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gungnir ./cmd/gungnir"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gungnir.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: msgpack-c build execution",
-      "tags": [
-        "cmake",
-        "msgpack-c"
-      ],
-      "build_system": "cmake",
-      "repo_name": "msgpack-c",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake",
-            "git fetch origin c_master:c_master && git checkout c_master",
-            "export LDFLAGS=\"-latomic\""
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PROGRAMS=OFF && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from msgpack-c.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: tinyxml2 build execution",
-      "tags": [
-        "cmake",
-        "tinyxml2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "tinyxml2",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from tinyxml2.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
-    },
-    {
-      "name": "Auto: fftw3 build execution",
-      "tags": [
-        "other",
-        "fftw3"
-      ],
-      "build_system": "other",
-      "repo_name": "fftw3",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add build-base"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "echo \"The fftw3 repository at /workspace/repos/fftw3 is the source generator only and does not contain the generated C source files required to build the library.  Without running the generator scripts (which are not included in this repository) the build cannot proceed.  Therefore no build commands are executed.\""
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fftw3.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-13"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
       "name": "Auto: anew build execution",
@@ -3071,14 +1030,14 @@
         {
           "name": "setup",
           "commands": [
-            "apk update"
+            "apt-get update && apt-get install -y --no-install-recommends git"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o anew ."
+            "go build -buildvcs=false ./..."
           ]
         }
       ],
@@ -3086,7 +1045,8 @@
       "reasoning": "Auto-learned build execution from anew.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-13"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
       "name": "Auto: gf build execution",
@@ -3100,16 +1060,13 @@
         {
           "name": "setup",
           "commands": [
-            "apk update",
-            "apk add build-base"
+            "apt-get update"
           ]
         },
         {
           "name": "build",
           "commands": [
-            "go mod init github.com/tomnomnom/gf",
-            "go mod tidy",
-            "go build -buildvcs=false -o gf ."
+            "go build -buildvcs=false ."
           ]
         }
       ],
@@ -3117,100 +1074,1363 @@
       "reasoning": "Auto-learned build execution from gf.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-18"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: gron build execution",
+      "name": "Auto: ffuf build execution",
       "tags": [
         "go",
-        "gron"
+        "ffuf"
       ],
       "build_system": "go",
-      "repo_name": "gron",
+      "repo_name": "ffuf",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "apk update"
+            "apt-get update",
+            "apt-get install -y --no-install-recommends ca-certificates"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/ffuf && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ffuf.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: glow build execution",
+      "tags": [
+        "go",
+        "glow"
+      ],
+      "build_system": "go",
+      "repo_name": "glow",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/glow && go build ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from glow.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: airixss build execution",
+      "tags": [
+        "go",
+        "airixss"
+      ],
+      "build_system": "go",
+      "repo_name": "airixss",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "go version"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/airixss && go build -buildvcs=false airixss.go"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from airixss.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: fping build execution",
+      "tags": [
+        "autotools",
+        "fping"
+      ],
+      "build_system": "autotools",
+      "repo_name": "fping",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "./configure --disable-dependency-tracking --disable-tests --disable-shared --enable-static",
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fping.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: allxfr build execution",
+      "tags": [
+        "go",
+        "allxfr"
+      ],
+      "build_system": "go",
+      "repo_name": "allxfr",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from allxfr.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: anyproxy build execution",
+      "tags": [
+        "go",
+        "anyproxy"
+      ],
+      "build_system": "go",
+      "repo_name": "anyproxy",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "cd /workspace/repos/anyproxy && go mod download"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/anyproxy && go build -buildvcs=false -o anyproxy ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anyproxy.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: certgraph build execution",
+      "tags": [
+        "go",
+        "certgraph"
+      ],
+      "build_system": "go",
+      "repo_name": "certgraph",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/certgraph && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from certgraph.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: certspotter build execution",
+      "tags": [
+        "go",
+        "certspotter"
+      ],
+      "build_system": "go",
+      "repo_name": "certspotter",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/certspotter && go build -buildvcs=false ./cmd/certspotter"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from certspotter.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: codesearch build execution",
+      "tags": [
+        "go",
+        "codesearch"
+      ],
+      "build_system": "go",
+      "repo_name": "codesearch",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
           ]
         },
         {
           "name": "build",
           "commands": [
             "go mod tidy",
-            "go build -buildvcs=false -v -o gron ."
+            "go build ./cmd/cgrep"
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gron.",
+      "reasoning": "Auto-learned build execution from codesearch.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-19"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: assetfinder build execution",
+      "name": "Auto: crlfuzz build execution",
       "tags": [
         "go",
-        "assetfinder"
+        "crlfuzz"
       ],
       "build_system": "go",
-      "repo_name": "assetfinder",
+      "repo_name": "crlfuzz",
       "phases": [
         {
           "name": "setup",
           "commands": [
-            "go mod init github.com/tomnomnom/assetfinder",
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/crlfuzz"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from crlfuzz.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: curlie build execution",
+      "tags": [
+        "go",
+        "curlie"
+      ],
+      "build_system": "go",
+      "repo_name": "curlie",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends ca-certificates"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/curlie && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from curlie.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cleed build execution",
+      "tags": [
+        "go",
+        "cleed"
+      ],
+      "build_system": "go",
+      "repo_name": "cleed",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/cleed && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from cleed.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cheat build execution",
+      "tags": [
+        "go",
+        "cheat"
+      ],
+      "build_system": "go",
+      "repo_name": "cheat",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/cheat && go build -buildvcs=false ./cmd/cheat"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from cheat.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: ddns-go build execution",
+      "tags": [
+        "go",
+        "ddns-go"
+      ],
+      "build_system": "go",
+      "repo_name": "ddns-go",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/ddns-go && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from ddns-go.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dish build execution",
+      "tags": [
+        "go",
+        "dish"
+      ],
+      "build_system": "go",
+      "repo_name": "dish",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/dish && go build -buildvcs=false ./cmd/dish"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dish.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dlevel build execution",
+      "tags": [
+        "go",
+        "dlevel"
+      ],
+      "build_system": "go",
+      "repo_name": "dlevel",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dlevel.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dasel build execution",
+      "tags": [
+        "go",
+        "dasel"
+      ],
+      "build_system": "go",
+      "repo_name": "dasel",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/dasel && go build -buildvcs=false ./cmd/dasel"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dasel.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dnstake build execution",
+      "tags": [
+        "go",
+        "dnstake"
+      ],
+      "build_system": "go",
+      "repo_name": "dnstake",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/dnstake"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dnstake.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dsieve build execution",
+      "tags": [
+        "go",
+        "dsieve"
+      ],
+      "build_system": "go",
+      "repo_name": "dsieve",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false -o dsieve ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dsieve.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dnslookup build execution",
+      "tags": [
+        "go",
+        "dnslookup"
+      ],
+      "build_system": "go",
+      "repo_name": "dnslookup",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dnslookup.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: duf build execution",
+      "tags": [
+        "go",
+        "duf"
+      ],
+      "build_system": "go",
+      "repo_name": "duf",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/duf && go mod tidy && go build ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from duf.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dyff build execution",
+      "tags": [
+        "go",
+        "dyff"
+      ],
+      "build_system": "go",
+      "repo_name": "dyff",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/dyff"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dyff.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dperf build execution",
+      "tags": [
+        "go",
+        "dperf"
+      ],
+      "build_system": "go",
+      "repo_name": "dperf",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go build -tags \"osusergo netgo static_build\" -ldflags=\"-X github.com/minio/dperf/cmd.Version=$(git describe --tags --always --dirty) -extldflags=-static\" ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dperf.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: eget build execution",
+      "tags": [
+        "go",
+        "eget"
+      ],
+      "build_system": "go",
+      "repo_name": "eget",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "cd /workspace/repos/eget && apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/eget && go mod tidy",
+            "cd /workspace/repos/eget && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from eget.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: epoch build execution",
+      "tags": [
+        "go",
+        "epoch"
+      ],
+      "build_system": "go",
+      "repo_name": "epoch",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
             "go mod tidy"
           ]
         },
         {
           "name": "build",
           "commands": [
-            "go build -buildvcs=false -v -o assetfinder ."
+            "go build -buildvcs=false ./cmd/epoch"
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from assetfinder.",
+      "reasoning": "Auto-learned build execution from epoch.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-19"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: dnsx build execution",
+      "name": "Auto: enumerepo build execution",
       "tags": [
         "go",
-        "dnsx"
+        "enumerepo"
       ],
       "build_system": "go",
-      "repo_name": "dnsx",
+      "repo_name": "enumerepo",
       "phases": [
         {
           "name": "setup",
-          "commands": []
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
         },
         {
           "name": "build",
           "commands": [
-            "go build -buildvcs=false -v -o dnsx ./cmd/dnsx"
+            "cd /workspace/repos/enumerepo && go build -buildvcs=false ."
           ]
         }
       ],
       "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from dnsx.",
+      "reasoning": "Auto-learned build execution from enumerepo.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-19"
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: zlib build execution",
+      "name": "Auto: elvish build execution",
+      "tags": [
+        "go",
+        "elvish"
+      ],
+      "build_system": "go",
+      "repo_name": "elvish",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/elvish"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from elvish.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: FFUF-Workflow-Tool build execution",
+      "tags": [
+        "go",
+        "FFUF-Workflow-Tool"
+      ],
+      "build_system": "go",
+      "repo_name": "FFUF-Workflow-Tool",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/ffuf-workflow"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from FFUF-Workflow-Tool.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: enola build execution",
+      "tags": [
+        "go",
+        "enola"
+      ],
+      "build_system": "go",
+      "repo_name": "enola",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/enola"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from enola.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: esbuild build execution",
+      "tags": [
+        "go",
+        "esbuild"
+      ],
+      "build_system": "go",
+      "repo_name": "esbuild",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git",
+            "go mod tidy"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go build -buildvcs=false ./cmd/esbuild"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from esbuild.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: f2 build execution",
+      "tags": [
+        "go",
+        "f2"
+      ],
+      "build_system": "go",
+      "repo_name": "f2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/f2"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from f2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: fwanalyzer build execution",
+      "tags": [
+        "go",
+        "fwanalyzer"
+      ],
+      "build_system": "go",
+      "repo_name": "fwanalyzer",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/fwanalyzer"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fwanalyzer.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: globalping-cli build execution",
+      "tags": [
+        "go",
+        "globalping-cli"
+      ],
+      "build_system": "go",
+      "repo_name": "globalping-cli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from globalping-cli.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: GoLinkFinder build execution",
+      "tags": [
+        "go",
+        "GoLinkFinder"
+      ],
+      "build_system": "go",
+      "repo_name": "GoLinkFinder",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/GoLinkFinder && go mod tidy",
+            "cd /workspace/repos/GoLinkFinder && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from GoLinkFinder.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gojq build execution",
+      "tags": [
+        "go",
+        "gojq"
+      ],
+      "build_system": "go",
+      "repo_name": "gojq",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gojq"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gojq.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gofireprox build execution",
+      "tags": [
+        "go",
+        "gofireprox"
+      ],
+      "build_system": "go",
+      "repo_name": "gofireprox",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/gofireprox && go mod tidy && go build -buildvcs=false -o gofireprox ./cmd/gofireprox"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gofireprox.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gronx build execution",
+      "tags": [
+        "go",
+        "gronx"
+      ],
+      "build_system": "go",
+      "repo_name": "gronx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/tasker"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gronx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: lz4 build execution",
+      "tags": [
+        "make",
+        "lz4"
+      ],
+      "build_system": "make",
+      "repo_name": "lz4",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from lz4.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gungnir build execution",
+      "tags": [
+        "go",
+        "gungnir"
+      ],
+      "build_system": "go",
+      "repo_name": "gungnir",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gungnir"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gungnir.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: zopfli build execution",
+      "tags": [
+        "make",
+        "zopfli"
+      ],
+      "build_system": "make",
+      "repo_name": "zopfli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from zopfli.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: snappy build execution",
       "tags": [
         "cmake",
-        "zlib"
+        "snappy"
       ],
       "build_system": "cmake",
-      "repo_name": "zlib",
+      "repo_name": "snappy",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DSNAPPY_BUILD_TESTS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from snappy.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: zlib-ng build execution",
+      "tags": [
+        "cmake",
+        "zlib-ng"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib-ng",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zlib-ng.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: brotli build execution",
+      "tags": [
+        "cmake",
+        "brotli"
+      ],
+      "build_system": "cmake",
+      "repo_name": "brotli",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from brotli.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libavif build execution",
+      "tags": [
+        "cmake",
+        "libavif"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libpng-dev libjpeg-turbo8-dev libdav1d-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF -DAVIF_BUILD_MAN_PAGES=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libavif.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libpng build execution",
+      "tags": [
+        "autotools",
+        "libpng"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libpng",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure --disable-static --enable-shared --disable-dependency-tracking"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libpng.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libtiff build execution",
+      "tags": [
+        "autotools",
+        "libtiff"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libtiff",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config zlib1g-dev libjpeg-dev libjpeg-turbo8-dev libpng-dev libwebp-dev liblzma-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure --disable-static --disable-tests --disable-docs --disable-dependency-tracking --prefix=/usr/local"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)",
+            "make install"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libtiff.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: zstd build execution",
+      "tags": [
+        "cmake",
+        "zstd"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zstd",
       "phases": [
         {
           "name": "setup",
@@ -3222,8 +2442,7 @@
         {
           "name": "configure",
           "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF"
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF"
           ]
         },
         {
@@ -3234,10 +2453,639 @@
         }
       ],
       "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from zlib.",
+      "reasoning": "Auto-learned build execution from zstd.",
       "id": "builder-auto-095",
       "source": "auto",
-      "timestamp": "2026-05-20",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: Little-CMS build execution",
+      "tags": [
+        "cmake",
+        "Little-CMS"
+      ],
+      "build_system": "cmake",
+      "repo_name": "Little-CMS",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from Little-CMS.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dav1d build execution",
+      "tags": [
+        "meson",
+        "dav1d"
+      ],
+      "build_system": "meson",
+      "repo_name": "dav1d",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "meson setup build --buildtype=release -Db_ndebug=true -Dtests=disabled -Dexamples=disabled"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "ninja -C build"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from dav1d.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: flac build execution",
+      "tags": [
+        "cmake",
+        "flac"
+      ],
+      "build_system": "cmake",
+      "repo_name": "flac",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake libogg-dev libvorbis-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from flac.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libwebp build execution",
+      "tags": [
+        "cmake",
+        "libwebp"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libwebp",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libpng-dev libjpeg-dev libtiff-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DWEBP_BUILD_EXTRAS=OFF -DWEBP_BUILD_ANIM_UTILS=OFF -DWEBP_BUILD_CWEBP=ON -DWEBP_BUILD_DWEBP=ON -DWEBP_BUILD_GIF2WEBP=OFF -DWEBP_BUILD_IMG2WEBP=OFF -DWEBP_BUILD_VWEBP=OFF -DWEBP_BUILD_WEBP_JS=OFF -DWEBP_BUILD_LIBWEBPMUX=ON -DWEBP_BUILD_LIBWEBPDEMUX=ON -DWEBP_BUILD_LIBWEBPANIM=ON -DWEBP_BUILD_TESTS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libwebp.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: ogg build execution",
+      "tags": [
+        "autotools",
+        "ogg"
+      ],
+      "build_system": "autotools",
+      "repo_name": "ogg",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./autogen.sh && ./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from ogg.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: vorbis build execution",
+      "tags": [
+        "cmake",
+        "vorbis"
+      ],
+      "build_system": "cmake",
+      "repo_name": "vorbis",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libogg-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from vorbis.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: speex build execution",
+      "tags": [
+        "autotools",
+        "speex"
+      ],
+      "build_system": "autotools",
+      "repo_name": "speex",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config libogg-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "./configure --disable-dependency-tracking --disable-tests --disable-examples --enable-static --disable-shared"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from speex.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: opus build execution",
+      "tags": [
+        "cmake",
+        "opus"
+      ],
+      "build_system": "cmake",
+      "repo_name": "opus",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from opus.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libssh2 build execution",
+      "tags": [
+        "cmake",
+        "libssh2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libssh2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libssl-dev zlib1g-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libssh2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: openjpeg build execution",
+      "tags": [
+        "cmake",
+        "openjpeg"
+      ],
+      "build_system": "cmake",
+      "repo_name": "openjpeg",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev libtiff-dev libpng-dev libjpeg-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=ON -DBUILD_TESTING=OFF -DWITH_ASTYLE=OFF -DWITH_DOCS=OFF",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from openjpeg.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: c-ares build execution",
+      "tags": [
+        "cmake",
+        "c-ares"
+      ],
+      "build_system": "cmake",
+      "repo_name": "c-ares",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCARES_STATIC=ON -DCARES_BUILD_TESTS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from c-ares.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libexpat build execution",
+      "tags": [
+        "cmake",
+        "libexpat"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libexpat",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "cd /workspace/repos/libexpat/expat && cmake -B build -DCMAKE_BUILD_TYPE=Release -DEXPAT_BUILD_TESTS=OFF -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_DOCS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/libexpat/expat && cmake --build build -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libexpat.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libxml2 build execution",
+      "tags": [
+        "cmake",
+        "libxml2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libxml2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_XSLT=OFF -DLIBXML2_WITH_DEBUG=OFF -DLIBXML2_WITH_TESTS=OFF -DLIBXML2_WITH_ZLIB=ON -DLIBXML2_WITH_THREAD=ON",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libxml2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libuv build execution",
+      "tags": [
+        "cmake",
+        "libuv"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libuv",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update",
+            "apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libuv.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libgit2 build execution",
+      "tags": [
+        "cmake",
+        "libgit2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libgit2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libssl-dev libssh2-1-dev libcurl4-openssl-dev libpcre2-dev"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libgit2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: jansson build execution",
+      "tags": [
+        "cmake",
+        "jansson"
+      ],
+      "build_system": "cmake",
+      "repo_name": "jansson",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DJANSSON_BUILD_SHARED=ON -DJANSSON_BUILD_STATIC=ON -DJANSSON_EXAMPLES=OFF -DJANSSON_BUILD_DOCS=OFF -DJANSSON_WITH_TESTS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from jansson.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: tinyxml2 build execution",
+      "tags": [
+        "cmake",
+        "tinyxml2"
+      ],
+      "build_system": "cmake",
+      "repo_name": "tinyxml2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from tinyxml2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libyaml build execution",
+      "tags": [
+        "autotools",
+        "libyaml"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libyaml",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "./bootstrap && ./configure --disable-static --enable-shared && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from libyaml.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: highway build execution",
+      "tags": [
+        "cmake",
+        "highway"
+      ],
+      "build_system": "cmake",
+      "repo_name": "highway",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DHWY_ENABLE_EXAMPLES=OFF -DHWY_ENABLE_TESTS=OFF"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from highway.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
       "sandbox": "debian-riscv64"
     }
   ]

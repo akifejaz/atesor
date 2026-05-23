@@ -51,11 +51,11 @@ class CommandValidator:
         r'^cmake(\s+.*)?$',
         r'^make(\s+.*)?$',
         r'^ninja(\s+.*)?$',
-        r'^./configure.*',
-        r'^./Configure.*',
-        r'^./autogen\.sh.*',
-        r'^./bootstrap.*',
-        r'^./buildconf\.sh.*',
+        # Configure/bootstrap scripts: catch ./configure, ./Configure, ./config,
+        # ./buildconf, ./buildconf.sh, ./autogen.sh, ./bootstrap[.sh], ./setup,
+        # etc.  Some upstreams (openssl, curl) ship driver scripts without
+        # extensions so we keep the suffix optional.
+        r'^\./[A-Za-z][A-Za-z0-9_.-]*(\s+.*)?$',
         r'^autoreconf(\s+.*)?$',
         r'^autoconf(\s+.*)?$',
         r'^automake(\s+.*)?$',
@@ -133,6 +133,13 @@ class CommandValidator:
         r'^uname\s+',
         r'^test\s+',
         r'^base64\s+',
+        r'^sleep\s+\d',                       # backoff retries
+        r'^ln\s+',                            # symlinks (gosec used ln -s)
+        r'^ldconfig(\s+.*)?$',
+        r'^update-alternatives\s+',
+
+        # Versioned Go binaries installed via `golang.org/dl/goX.Y` (cariddi)
+        r'^/root/go/bin/go\d+\.\d+\b',
         
         # Shell conditionals and control flow
         r'^if\s+',
@@ -161,10 +168,16 @@ class CommandValidator:
         r'fdisk',                             # Partition editing
         r'wget.*\|\s*bash',                   # Remote code execution
         r'curl.*\|\s*sh',                     # Remote code execution
-        r'eval\s+',                           # Eval is dangerous
-        r'exec\s+',                           # Exec is dangerous
+        r'\beval\s+',                         # Eval is dangerous (word-boundary, see below)
+        # NOTE: `exec` is NOT blocked outright because `find … -exec sed -i {} \;`
+        # is a very common (and safe) refactor pattern emitted by the fixer.
+        # Truly dangerous use of `exec` is already covered by other blocks
+        # (no shell-redirect-exec, no remote pipe, etc.). Observed root cause
+        # for ecoji, garble, go-fasttld failures on 2026-05-23.
+        r'(?:^|\s|;|&)exec\s+\S+',            # bare `exec foo` at start of cmd
         r'/etc/shadow',                       # System files
         r'/etc/passwd',                       # System files
+        r'mkswap\s+|swapon\s+',               # Container swap fiddling (host-only, never appropriate)
     }
     
     def is_safe(self, command: str) -> Tuple[bool, str]:
@@ -277,6 +290,7 @@ def execute_command(
     # Auto-correct wrong package names for the active distro
     if _is_pkg_command(command):
         command = _fix_pkg_names(command)
+        command = _strip_bundled_toolchain_packages(command)
 
     # Execute command
     try:
@@ -317,6 +331,21 @@ def execute_command(
                 from src.platforms import get_active_profile
                 lock = get_active_profile().pkg_lock_file
                 exec_command = f"flock -w 120 {lock} sh -c '{command}'"
+
+            # Wrap with in-container `timeout` so a runaway process gets SIGKILLed
+            # by the container kernel even if the python-side docker-exec client
+            # is torn down. Without this, qemu-emulated processes (notably
+            # `go build`) orphan after subprocess.TimeoutExpired and keep burning
+            # CPU forever — see PID 2496758 incident on dnsx (2026-05-21).
+            #
+            # We give the in-container timeout a small head-start (~30s shorter
+            # than python's timeout) so it fires first; python's timeout remains
+            # the belt-and-braces fallback if `timeout(1)` itself is missing.
+            inner_timeout = max(timeout - 30, 10)
+            shell_quoted = exec_command.replace("'", "'\"'\"'")
+            exec_command = (
+                f"timeout --signal=KILL {inner_timeout}s bash -c '{shell_quoted}'"
+            )
             docker_cmd.extend([DockerConfig.CONTAINER_NAME, "bash", "-c", exec_command])
             
             logger.debug(f"Executing in Docker: {' '.join(docker_cmd[:5])}... (cwd: {cwd})")
@@ -386,6 +415,23 @@ def execute_command(
     except subprocess.TimeoutExpired:
         duration = time.time() - start_time
         logger.error(f"Command timed out after {timeout}s: {command[:50]}")
+
+        # Belt-and-braces: even though we wrap with `timeout --signal=KILL`
+        # in-container, also try to kill any matching process from the host so
+        # we never leave qemu-emulated builds running forever after a timeout.
+        # This is best-effort and never raises.
+        if use_docker:
+            try:
+                cmd_token = command.strip().split()[0] if command.strip() else ""
+                if cmd_token:
+                    subprocess.run(
+                        ["docker", "exec", DockerConfig.CONTAINER_NAME,
+                         "pkill", "-9", "-f", cmd_token],
+                        capture_output=True, timeout=10,
+                    )
+            except Exception as kill_exc:  # pragma: no cover - best effort
+                logger.debug(f"post-timeout pkill failed (non-fatal): {kill_exc}")
+
         return CommandResult(
             command=command,
             exit_code=-1,
@@ -461,6 +507,89 @@ def _fix_pkg_names(command: str) -> str:
 
 # Backward-compat alias
 _fix_apk_package_names = _fix_pkg_names
+
+
+# Packages that are bundled in our sandbox images and must NEVER be installed
+# via the distro package manager. Doing so on Debian/Ubuntu would pull Go 1.18
+# (jammy) which cannot parse modern `go.mod` files (toolchain directive,
+# 3-part `go 1.X.Y` version), and on Alpine would shadow the curated /usr/local
+# tarball. The pattern is matched as a whole token so we don't strip
+# `libgolang-foo` or similar.
+_BUNDLED_TOOLCHAIN_TOKENS = (
+    re.compile(r'^golang(-[a-z0-9.\-]+)?$'),    # golang, golang-go, golang-1.21, golang-1.18-go, ...
+    re.compile(r'^go-1\.[0-9]+$'),              # go-1.21, go-1.22, ...
+    re.compile(r'^gccgo(-[a-z0-9.\-]+)?$'),     # gccgo, gccgo-12, ...
+)
+
+
+def _strip_bundled_toolchain_packages(command: str) -> str:
+    """
+    Remove ``golang*`` / ``gccgo*`` / ``go-1.*`` tokens from any package-manager
+    ``install`` command. The sandbox images bake a current ``go`` toolchain at
+    ``/usr/local/go``; installing the distro package replaces ``/usr/bin/go``
+    with an outdated copy and breaks every modern Go build (observed root
+    cause for ~25 % of Debian batch failures).
+
+    Only the install verb is touched (``apk add``, ``apt-get install``,
+    ``apt install``). If stripping leaves the install with no packages, the
+    whole install clause is replaced with a harmless ``true`` so command
+    chaining (``apt-get install … && go build …``) keeps working.
+
+    Tolerates the option being placed either before OR after ``install``:
+      - apt-get install -y golang
+      - apt-get -y install golang
+      - apt install --no-install-recommends golang
+      - DEBIAN_FRONTEND=noninteractive apt-get install golang
+    """
+    # Match the full install clause up to the next shell separator.
+    # Options/flags can appear in any position between the manager and the
+    # package list, so we accept them anywhere using a permissive token class.
+    install_re = re.compile(
+        r'(apt-get|apt|apk)\s+'                              # 1: pkg manager
+        r'((?:-{1,2}[A-Za-z0-9][A-Za-z0-9-]*(?:=\S+)?\s+)*)' # 2: pre-verb flags
+        r'(install|add)\s+'                                   # 3: verb
+        r'((?:-{1,2}[A-Za-z0-9][A-Za-z0-9-]*(?:=\S+)?\s+)*)' # 4: post-verb flags
+        r'([^&|;]+?)'                                         # 5: package list (greedy w/in clause)
+        r'(?=\s*(?:&&|\|\||;|$))',
+        re.IGNORECASE,
+    )
+
+    def _rewrite(match: "re.Match[str]") -> str:
+        pm, pre_flags, verb, post_flags, pkgs = (
+            match.group(1), match.group(2) or "",
+            match.group(3),
+            match.group(4) or "", match.group(5),
+        )
+        tokens = pkgs.split()
+        kept, dropped = [], []
+        for tok in tokens:
+            if any(rx.match(tok) for rx in _BUNDLED_TOOLCHAIN_TOKENS):
+                dropped.append(tok)
+            else:
+                kept.append(tok)
+        if not dropped:
+            return match.group(0)
+        if not kept:
+            logger.warning(
+                f"Stripped bundled-toolchain install (no other packages requested): {dropped}. "
+                f"Skipping the install clause; sandbox already provides a modern Go toolchain."
+            )
+            return "true"
+        logger.warning(
+            f"Stripped bundled-toolchain package(s) from {pm} {verb}: {dropped}. "
+            f"Sandbox already provides a modern Go toolchain at /usr/local/go."
+        )
+        # Preserve original flag placement
+        rebuilt = f"{pm} "
+        if pre_flags.strip():
+            rebuilt += pre_flags
+        rebuilt += verb
+        if post_flags.strip():
+            rebuilt += " " + post_flags.strip()
+        rebuilt += " " + " ".join(kept)
+        return rebuilt
+
+    return install_re.sub(_rewrite, command)
 
 
 # ============================================================================
@@ -564,6 +693,108 @@ def file_exists(filepath: str, use_docker: bool = True) -> bool:
 # PATCH OPERATIONS
 # ============================================================================
 
+def _convert_codex_envelope_to_unified_diff(patch_content: str) -> Optional[str]:
+    """
+    Convert a Codex/Aider-style "*** Begin Patch" envelope to a standard
+    unified diff that ``patch -p1`` understands.
+
+    The fixer LLM frequently emits envelope patches like::
+
+        *** Begin Patch
+        *** Update File: go.mod
+        @@
+         module github.com/foo/bar
+        -go 1.24.0
+        +go 1.21
+        -toolchain go1.24.0
+        *** End Patch
+
+    These are rejected by the unified-diff validator and the fix never lands,
+    causing the agent to loop until escalation. Convert them on the fly.
+
+    Returns the converted unified diff, or ``None`` if the input is not
+    a recognisable envelope.
+    """
+    text = patch_content.strip()
+    if "*** Begin Patch" not in text and "*** Update File:" not in text and "*** Add File:" not in text:
+        return None
+
+    out_chunks: list[str] = []
+    current_path: Optional[str] = None
+    current_op: Optional[str] = None  # "update" | "add" | "delete"
+    body: list[str] = []
+
+    def flush():
+        nonlocal body
+        if not current_path or current_op is None:
+            body = []
+            return
+        if current_op == "add":
+            # Synthesize a unified diff that adds a new file from /dev/null.
+            added_lines = [ln[1:] if ln.startswith("+") else ln for ln in body if not ln.startswith("@@")]
+            out_chunks.append(
+                f"--- /dev/null\n+++ b/{current_path}\n"
+                f"@@ -0,0 +1,{len(added_lines)} @@\n"
+                + "".join(f"+{ln}\n" for ln in added_lines)
+            )
+        elif current_op == "delete":
+            out_chunks.append(
+                f"--- a/{current_path}\n+++ /dev/null\n"
+            )
+        else:
+            # update: preserve hunks verbatim, just add file headers.
+            # Compute hunk metadata best-effort.
+            chunk = f"--- a/{current_path}\n+++ b/{current_path}\n"
+            # Find @@ headers; if absent (LLM commonly omits them), wrap in a single
+            # hunk that covers what we have.
+            has_at = any(ln.startswith("@@") for ln in body)
+            if has_at:
+                chunk += "".join(ln + "\n" for ln in body)
+            else:
+                minus = sum(1 for ln in body if ln.startswith("-"))
+                plus = sum(1 for ln in body if ln.startswith("+"))
+                ctx = sum(1 for ln in body if ln.startswith(" ") or (not ln.startswith(("+", "-", "@"))))
+                old_len = minus + ctx
+                new_len = plus + ctx
+                chunk += f"@@ -1,{max(old_len,1)} +1,{max(new_len,1)} @@\n"
+                for ln in body:
+                    if ln.startswith(("+", "-")):
+                        chunk += ln + "\n"
+                    else:
+                        chunk += " " + ln + "\n"
+            out_chunks.append(chunk)
+        body = []
+
+    for raw in text.splitlines():
+        if raw.startswith("*** Begin Patch") or raw.startswith("*** End Patch"):
+            flush()
+            current_path = None
+            current_op = None
+            continue
+        if raw.startswith("*** Update File:"):
+            flush()
+            current_path = raw.split(":", 1)[1].strip()
+            current_op = "update"
+            continue
+        if raw.startswith("*** Add File:"):
+            flush()
+            current_path = raw.split(":", 1)[1].strip()
+            current_op = "add"
+            continue
+        if raw.startswith("*** Delete File:"):
+            flush()
+            current_path = raw.split(":", 1)[1].strip()
+            current_op = "delete"
+            continue
+        if current_path is not None:
+            body.append(raw)
+    flush()
+
+    if not out_chunks:
+        return None
+    return "".join(out_chunks)
+
+
 def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optional[str] = None, use_docker: bool = True) -> bool:
     """
     Apply a patch to one or more files.
@@ -579,7 +810,21 @@ def apply_patch(patch_content: str, filepath: Optional[str] = None, cwd: Optiona
     """
     if not patch_content:
         return False
-        
+
+    # Transparently convert Codex/Aider "*** Begin Patch" envelope patches
+    # (frequently emitted by the fixer LLM) into a standard unified diff
+    # before the format check. Without this, every envelope patch is rejected
+    # with "not a valid unified diff" and the fix never lands.
+    converted = _convert_codex_envelope_to_unified_diff(patch_content)
+    if converted is not None:
+        logger.info("Converted Codex envelope patch to unified diff")
+        patch_content = converted
+        # An envelope patch always specifies its own paths, so applying with
+        # patch -p1 from cwd is the correct strategy — drop any caller-supplied
+        # filepath so we don't double-route the diff.
+        if filepath:
+            filepath = None
+
     if use_docker:
         # Write patch to container's /tmp
         import uuid

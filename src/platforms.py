@@ -174,7 +174,12 @@ DEBIAN_RISCV = PlatformProfile(
         "pkgconfig": "pkg-config", "nasm": "nasm", "yasm": "yasm",
         "perl": "perl", "fortran": "gfortran",
         # languages
-        "go": "golang", "rust": "rustc cargo",
+        # NOTE: deliberately no "go" entry — Ubuntu jammy's golang-go package
+        # is Go 1.18, which cannot parse modern go.mod files (`toolchain`
+        # directive, `go 1.24.0` 3-part version). The sandbox bakes a recent
+        # Go riscv64 toolchain into /usr/local/go via Dockerfile.debian; let
+        # the agent use that and never `apt-get install golang*`.
+        "rust": "rustc cargo",
         "python3": "python3 python3-pip python3-dev",
         "node": "nodejs npm", "java": "openjdk-17-jdk",
         # core C/C++
@@ -222,12 +227,25 @@ DEBIAN_RISCV = PlatformProfile(
         "sqlite-dev": "libsqlite3-dev", "lcms2-dev": "liblcms2-dev",
         "pkgconf": "pkg-config", "build-base": "build-essential",
         "musl-dev": "libc6-dev", "py3-pip": "python3-pip",
+        # Common LLM-hallucinated Debian names → real Debian names.
+        # These were observed in batch failures (axel, nghttp2, libarchive, …)
+        # where the planner/scout invented a plausible-looking but non-existent
+        # package name. Apply silent rewrites instead of failing the install.
+        "libcurl4-libssl-dev": "libcurl4-openssl-dev",
+        "libcurl-openssl-dev": "libcurl4-openssl-dev",
+        "libcares-dev": "libc-ares-dev",
+        "libnettle-dev": "nettle-dev",
+        "libev-dev": "libev-dev",  # correct, just confirm canonical
+        "libjpeg-turbo-dev": "libjpeg-turbo8-dev",
+        "libabseil-dev": "libabsl-dev",
     },
     extra_notes=[
         "Debian/Ubuntu uses **glibc**, not musl — `backtrace()`, `mallinfo()`, and most GNU extensions are available.",
         "Always run `apt-get update` before the first `apt-get install` in a phase.",
         "Use `--no-install-recommends` to keep the image small.",
         "Run apt non-interactively: prefix with `DEBIAN_FRONTEND=noninteractive` if a package may prompt.",
+        "Go is pre-installed at /usr/local/go (riscv64) — do NOT `apt-get install golang*`. Ubuntu jammy ships Go 1.18 which cannot parse modern go.mod files (toolchain directive, 3-part `go 1.X.Y` version).",
+        "GOTOOLCHAIN=local is set image-wide; if go.mod requires a newer Go than the bundled toolchain, treat as MISSING_TOOLS and escalate — do NOT attempt apt golang install.",
     ],
 )
 

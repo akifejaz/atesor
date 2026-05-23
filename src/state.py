@@ -759,12 +759,14 @@ def get_next_action_recommendation(state: AgentState) -> Action:
         else:
             return Action.FIXER  # Try to fix
 
-    # Success
+    # Success — always go to FINISH. The builder_node does not actually run
+    # tests today: it just re-verifies artifacts. Returning BUILDER here while
+    # the supervisor is on its cost-optimized (LLM-bypassed) path creates an
+    # infinite supervisor↔builder loop after a successful build, which silently
+    # burns the 1h batch timeout (observed root cause for chisel, gum, ghorg,
+    # gickup, csvtk and ~20 other "TIMEOUT" failures on 2026-05-23).
     if state.build_status == BuildStatus.SUCCESS:
-        if not state.tests_run:
-            return Action.BUILDER  # Run tests
-        else:
-            return Action.FINISH
+        return Action.FINISH
 
     # Default to builder
     return Action.BUILDER

@@ -62,6 +62,14 @@ def get_model_for_role(role: AgentRole):
     return create_llm(role)
 
 
+def get_model_pool_for_role(role: AgentRole):
+    """Return [primary, *fallbacks] for the role — used by validated LLM calls
+    so transient provider errors (404 / 5xx) rotate to a backup model instead
+    of escalating the whole agent."""
+    from .models import create_llm_pool
+    return create_llm_pool(role)
+
+
 def invoke_llm(llm, messages, timeout: int = 120):
     """
     Invoke an LLM with a hard timeout to prevent indefinite hangs.
@@ -129,13 +137,33 @@ def _build_platform_banner() -> str:
         pm = p.pkg_install.split()[0]  # "apk" / "apt-get"
         install_example = p.install_cmd(["<pkg>"])
         other_pms = "apt-get / apt / dpkg" if pm == "apk" else "apk / apk-tools"
+        # Pick one concrete correction example to anchor the LLM on the right names.
+        # name_corrections maps WRONG_NAME -> RIGHT_NAME for THIS distro.
+        correction_example = ""
+        if p.name_corrections:
+            wrong, right = next(iter(p.name_corrections.items()))
+            correction_example = (
+                f"\n- Correct package names for {p.display_name}: "
+                f"e.g. `{wrong}` is WRONG, use `{right}` instead."
+            )
+        # Pick a concrete worked install example using a real canonical -> distro mapping.
+        worked_example = ""
+        if p.package_map:
+            canonical, distro_pkg = next(iter(p.package_map.items()))
+            worked_example = (
+                f"\n- Worked example for this distro: install `{canonical}` via "
+                f"`{p.install_cmd([distro_pkg])}`."
+            )
         return (
-            f"- Distro: **{p.display_name}**\n"
+            f"- Distro: **{p.display_name}** (libc: **{p.libc}**, triplet: `{p.target_triplet}`)\n"
             f"- Package manager: **{pm}** (full install: `{install_example}`)\n"
-            f"- NEVER emit {other_pms} commands — they do not exist in this container.\n"
-            f"- Use canonical package names from the Platform knowledge below; the agent\n"
-            f"  auto-corrects to distro names when possible, but emitting the wrong\n"
-            f"  package manager is unrecoverable."
+            f"- NEVER emit {other_pms} commands — they do not exist in this container\n"
+            f"  and will fail with `command not found`. This is unrecoverable for the build."
+            f"{worked_example}"
+            f"{correction_example}\n"
+            f"- If you are unsure of a package name on this distro, prefer the canonical\n"
+            f"  short name (e.g. `openssl-dev`, `zlib-dev`) — the agent auto-corrects to\n"
+            f"  the distro-specific name. NEVER guess a name from another distro."
         )
     except Exception:
         return "- Platform: unknown (default to apt-get on debian/ubuntu, apk on alpine)"
@@ -325,6 +353,9 @@ def init_node(state: AgentState) -> AgentState:
  
 PLANNER_PROMPT = """You are the strategic planner for a RISC-V (riscv64) software porting agent.
 
+## Active sandbox (READ FIRST — overrides any conflicting knowledge below)
+{platform_banner}
+
 ## Repository
 - Name: {repo_name} ({repo_url})
 - Path: {repo_path}
@@ -450,6 +481,7 @@ def planner_node(state: AgentState) -> AgentState:
         arch_patterns=arch_patterns,
         existing_archs=existing_archs,
         system_knowledge=system_knowledge,
+        platform_banner=_build_platform_banner(),
     )
 
     # Validated LLM call: retry-with-critique up to 2x, then deterministic fallback.
@@ -461,9 +493,11 @@ def planner_node(state: AgentState) -> AgentState:
             return ValidationResult.bad("each phase must be an object with at least a 'name' key")
         return ValidationResult.good()
 
+    _planner_pool = get_model_pool_for_role(AgentRole.PLANNER)
     outcome = llm_call_with_validation(
         invoke_fn=invoke_llm,
-        llm=get_model_for_role(AgentRole.PLANNER),
+        llm=_planner_pool[0],
+        fallback_llms=_planner_pool[1:],
         prompt=prompt,
         validator=_validate_plan,
         fallback_factory=lambda: None,  # we materialize the default TaskPlan below
@@ -893,7 +927,7 @@ minimal, executable BuildPlan for **{repo_name}** built natively at `{repo_path}
 3. Install only `-dev` packages you can justify from CMakeLists.txt / configure.ac / meson.build / go.mod. No guessing.
 4. Use the package names from the platform knowledge above. Do NOT use names from a different distro.
 5. If the project has both CMake and autotools, prefer the one whose dependencies are easier to satisfy; if unsure, prefer autotools.
-6. For Go: if `go.mod` is missing, first phase must `go mod init <module_path>` then `go mod tidy`. Always pass `-buildvcs=false` to `go build`.
+6. For Go: if `go.mod` is missing, first phase must `go mod init <module_path>` then `go mod tidy`. Always pass `-buildvcs=false` to `go build`. **If `Project context` above gives a `build_command`, use exactly that command — do not substitute `go build ./...` (which compiles every helper and fails on the first one with missing deps).**
 7. Disable optional features that pull in heavy or x86-specific deps (tests, SIMD, examples, docs).
 8. NEVER reference paths or files you can't see in the project structure.
 
@@ -1121,9 +1155,11 @@ def scout_node(state: AgentState) -> AgentState:
             return ValidationResult.bad(f"could not materialize BuildPlan: {exc}")
         return ValidationResult.good()
 
+    _scout_pool = get_model_pool_for_role(AgentRole.SCOUT)
     outcome = llm_call_with_validation(
         invoke_fn=invoke_llm,
-        llm=get_model_for_role(AgentRole.SCOUT),
+        llm=_scout_pool[0],
+        fallback_llms=_scout_pool[1:],
         prompt=prompt,
         validator=_validate_scout,
         fallback_factory=lambda: None,  # we build the BuildPlan fallback below
@@ -1878,9 +1914,11 @@ def fixer_node(state: AgentState) -> AgentState:
             return ValidationResult.bad(reason)
         return ValidationResult.good()
 
+    _fixer_pool = get_model_pool_for_role(AgentRole.FIXER)
     outcome = llm_call_with_validation(
         invoke_fn=invoke_llm,
-        llm=get_model_for_role(AgentRole.FIXER),
+        llm=_fixer_pool[0],
+        fallback_llms=_fixer_pool[1:],
         prompt=prompt,
         validator=_validate_fix,
         fallback_factory=lambda: None,  # no deterministic fix — escalate via FAILED status

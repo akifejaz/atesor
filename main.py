@@ -92,6 +92,56 @@ def check_keys() -> bool:
     return True
 
 
+def _ensure_riscv64_binfmt() -> bool:
+    """
+    Verify (and auto-register if possible) the host's binfmt_misc handler for
+    riscv64. Without this, every riscv64 container exits immediately with
+    ``exec /bin/<cmd>: exec format error`` and the agent silently loops
+    recreating containers — observed in the 2026-05-23 batch run, where all
+    172 packages failed within seconds for this single reason.
+
+    Returns True if the handler is present after this call, False otherwise.
+    Auto-registration is attempted exactly once via the standard
+    ``tonistiigi/binfmt`` installer image (the canonical fix documented in
+    Docker's multi-arch guides). If that fails, the caller prints the manual
+    command.
+    """
+    import subprocess
+
+    binfmt_path = "/proc/sys/fs/binfmt_misc/qemu-riscv64"
+    if os.path.exists(binfmt_path):
+        try:
+            with open(binfmt_path) as f:
+                if "enabled" in f.read():
+                    return True
+        except OSError:
+            pass
+
+    print(colored(
+        "qemu-riscv64 binfmt handler not detected; attempting to register "
+        "(one-time, requires --privileged docker access)...",
+        "yellow",
+    ))
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--privileged", "--rm",
+             "tonistiigi/binfmt", "--install", "riscv64"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning(f"binfmt install exit={result.returncode}: {result.stderr[:300]}")
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning(f"binfmt install failed: {e}")
+        return False
+
+    # Re-check
+    if os.path.exists(binfmt_path):
+        print(colored("qemu-riscv64 binfmt handler registered", "green"))
+        return True
+    return False
+
+
 def setup_docker_environment() -> bool:
     """
     Set up the Docker environment for RISC-V development.
@@ -113,6 +163,24 @@ def setup_docker_environment() -> bool:
     except docker.errors.DockerException as e:
         print(colored(f"ERROR: Docker is not running or not accessible", "red"))
         print(colored(f"Details: {e}", "yellow"))
+        return False
+
+    # Preflight: host must have qemu-riscv64 registered in binfmt_misc, otherwise
+    # every riscv64 container exits immediately with "exec format error" before
+    # the agent can run anything. The Debian image is riscv64-native so this is
+    # mandatory; the Alpine image is too, just historically less likely to hit
+    # this because docker-desktop ships binfmt by default. Auto-register if we
+    # can, otherwise emit a clear instruction and exit.
+    if not _ensure_riscv64_binfmt():
+        print(colored(
+            "ERROR: qemu-riscv64 is not registered in /proc/sys/fs/binfmt_misc. "
+            "Without it, every riscv64 container exits with 'exec format error'.",
+            "red",
+        ))
+        print(colored(
+            "Fix: docker run --privileged --rm tonistiigi/binfmt --install riscv64",
+            "yellow",
+        ))
         return False
 
     # Check/Build Docker Image
