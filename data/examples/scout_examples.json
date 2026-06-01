@@ -377,188 +377,6 @@
       "reasoning": "Projects using CGO need gcc available. Install build-base and relevant -dev packages."
     },
     {
-      "name": "Auto: gitdorks_go (go)",
-      "tags": [
-        "go",
-        "gitdorks_go"
-      ],
-      "build_system": "go",
-      "repo_name": "gitdorks_go",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update && apk add git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false ./..."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful gitdorks_go build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: gitql (go)",
-      "tags": [
-        "go",
-        "gitql"
-      ],
-      "build_system": "go",
-      "repo_name": "gitql",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update",
-              "apk add go"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false -v -o gitql ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful gitql build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: glider (go)",
-      "tags": [
-        "go",
-        "glider"
-      ],
-      "build_system": "go",
-      "repo_name": "glider",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update",
-              "apk add go"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false -v -o glider ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful glider build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: goawk (go)",
-      "tags": [
-        "go",
-        "goawk"
-      ],
-      "build_system": "go",
-      "repo_name": "goawk",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update && apk add git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./scripts/csvbench/count"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful goawk build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: gofireprox (go)",
-      "tags": [
-        "go",
-        "gofireprox"
-      ],
-      "build_system": "go",
-      "repo_name": "gofireprox",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apk update && apk add git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./cmd/gofireprox"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful gofireprox build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
       "name": "Auto: GoLinkFinder (go)",
       "tags": [
         "go",
@@ -3730,6 +3548,179 @@
       "id": "scout-auto-093",
       "source": "auto",
       "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: byp4xx (go)",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/byp4xx && go mod init byp4xx && go mod tidy && go build -buildvcs=false -o bypass4xx ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful byp4xx build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cariddi (go)",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./cmd/cariddi"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cariddi build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: encode (go)",
+      "tags": [
+        "go",
+        "encode"
+      ],
+      "build_system": "go",
+      "repo_name": "encode",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./cmd/encode"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful encode build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gitdorks_go (go)",
+      "tags": [
+        "go",
+        "gitdorks_go"
+      ],
+      "build_system": "go",
+      "repo_name": "gitdorks_go",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/gitdorks_go && go mod tidy",
+              "cd /workspace/repos/gitdorks_go && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitdorks_go build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-24",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: go-fasttld (go)",
+      "tags": [
+        "go",
+        "go-fasttld"
+      ],
+      "build_system": "go",
+      "repo_name": "go-fasttld",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build ./data"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful go-fasttld build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-05-24",
       "sandbox": "debian-riscv64"
     }
   ]

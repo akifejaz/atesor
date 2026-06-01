@@ -218,149 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: fuzzuli build execution",
-      "tags": [
-        "go",
-        "fuzzuli"
-      ],
-      "build_system": "go",
-      "repo_name": "fuzzuli",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "cd /workspace/repos/fuzzuli && go mod tidy"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd /workspace/repos/fuzzuli && go build -buildvcs=false -v -o fuzzuli ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fuzzuli.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: fwanalyzer build execution",
-      "tags": [
-        "go",
-        "fwanalyzer"
-      ],
-      "build_system": "go",
-      "repo_name": "fwanalyzer",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update",
-            "apk add go",
-            "go mod tidy"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go build -buildvcs=false -v -o fwanalyzer ./cmd/fwanalyzer"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from fwanalyzer.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: galer build execution",
-      "tags": [
-        "go",
-        "galer"
-      ],
-      "build_system": "go",
-      "repo_name": "galer",
-      "phases": [
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o galer ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from galer.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: gdu build execution",
-      "tags": [
-        "go",
-        "gdu"
-      ],
-      "build_system": "go",
-      "repo_name": "gdu",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apk update && apk add go"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false -v -o gdu ./cmd/gdu"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gdu.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
-      "name": "Auto: getJS build execution",
-      "tags": [
-        "go",
-        "getJS"
-      ],
-      "build_system": "go",
-      "repo_name": "getJS",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "go mod tidy"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go build -buildvcs=false -v -o getJS ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from getJS.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-22",
-      "sandbox": "alpine-riscv64"
-    },
-    {
       "name": "Auto: git-who build execution",
       "tags": [
         "go",
@@ -3086,6 +2943,149 @@
       "id": "builder-auto-095",
       "source": "auto",
       "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: byp4xx build execution",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/byp4xx && go mod init byp4xx && go mod tidy && go build -buildvcs=false -o bypass4xx ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from byp4xx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cariddi build execution",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/cariddi"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from cariddi.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: encode build execution",
+      "tags": [
+        "go",
+        "encode"
+      ],
+      "build_system": "go",
+      "repo_name": "encode",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ./cmd/encode"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from encode.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-23",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gitdorks_go build execution",
+      "tags": [
+        "go",
+        "gitdorks_go"
+      ],
+      "build_system": "go",
+      "repo_name": "gitdorks_go",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd /workspace/repos/gitdorks_go && go mod tidy",
+            "cd /workspace/repos/gitdorks_go && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gitdorks_go.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-24",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: go-fasttld build execution",
+      "tags": [
+        "go",
+        "go-fasttld"
+      ],
+      "build_system": "go",
+      "repo_name": "go-fasttld",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./data"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from go-fasttld.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-05-24",
       "sandbox": "debian-riscv64"
     }
   ]
