@@ -15,12 +15,17 @@ import pytest
 
 from src.scripted_ops import ScriptedOperations, quick_analysis
 
-
 # ---------- helpers ----------
 
+
 def _write(root, rel, content=""):
+    """Write."""
     p = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(p), exist_ok=True) if os.path.dirname(rel) else None
+    (
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.dirname(rel)
+        else None
+    )
     with open(p, "w") as f:
         f.write(content)
     return p
@@ -28,6 +33,7 @@ def _write(root, rel, content=""):
 
 @pytest.fixture
 def repo(tmp_path):
+    """Repo."""
     return str(tmp_path)
 
 
@@ -35,51 +41,63 @@ def repo(tmp_path):
 
 
 class TestDetectBuildSystem:
-    def test_no_build_files_returns_unknown(self, repo):
+    """Tests for DetectBuildSystem."""
+
+    def test_no_build_files_returns_unknown(self, repo) -> None:
+        """Test no build files returns unknown."""
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "unknown"
         assert info.confidence == 0.0
 
-    def test_cmake_wins_when_marker_present(self, repo):
+    def test_cmake_wins_when_marker_present(self, repo) -> None:
+        """Test cmake wins when marker present."""
         _write(repo, "CMakeLists.txt", "project(foo)\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "cmake"
         assert info.confidence >= 0.9
         assert info.primary_file == "CMakeLists.txt"
 
-    def test_cmake_wins_over_makefile_when_both_present(self, repo):
+    def test_cmake_wins_over_makefile_when_both_present(self, repo) -> None:
         # cmake gets 0.95, make gets ~0.3 → cmake wins
+        """Test cmake wins over makefile when both present."""
         _write(repo, "CMakeLists.txt", "project(foo)\n")
         _write(repo, "Makefile", "all:\n\techo hi\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "cmake"
 
-    def test_cargo_detected(self, repo):
-        _write(repo, "Cargo.toml", '[package]\nname = "foo"\nversion = "0.1.0"\n')
+    def test_cargo_detected(self, repo) -> None:
+        """Test cargo detected."""
+        _write(
+            repo, "Cargo.toml", '[package]\nname = "foo"\nversion = "0.1.0"\n'
+        )
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "cargo"
         assert info.confidence >= 0.9
 
-    def test_go_detected(self, repo):
+    def test_go_detected(self, repo) -> None:
+        """Test go detected."""
         _write(repo, "go.mod", "module foo\ngo 1.21\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "go"
 
-    def test_go_in_subdirectory_falls_back(self, repo):
+    def test_go_in_subdirectory_falls_back(self, repo) -> None:
         # No top-level go.mod, but a subdir has one
+        """Test go in subdirectory falls back."""
         os.makedirs(os.path.join(repo, "src/sub"))
         _write(repo, "src/sub/go.mod", "module foo\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "go"
         assert info.module_dir.endswith("src/sub")
 
-    def test_autotools_detected(self, repo):
+    def test_autotools_detected(self, repo) -> None:
+        """Test autotools detected."""
         _write(repo, "configure.ac", "AC_INIT(foo, 1.0)\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         assert info.type == "autotools"
         assert info.confidence >= 0.9
 
-    def test_meson_detected(self, repo):
+    def test_meson_detected(self, repo) -> None:
+        """Test meson detected."""
         _write(repo, "meson.build", "project('foo', 'c')\n")
         info = ScriptedOperations(repo).detect_build_system(repo)
         # meson uses lower-confidence (+0.3) heuristic but should win alone
@@ -90,13 +108,20 @@ class TestDetectBuildSystem:
 
 
 class TestExtractDependencies:
-    def test_cmake_finds_find_package_calls(self, repo):
-        _write(repo, "CMakeLists.txt", textwrap.dedent("""
+    """Tests for ExtractDependencies."""
+
+    def test_cmake_finds_find_package_calls(self, repo) -> None:
+        """Test cmake finds find package calls."""
+        _write(
+            repo,
+            "CMakeLists.txt",
+            textwrap.dedent("""
             project(foo)
             find_package(OpenSSL REQUIRED)
             find_package(ZLIB)
             find_package(Threads)
-        """))
+        """),
+        )
         deps = ScriptedOperations(repo)._extract_cmake_dependencies(repo)
         assert "OpenSSL" in deps.libraries
         assert "ZLIB" in deps.libraries
@@ -104,8 +129,12 @@ class TestExtractDependencies:
         assert deps.install_method == "apk"
         assert "cmake" in deps.build_tools
 
-    def test_cargo_extracts_dependencies(self, repo):
-        _write(repo, "Cargo.toml", textwrap.dedent("""
+    def test_cargo_extracts_dependencies(self, repo) -> None:
+        """Test cargo extracts dependencies."""
+        _write(
+            repo,
+            "Cargo.toml",
+            textwrap.dedent("""
             [package]
             name = "foo"
             version = "0.1.0"
@@ -113,43 +142,62 @@ class TestExtractDependencies:
             [dependencies]
             serde = "1.0"
             tokio = "1.0"
-        """))
+        """),
+        )
         deps = ScriptedOperations(repo)._extract_cargo_dependencies(repo)
         assert set(deps.libraries) == {"serde", "tokio"}
         assert "cargo" in deps.build_tools
 
-    def test_python_extracts_requirements(self, repo):
-        _write(repo, "requirements.txt", textwrap.dedent("""
+    def test_python_extracts_requirements(self, repo) -> None:
+        """Test python extracts requirements."""
+        _write(
+            repo,
+            "requirements.txt",
+            textwrap.dedent("""
             # a comment
             requests==2.28.0
             numpy>=1.20
             click
-        """))
+        """),
+        )
         deps = ScriptedOperations(repo)._extract_python_dependencies(repo)
         assert set(deps.libraries) == {"requests", "numpy", "click"}
 
-    def test_npm_extracts_both_dep_buckets(self, repo):
-        _write(repo, "package.json", json.dumps({
-            "name": "foo",
-            "dependencies": {"express": "^4.0.0"},
-            "devDependencies": {"jest": "^29.0.0"},
-        }))
+    def test_npm_extracts_both_dep_buckets(self, repo) -> None:
+        """Test npm extracts both dep buckets."""
+        _write(
+            repo,
+            "package.json",
+            json.dumps(
+                {
+                    "name": "foo",
+                    "dependencies": {"express": "^4.0.0"},
+                    "devDependencies": {"jest": "^29.0.0"},
+                }
+            ),
+        )
         deps = ScriptedOperations(repo)._extract_npm_dependencies(repo)
         assert set(deps.libraries) == {"express", "jest"}
 
-    def test_go_mod_extracts_require_lines(self, repo):
-        _write(repo, "go.mod", textwrap.dedent("""
+    def test_go_mod_extracts_require_lines(self, repo) -> None:
+        """Test go mod extracts require lines."""
+        _write(
+            repo,
+            "go.mod",
+            textwrap.dedent("""
             module foo
             go 1.21
 
             require github.com/spf13/cobra v1.0.0
             require golang.org/x/sys v0.5.0
-        """))
+        """),
+        )
         deps = ScriptedOperations(repo)._extract_go_dependencies(repo)
         assert "github.com/spf13/cobra" in deps.libraries
         assert "golang.org/x/sys" in deps.libraries
 
-    def test_missing_file_returns_empty_deps(self, repo):
+    def test_missing_file_returns_empty_deps(self, repo) -> None:
+        """Test missing file returns empty deps."""
         deps = ScriptedOperations(repo)._extract_cmake_dependencies(repo)
         assert deps.libraries == []
 
@@ -158,20 +206,25 @@ class TestExtractDependencies:
 
 
 class TestFindGoMainPackage:
-    def test_no_go_files_returns_empty(self, repo):
+    """Tests for FindGoMainPackage."""
+
+    def test_no_go_files_returns_empty(self, repo) -> None:
+        """Test no go files returns empty."""
         info = ScriptedOperations(repo).find_go_main_package(repo)
         assert info["has_main"] is False
         assert info["has_go_mod"] is False
         assert info["needs_go_init"] is False
 
-    def test_gopath_style_repo_needs_init(self, repo):
+    def test_gopath_style_repo_needs_init(self, repo) -> None:
         # .go files but no go.mod
+        """Test gopath style repo needs init."""
         _write(repo, "main.go", "package main\nfunc main() {}\n")
         info = ScriptedOperations(repo).find_go_main_package(repo)
         assert info["needs_go_init"] is True
         assert info["has_main"] is True
 
-    def test_simple_root_main(self, repo):
+    def test_simple_root_main(self, repo) -> None:
+        """Test simple root main."""
         _write(repo, "go.mod", "module foo\n")
         _write(repo, "main.go", "package main\nfunc main() {}\n")
         info = ScriptedOperations(repo).find_go_main_package(repo)
@@ -180,8 +233,9 @@ class TestFindGoMainPackage:
         assert info["main_path"] == "."
         assert info["build_command"] == "go build ."
 
-    def test_cmd_reponame_beats_root_main(self, tmp_path):
+    def test_cmd_reponame_beats_root_main(self, tmp_path) -> None:
         # repo basename matters for scoring
+        """Test cmd reponame beats root main."""
         rp = tmp_path / "myapp"
         rp.mkdir()
         repo = str(rp)
@@ -192,12 +246,15 @@ class TestFindGoMainPackage:
         assert info["main_path"] == "cmd/myapp"
         assert info["build_command"] == "go build ./cmd/myapp"
 
-    def test_cmd_test_dir_demoted(self, tmp_path):
+    def test_cmd_test_dir_demoted(self, tmp_path) -> None:
+        """Test cmd test dir demoted."""
         rp = tmp_path / "myapp"
         rp.mkdir()
         repo = str(rp)
         _write(repo, "go.mod", "module myapp\n")
-        _write(repo, "cmd/test-runner/main.go", "package main\nfunc main() {}\n")
+        _write(
+            repo, "cmd/test-runner/main.go", "package main\nfunc main() {}\n"
+        )
         _write(repo, "main.go", "package main\nfunc main() {}\n")
         info = ScriptedOperations(repo).find_go_main_package(repo)
         # root main (score 3) > cmd/test-runner (score 1)
@@ -208,7 +265,10 @@ class TestFindGoMainPackage:
 
 
 class TestQuickAnalysis:
-    def test_runs_on_simple_cmake_repo(self, repo):
+    """Tests for QuickAnalysis."""
+
+    def test_runs_on_simple_cmake_repo(self, repo) -> None:
+        """Test runs on simple cmake repo."""
         _write(repo, "CMakeLists.txt", "project(foo)\nfind_package(ZLIB)\n")
         _write(repo, "main.c", "int main(){return 0;}\n")
         result = quick_analysis(repo)
@@ -222,15 +282,19 @@ class TestQuickAnalysis:
 
 
 class TestPathTranslation:
-    def test_to_host_path_translates_workspace(self):
-        from src.config import WORKSPACE_ROOT
+    """Tests for PathTranslation."""
+
+    def test_to_host_path_translates_workspace(self) -> None:
+        """Test to host path translates workspace."""
+
         ops = ScriptedOperations()
         # /workspace/repos/foo -> {WORKSPACE_ROOT}/repos/foo on host
         out = ops._to_host_path("/workspace/repos/foo")
         # When not running inside Docker, /workspace becomes WORKSPACE_ROOT
         assert out.endswith("/repos/foo")
 
-    def test_to_host_path_passes_through_other_paths(self):
+    def test_to_host_path_passes_through_other_paths(self) -> None:
+        """Test to host path passes through other paths."""
         ops = ScriptedOperations()
         assert ops._to_host_path("/tmp/x") == "/tmp/x"
 

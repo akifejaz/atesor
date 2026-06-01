@@ -15,7 +15,6 @@ from .platforms import (
     get_active_profile,
 )
 
-
 # Backward-compat aliases — older code/tests may import these names.
 ALPINE_TOOL_MAP = ALPINE_RISCV.package_map
 ALPINE_PACKAGE_CORRECTIONS = ALPINE_RISCV.name_corrections
@@ -27,7 +26,9 @@ ALPINE_PACKAGE_CORRECTIONS = ALPINE_RISCV.name_corrections
 RISCV_PREPROCESSOR_MACROS = {
     "__riscv": "Defined on any RISC-V target",
     "__riscv_xlen": "Register width: 32 or 64",
-    "__riscv_flen": "FP register width: 32 (F ext) or 64 (D ext), absent if no FP",
+    "__riscv_flen": (
+        "FP register width: 32 (F ext) or 64 (D ext), absent if no FP"
+    ),
     "__riscv_atomic": "Defined when A (atomic) extension is present",
     "__riscv_mul": "Defined when M (multiply/divide) extension is present",
     "__riscv_vector": "Defined when V (vector) extension is present",
@@ -56,10 +57,22 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "x86 SSE/AVX SIMD intrinsics not available on RISC-V",
         "solutions": [
-            "Use SIMDe (SIMD Everywhere) header-only library for portable SIMD",
-            "Provide scalar C fallback under #if !defined(__x86_64__) && !defined(__aarch64__)",
-            "Use RISC-V Vector (RVV) intrinsics if V extension is available (#ifdef __riscv_vector)",
-            "Disable SIMD via build option (e.g., -DENABLE_SSE=OFF, -DWITH_SIMD=0)",
+            (
+                "Use SIMDe (SIMD Everywhere) header-only library for"
+                " portable SIMD"
+            ),
+            (
+                "Provide scalar C fallback under #if"
+                " !defined(__x86_64__) && !defined(__aarch64__)"
+            ),
+            (
+                "Use RISC-V Vector (RVV) intrinsics if V extension is"
+                " available (#ifdef __riscv_vector)"
+            ),
+            (
+                "Disable SIMD via build option (e.g., -DENABLE_SSE=OFF,"
+                " -DWITH_SIMD=0)"
+            ),
         ],
     },
     "inline_assembly": {
@@ -72,7 +85,10 @@ COMMON_PORTING_ISSUES = {
         "solutions": [
             "Guard with #if defined(__x86_64__) / #elif defined(__riscv)",
             "Replace with portable C code or compiler builtins",
-            "Provide RISC-V assembly implementation for performance-critical paths",
+            (
+                "Provide RISC-V assembly implementation for"
+                " performance-critical paths"
+            ),
         ],
     },
     "builtin_functions": {
@@ -83,7 +99,10 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "x86-specific GCC/Clang builtin functions",
         "solutions": [
-            "Replace __rdtsc with __builtin_readcyclecounter() or clock_gettime()",
+            (
+                "Replace __rdtsc with __builtin_readcyclecounter() or"
+                " clock_gettime()"
+            ),
             "Replace __builtin_ia32_* with portable C equivalents",
             "Use C11 atomics instead of __sync_* builtins where possible",
         ],
@@ -93,10 +112,15 @@ COMMON_PORTING_ISSUES = {
             "data races under RISC-V that pass on x86",
             "lock-free algorithms failing",
         ],
-        "root_cause": "RISC-V has a weaker memory model (RVWMO) than x86 (TSO)",
+        "root_cause": (
+            "RISC-V has a weaker memory model (RVWMO) than x86 (TSO)"
+        ),
         "solutions": [
             "Use C11/C++11 atomics with explicit memory orderings",
-            "Add __atomic_thread_fence() where x86 relied on implicit ordering",
+            (
+                "Add __atomic_thread_fence() where x86 relied on"
+                " implicit ordering"
+            ),
             "Audit lock-free data structures for RISC-V memory model",
         ],
     },
@@ -110,11 +134,17 @@ COMMON_PORTING_ISSUES = {
             "error: 'REG_EIP' undeclared",
             "'sys/cdefs.h' file not found",
         ],
-        "root_cause": "Alpine uses musl libc, not glibc; some GNU extensions are absent",
+        "root_cause": (
+            "Alpine uses musl libc, not glibc; some GNU extensions"
+            " are absent"
+        ),
         "solutions": [
             "Guard backtrace usage with #ifdef __GLIBC__",
             "Replace mallinfo with platform-independent memory tracking",
-            "Install musl-compatible alternatives (e.g., libexecinfo-dev for backtrace)",
+            (
+                "Install musl-compatible alternatives (e.g.,"
+                " libexecinfo-dev for backtrace)"
+            ),
             "Use portable signal handling instead of x86 register names",
         ],
     },
@@ -125,10 +155,19 @@ COMMON_PORTING_ISSUES = {
             "invalid configuration",
             "config.sub: too many arguments",
         ],
-        "root_cause": "Stale config.guess/config.sub that predate RISC-V support",
+        "root_cause": (
+            "Stale config.guess/config.sub that predate RISC-V support"
+        ),
         "solutions": [
-            "Update config.guess and config.sub: apk add config-guess-wrapper || cp /usr/share/automake-*/config.* .",
-            "Specify --build/--host explicitly: ./configure --build=riscv64-alpine-linux-musl",
+            (
+                "Update config.guess and config.sub: apk add"
+                " config-guess-wrapper || cp"
+                " /usr/share/automake-*/config.* ."
+            ),
+            (
+                "Specify --build/--host explicitly: ./configure"
+                " --build=riscv64-alpine-linux-musl"
+            ),
             "For CMake: no action needed (CMake auto-detects RISC-V)",
         ],
     },
@@ -140,7 +179,10 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "Some atomic operations require libatomic on RISC-V",
         "solutions": [
-            "Link with -latomic (add to LDFLAGS or CMake target_link_libraries)",
+            (
+                "Link with -latomic (add to LDFLAGS or CMake"
+                " target_link_libraries)"
+            ),
             "For CMake: target_link_libraries(target PRIVATE atomic)",
             "For Makefile: LDFLAGS += -latomic",
         ],
@@ -150,10 +192,16 @@ COMMON_PORTING_ISSUES = {
             "hardcoded CACHELINE_SIZE 64",
             "performance regression due to false sharing",
         ],
-        "root_cause": "RISC-V cache line size varies by implementation (32/64/128 bytes)",
+        "root_cause": (
+            "RISC-V cache line size varies by implementation"
+            " (32/64/128 bytes)"
+        ),
         "solutions": [
             "Use runtime detection or conservative default",
-            "Replace hardcoded values with sysconf or macro-based detection",
+            (
+                "Replace hardcoded values with sysconf or macro-based"
+                " detection"
+            ),
         ],
     },
 }
@@ -166,22 +214,31 @@ RISCV_TRIPLETS = {
 }
 
 
-def get_system_knowledge_summary(profile: Optional[PlatformProfile] = None) -> str:
-    """
-    Produce a compact knowledge summary for injection into agent prompts.
+def get_system_knowledge_summary(
+    profile: Optional[PlatformProfile] = None,
+) -> str:
+    """Produce a compact knowledge summary for agent prompts.
 
-    Distro-specific text (install command, package map, libc, corrections)
-    is rendered from `profile`. RISC-V architecture knowledge is always
-    included. Defaults to the active platform profile.
+    Distro-specific text (install command, package map, libc,
+    corrections) is rendered from ``profile``. RISC-V architecture
+    knowledge is always included.
+
+    Args:
+        profile: Platform profile to render distro-specific text from.
+            Defaults to the active platform profile when ``None``.
+
+    Returns:
+        The composed system-knowledge prompt block as a string.
     """
     if profile is None:
         profile = get_active_profile()
 
+    install_cmd = f"{profile.pkg_update} && {profile.pkg_install} <package>"
     lines = [
         f"## RISC-V Porting Knowledge ({profile.display_name})",
         "",
         "### Package Installation",
-        f"Install command: `{profile.pkg_update} && {profile.pkg_install} <package>`",
+        f"Install command: `{install_cmd}`",
         "Canonical name → distro package:",
     ]
     for canonical, pkg in profile.package_map.items():
@@ -200,18 +257,32 @@ def get_system_knowledge_summary(profile: Optional[PlatformProfile] = None) -> s
 
     lines.append("")
     lines.append("### Key Facts")
-    lines.append(f"  - libc: **{profile.libc}** — adjust GNU-extension usage accordingly")
+    lines.append(
+        f"  - libc: **{profile.libc}** — adjust GNU-extension usage"
+        " accordingly"
+    )
     lines.append(f"  - Native target triplet: `{profile.target_triplet}`")
-    lines.append("  - Do NOT use cross-compilation flags when building natively inside the sandbox")
-    lines.append("  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) — explicit fences may be needed")
-    lines.append("  - RISC-V ISA extensions vary by hardware — detect, do not assume")
+    lines.append(
+        "  - Do NOT use cross-compilation flags when building natively"
+        " inside the sandbox"
+    )
+    lines.append(
+        "  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) —"
+        " explicit fences may be needed"
+    )
+    lines.append(
+        "  - RISC-V ISA extensions vary by hardware — detect, do not assume"
+    )
     for note in profile.extra_notes:
         lines.append(f"  - {note}")
 
     if profile.name_corrections:
         lines.append("")
         lines.append(f"### Package Name Corrections ({profile.display_name})")
-        lines.append("  Common LLM mistakes — these names are WRONG on this distro. Use the correct names:")
+        lines.append(
+            "  Common LLM mistakes — these names are WRONG on this"
+            " distro. Use the correct names:"
+        )
         for wrong, correct in profile.name_corrections.items():
             lines.append(f"  - `{wrong}` → use `{correct}`")
 

@@ -2,15 +2,16 @@
 
 import os
 import unittest
-from unittest import mock
 
-import src.llm_logger as llm_logger_mod
 from src.llm_logger import LLMCallLogger, log_llm_call, set_llm_log_repo
 
 
 class TestLogCall(unittest.TestCase):
-    def setUp(self):
+    """Tests for LogCall."""
+
+    def setUp(self) -> None:
         # Use a fresh tempdir for logs
+        """Set up test fixtures."""
         self.tmpdir = self._tmp()
         # Reset singleton state pointing at the temp dir
         inst = LLMCallLogger()
@@ -21,19 +22,25 @@ class TestLogCall(unittest.TestCase):
             f.write("")
 
     def _tmp(self):
+        """Tmp."""
         import tempfile
+
         return tempfile.mkdtemp(prefix="atesor-logtest-")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        """Tear down test fixtures."""
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _read_log(self, path=None):
+        """Read log."""
         path = path or LLMCallLogger().log_file
         with open(path) as f:
             return f.read()
 
-    def test_log_call_writes_record(self):
+    def test_log_call_writes_record(self) -> None:
+        """Test log call writes record."""
         call_id = log_llm_call(
             agent_role="SCOUT",
             prompt="please analyze",
@@ -53,19 +60,22 @@ class TestLogCall(unittest.TestCase):
         self.assertIn("$0.001000", content)
         self.assertIn(call_id, content)
 
-    def test_long_prompt_is_truncated(self):
+    def test_long_prompt_is_truncated(self) -> None:
+        """Test long prompt is truncated."""
         big = "x" * 15000
         log_llm_call("FIXER", big, "ok", "m", 0.0)
         content = self._read_log()
         self.assertIn("truncated 5000 characters", content)
 
-    def test_long_response_is_truncated(self):
+    def test_long_response_is_truncated(self) -> None:
+        """Test long response is truncated."""
         big = "y" * 12000
         log_llm_call("FIXER", "p", big, "m", 0.0)
         content = self._read_log()
         self.assertIn("truncated 2000 characters", content)
 
-    def test_set_repo_name_switches_file(self):
+    def test_set_repo_name_switches_file(self) -> None:
+        """Test set repo name switches file."""
         set_llm_log_repo("mypkg")
         inst = LLMCallLogger()
         self.assertTrue(inst.log_file.endswith("agent-call_mypkg.log"))
@@ -77,28 +87,42 @@ class TestLogCall(unittest.TestCase):
             with open(default) as f:
                 self.assertNotIn("BUILDER", f.read())
 
-    def test_empty_repo_name_does_not_switch(self):
+    def test_empty_repo_name_does_not_switch(self) -> None:
+        """Test empty repo name does not switch."""
         inst = LLMCallLogger()
         original = inst.log_file
         set_llm_log_repo("")
         self.assertEqual(inst.log_file, original)
 
-    def test_metadata_serialized_as_json(self):
-        log_llm_call("PLANNER", "p", "r", "m", 0.0, metadata={"a": 1, "nested": {"b": 2}})
+    def test_metadata_serialized_as_json(self) -> None:
+        """Test metadata serialized as json."""
+        log_llm_call(
+            "PLANNER",
+            "p",
+            "r",
+            "m",
+            0.0,
+            metadata={"a": 1, "nested": {"b": 2}},
+        )
         content = self._read_log()
         self.assertIn('"nested"', content)
         self.assertIn('"b": 2', content)
 
-    def test_call_ids_are_unique(self):
+    def test_call_ids_are_unique(self) -> None:
+        """Test call ids are unique."""
         ids = {log_llm_call("R", "p", "r", "m", 0.0) for _ in range(20)}
         self.assertEqual(len(ids), 20)
 
 
 class TestLoggerSingleton(unittest.TestCase):
-    def test_returns_same_instance(self):
+    """Tests for LoggerSingleton."""
+
+    def test_returns_same_instance(self) -> None:
+        """Test returns same instance."""
         self.assertIs(LLMCallLogger(), LLMCallLogger())
 
-    def test_call_records_deque_capped(self):
+    def test_call_records_deque_capped(self) -> None:
+        """Test call records deque capped."""
         inst = LLMCallLogger()
         self.assertEqual(inst.calls.maxlen, 1000)
 

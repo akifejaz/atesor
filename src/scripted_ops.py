@@ -1,23 +1,24 @@
-"""
-Deterministic, non-LLM operations for repository analysis and file management.
-Handles repository cloning, build system detection, and dependency extraction.
+"""Deterministic, non-LLM repository analysis operations.
+
+Handles repository cloning, build system detection, and dependency
+extraction without any LLM involvement.
 """
 
+import json
+import logging
 import os
 import re
-import json
-import subprocess
-from typing import List, Dict, Optional, Any
-import logging
-from .config import WORKSPACE_ROOT, REPOS_DIR, CACHE_DIR
+from typing import Any, Dict, List, Optional
 
 from src.state import (
-    BuildSystemInfo,
-    DependencyInfo,
     ArchSpecificCode,
+    BuildSystemInfo,
     CommandResult,
+    DependencyInfo,
 )
 from src.tools import execute_command
+
+from .config import CACHE_DIR, REPOS_DIR, WORKSPACE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,9 @@ logger = logging.getLogger(__name__)
 
 
 class ScriptedOperations:
-    """
-    Handles all deterministic operations that don't require LLM intelligence.
-    """
+    """Deterministic operations that don't require LLM intelligence."""
 
-    def __init__(self, workspace_root: str = None):
+    def __init__(self, workspace_root: str = None) -> None:
         """Initialize with environment-aware workspace."""
         if workspace_root is None:
             self.workspace_root = WORKSPACE_ROOT
@@ -64,12 +63,18 @@ class ScriptedOperations:
         return path
 
     def clone_or_update_repository(self, url: str, name: str) -> CommandResult:
-        """
-        Clone a repository or update if it already exists.
-        This is a zero-cost operation.
+        """Clone a repository or update it if it already exists.
 
-        IMPORTANT: Clones inside Docker container to avoid ownership issues.
-        If git pull fails (e.g., force-pushed branch), falls back to re-clone.
+        This is a zero-cost operation. Clones run inside the Docker
+        container to avoid ownership issues. If ``git pull`` fails (for
+        example a force-pushed branch), it falls back to a re-clone.
+
+        Args:
+            url: The repository clone URL.
+            name: The local directory name for the repository.
+
+        Returns:
+            The ``CommandResult`` of the clone or update operation.
         """
         # Use container path
         container_repo_path = f"/workspace/repos/{name}"
@@ -84,26 +89,38 @@ class ScriptedOperations:
 
             if not result.success:
                 # Pull failed — likely diverged history or force-push
-                logger.warning(f"git pull failed for {name}, attempting fetch+reset...")
+                logger.warning(
+                    f"git pull failed for {name}, attempting fetch+reset..."
+                )
                 reset_cmd = (
                     f"cd {container_repo_path} && "
                     f"git fetch origin && "
-                    f"git reset --hard $(git remote show origin | grep 'HEAD branch' | awk '{{print $NF}}' | xargs -I% echo origin/%) && "
+                    f"git reset --hard $(git remote show origin | "
+                    f"grep 'HEAD branch' | awk '{{print $NF}}' | "
+                    f"xargs -I% echo origin/%) && "
                     f"git clean -fdx"
                 )
                 result = execute_command(reset_cmd, use_docker=True)
 
                 if not result.success:
                     # Reset also failed — delete and re-clone
-                    logger.warning(f"fetch+reset failed for {name}, re-cloning from scratch...")
+                    logger.warning(
+                        f"fetch+reset failed for {name}, "
+                        f"re-cloning from scratch..."
+                    )
                     rm_cmd = f"rm -rf {container_repo_path}"
                     execute_command(rm_cmd, use_docker=True)
-                    clone_cmd = f"git clone --depth 1 {url} {container_repo_path}"
+                    clone_cmd = (
+                        f"git clone --depth 1 {url} {container_repo_path}"
+                    )
                     result = execute_command(clone_cmd, use_docker=True)
         else:
             # If directory exists but is not a valid git repo, remove it first
             if os.path.exists(host_repo_path):
-                logger.warning(f"Directory {name} exists but has no .git, removing and re-cloning...")
+                logger.warning(
+                    f"Directory {name} exists but has no .git, "
+                    f"removing and re-cloning..."
+                )
                 rm_cmd = f"rm -rf {container_repo_path}"
                 execute_command(rm_cmd, use_docker=True)
 
@@ -116,11 +133,14 @@ class ScriptedOperations:
         # This is needed because the workspace is mounted from host
         if result.success or os.path.exists(host_repo_path):
             safe_dir_cmd = (
-                f"git config --global --add safe.directory {container_repo_path}"
+                f"git config --global --add safe.directory "
+                f"{container_repo_path}"
             )
             safe_result = execute_command(safe_dir_cmd, use_docker=True)
             if not safe_result.success:
-                logger.warning(f"Failed to add safe.directory: {safe_result.stderr}")
+                logger.warning(
+                    f"Failed to add safe.directory: {safe_result.stderr}"
+                )
 
         return result
 
@@ -139,7 +159,8 @@ class ScriptedOperations:
 
         # Get branch
         result = execute_command(
-            f"cd {container_path} && git branch --show-current", use_docker=True
+            f"cd {container_path} && git branch --show-current",
+            use_docker=True,
         )
         if result.success:
             info["branch"] = result.stdout.strip()
@@ -156,9 +177,15 @@ class ScriptedOperations:
     # ========== Build System Detection ==========
 
     def detect_build_system(self, repo_path: str) -> BuildSystemInfo:
-        """
-        Detect build system using file-based heuristics.
+        """Detect the build system using file-based heuristics.
+
         This is a zero-cost operation.
+
+        Args:
+            repo_path: Path to the repository root.
+
+        Returns:
+            A ``BuildSystemInfo`` describing the detected build system.
         """
         repo_path = self._to_host_path(repo_path)
         build_systems = {
@@ -205,7 +232,8 @@ class ScriptedOperations:
                         detected.append(("go", f"{module_dir}/go.mod"))
                         confidence_scores["go"] = 0.90
                         logger.info(
-                            f"Found Go module in subdirectory: {module_dir}/go.mod"
+                            f"Found Go module in subdirectory: "
+                            f"{module_dir}/go.mod"
                         )
                         break
                     if "Cargo.toml" in files and build_sys == "cargo":
@@ -213,7 +241,8 @@ class ScriptedOperations:
                         detected.append(("cargo", f"{module_dir}/Cargo.toml"))
                         confidence_scores["cargo"] = 0.90
                         logger.info(
-                            f"Found Cargo module in subdirectory: {module_dir}/Cargo.toml"
+                            f"Found Cargo module in subdirectory: "
+                            f"{module_dir}/Cargo.toml"
                         )
                         break
                 if detected:
@@ -231,7 +260,9 @@ class ScriptedOperations:
 
         primary_file = [f for sys, f in detected if sys == best_system[0]][0]
         additional = [
-            f for sys, f in detected if sys == best_system[0] and f != primary_file
+            f
+            for sys, f in detected
+            if sys == best_system[0] and f != primary_file
         ]
 
         module_dir = ""
@@ -248,10 +279,19 @@ class ScriptedOperations:
 
     # ========== Dependency Detection ==========
 
-    def extract_dependencies(self, repo_path: str, build_system: str) -> DependencyInfo:
-        """
-        Extract dependencies by parsing package files.
+    def extract_dependencies(
+        self, repo_path: str, build_system: str
+    ) -> DependencyInfo:
+        """Extract dependencies by parsing package files.
+
         This is a zero-cost operation.
+
+        Args:
+            repo_path: Path to the repository root.
+            build_system: The detected build system name.
+
+        Returns:
+            A ``DependencyInfo`` with the extracted dependencies.
         """
         repo_path = self._to_host_path(repo_path)
         deps = DependencyInfo()
@@ -286,8 +326,10 @@ class ScriptedOperations:
         package_pattern = r"find_package\s*\(\s*(\w+)"
         packages = re.findall(package_pattern, content, re.IGNORECASE)
 
-        # Map common CMake packages to canonical names; PlatformProfile resolves to distro package at install time
+        # Map common CMake packages to canonical names; PlatformProfile
+        # resolves to the distro package at install time.
         from .platforms import get_active_profile
+
         profile = get_active_profile()
         canonical_map = {
             "Threads": "musl-dev",
@@ -295,14 +337,16 @@ class ScriptedOperations:
             "ZLIB": "zlib",
             "PNG": "libpng",
             "JPEG": "libjpeg-turbo",
-            "Boost": "boost-dev",      # rare canonical, kept as Alpine name
-            "Qt5": "qt5-qtbase-dev",   # rare canonical, kept as Alpine name
+            "Boost": "boost-dev",  # rare canonical, kept as Alpine name
+            "Qt5": "qt5-qtbase-dev",  # rare canonical, kept as Alpine name
             "Protobuf": "protobuf",
         }
 
         for pkg in packages:
             if pkg in canonical_map:
-                deps.system_packages.append(profile.resolve(canonical_map[pkg]))
+                deps.system_packages.append(
+                    profile.resolve(canonical_map[pkg])
+                )
             deps.libraries.append(pkg)
 
         # Common build tools for CMake
@@ -391,10 +435,16 @@ class ScriptedOperations:
         return deps
 
     def find_go_main_package(self, repo_path: str) -> Dict[str, str]:
-        """
-        Find the Go main package location.
-        Returns info about where the main package is located.
-        For repos without go.mod (old GOPATH-style), sets needs_go_init=True.
+        """Find the Go main package location.
+
+        For repos without ``go.mod`` (old GOPATH-style), sets
+        ``needs_go_init=True``.
+
+        Args:
+            repo_path: Path to the repository root.
+
+        Returns:
+            A dict describing where the main package is located.
         """
         result = {
             "has_main": False,
@@ -430,14 +480,21 @@ class ScriptedOperations:
                     for f in files:
                         if f.endswith(".go"):
                             try:
-                                with open(os.path.join(root, f), "r", encoding="utf-8", errors="ignore") as fh:
+                                with open(
+                                    os.path.join(root, f),
+                                    "r",
+                                    encoding="utf-8",
+                                    errors="ignore",
+                                ) as fh:
                                     if "package main" in fh.read():
-                                        rel_path = root.replace(repo_path, "").lstrip("/")
+                                        rel_path = root.replace(
+                                            repo_path, ""
+                                        ).lstrip("/")
                                         result["has_main"] = True
                                         result["main_path"] = rel_path or "."
                                         result["build_command"] = "go build ."
                                         return result
-                            except:
+                            except Exception:
                                 pass
             return result
 
@@ -458,7 +515,9 @@ class ScriptedOperations:
                         ) as file:
                             content = file.read()
                             if "package main" in content:
-                                rel_path = root.replace(go_mod_path, "").lstrip("/")
+                                rel_path = root.replace(
+                                    go_mod_path, ""
+                                ).lstrip("/")
                                 main_files.append(
                                     {
                                         "file": f,
@@ -466,22 +525,45 @@ class ScriptedOperations:
                                         "full_path": os.path.join(root, f),
                                     }
                                 )
-                    except:
+                    except Exception:
                         pass
 
         if main_files:
             result["has_main"] = True
-            # Prefer: cmd/<reponame> > cmd/* without test/example > root > other
+            # Prefer: cmd/<reponame> > cmd/* without test/example >
+            # root > other.
             repo_basename = os.path.basename(repo_path).lower()
+
             def score_main(m):
                 d = m["dir"].lower()
-                # Hard-penalize codegen helpers, contrib utilities, examples, tests
-                if any(seg in d.split("/") for seg in ("gen", "contrib", "example", "examples", "test", "tests", "internal", "tools", "scripts", "hack", "vendor")):
+                # Hard-penalize codegen helpers, contrib utilities,
+                # examples, and tests.
+                if any(
+                    seg in d.split("/")
+                    for seg in (
+                        "gen",
+                        "contrib",
+                        "example",
+                        "examples",
+                        "test",
+                        "tests",
+                        "internal",
+                        "tools",
+                        "scripts",
+                        "hack",
+                        "vendor",
+                    )
+                ):
                     if not d.startswith(f"cmd/{repo_basename}"):
                         return 0
                 if d == f"cmd/{repo_basename}":
                     return 10  # perfect match
-                if d.startswith("cmd/") and "test" not in d and "example" not in d and "integration" not in d:
+                if (
+                    d.startswith("cmd/")
+                    and "test" not in d
+                    and "example" not in d
+                    and "integration" not in d
+                ):
                     return 7
                 if not d:
                     return 6  # root main — prefer over arbitrary subdirs
@@ -520,6 +602,7 @@ class ScriptedOperations:
 
         # Map -l flags to canonical names; profile resolves to distro package
         from .platforms import get_active_profile
+
         profile = get_active_profile()
         canonical_lib_map = {
             "ssl": "openssl",
@@ -532,7 +615,9 @@ class ScriptedOperations:
 
         for lib in libs:
             if lib in canonical_lib_map:
-                deps.system_packages.append(profile.resolve(canonical_lib_map[lib]))
+                deps.system_packages.append(
+                    profile.resolve(canonical_lib_map[lib])
+                )
             deps.libraries.append(lib)
 
         deps.build_tools = ["make", "gcc", "g++"]
@@ -540,17 +625,31 @@ class ScriptedOperations:
 
     # ========== Architecture-Specific Code Detection ==========
 
-    def find_architecture_specific_code(self, repo_path: str) -> List[ArchSpecificCode]:
-        """
-        Search for architecture-specific code patterns.
+    def find_architecture_specific_code(
+        self, repo_path: str
+    ) -> List[ArchSpecificCode]:
+        """Search for architecture-specific code patterns.
+
         This is a zero-cost operation using grep.
+
+        Args:
+            repo_path: Path to the repository root.
+
+        Returns:
+            A list of ``ArchSpecificCode`` findings.
         """
         repo_path = self._to_host_path(repo_path)
         arch_specific = []
 
         # Patterns to search for
         patterns = {
-            "x86": [r"__x86_64__", r"__amd64__", r"__i386__", r"_M_X64", r"_M_IX86"],
+            "x86": [
+                r"__x86_64__",
+                r"__amd64__",
+                r"__i386__",
+                r"_M_X64",
+                r"_M_IX86",
+            ],
             "x86_simd": [
                 r"__SSE\d?__",
                 r"__AVX\d?__",
@@ -571,7 +670,8 @@ class ScriptedOperations:
                 # Use grep for fast searching
                 cmd = (
                     f"grep -rn -E '{pattern}' {target_path} "
-                    f"--include='*.c' --include='*.cpp' --include='*.h' --include='*.hpp' "
+                    f"--include='*.c' --include='*.cpp' "
+                    f"--include='*.h' --include='*.hpp' "
                     f"2>/dev/null | head -n 20"
                 )
 
@@ -588,18 +688,28 @@ class ScriptedOperations:
 
                                 # Determine severity
                                 severity = "medium"
-                                if arch_type in ["x86_simd", "arm_simd", "inline_asm"]:
+                                if arch_type in [
+                                    "x86_simd",
+                                    "arm_simd",
+                                    "inline_asm",
+                                ]:
                                     severity = "high"
 
                                 arch_specific.append(
                                     ArchSpecificCode(
                                         file=file_path,
-                                        line=int(line_num) if line_num.isdigit() else 0,
+                                        line=(
+                                            int(line_num)
+                                            if line_num.isdigit()
+                                            else 0
+                                        ),
                                         code_snippet=code.strip(),
                                         arch_type=arch_type,
                                         severity=severity,
-                                        suggested_fix=self._suggest_fix_for_arch_code(
-                                            arch_type
+                                        suggested_fix=(
+                                            self._suggest_fix_for_arch_code(
+                                                arch_type
+                                            )
                                         ),
                                     )
                                 )
@@ -610,10 +720,16 @@ class ScriptedOperations:
         """Suggest fixes for architecture-specific code."""
         suggestions = {
             "x86": "Add RISC-V conditional compilation (#ifdef __riscv)",
-            "x86_simd": "Use RVV (RISC-V Vector) extension or scalar fallback",
+            "x86_simd": (
+                "Use RVV (RISC-V Vector) extension or scalar fallback"
+            ),
             "arm": "Add RISC-V conditional compilation (#ifdef __riscv)",
-            "arm_simd": "Use RVV (RISC-V Vector) extension or scalar fallback",
-            "inline_asm": "Rewrite assembly in C or add RISC-V assembly variant",
+            "arm_simd": (
+                "Use RVV (RISC-V Vector) extension or scalar fallback"
+            ),
+            "inline_asm": (
+                "Rewrite assembly in C or add RISC-V assembly variant"
+            ),
         }
         return suggestions.get(arch_type, "Review and port to RISC-V")
 
@@ -623,26 +739,35 @@ class ScriptedOperations:
         """Get a tree view of the repository."""
         target_path = self._to_container_path(repo_path)
 
-        cmd = f"tree -L {max_depth} -I '.git|node_modules|__pycache__|.venv' {target_path}"
+        cmd = (
+            f"tree -L {max_depth} "
+            f"-I '.git|node_modules|__pycache__|.venv' {target_path}"
+        )
         result = execute_command(cmd, use_docker=True)
 
         if result.success:
             return result.stdout
         else:
-            cmd = f"find {target_path} -maxdepth {max_depth} -type f | head -n 100"
+            cmd = (
+                f"find {target_path} -maxdepth {max_depth} "
+                f"-type f | head -n 100"
+            )
             result = execute_command(cmd, use_docker=True)
             return result.stdout
 
     def get_optimized_tree(self, repo_path: str) -> str:
-        """
-        Get an optimized, token-efficient tree structure for agent context.
-        This provides essential structural information without full verbose output.
+        """Build a token-efficient tree structure for agent context.
 
-        Returns a compact representation showing:
-        - Root level files (especially build configs, docs)
-        - Directory structure (2 levels deep)
-        - File counts by category
-        - Key files highlighted
+        Provides essential structural information without full verbose
+        output. The compact representation shows root-level files
+        (especially build configs and docs), the directory structure two
+        levels deep, file counts by category, and key files highlighted.
+
+        Args:
+            repo_path: Path to the repository root.
+
+        Returns:
+            A compact textual repository tree.
         """
         target_path = self._to_container_path(repo_path)
 
@@ -653,7 +778,10 @@ class ScriptedOperations:
         ls_cmd = f"ls -la {target_path} 2>/dev/null"
         ls_result = execute_command(ls_cmd, use_docker=True)
 
-        find_cmd = f"find {target_path} -maxdepth 2 -type d 2>/dev/null | grep -v '.git' | sort"
+        find_cmd = (
+            f"find {target_path} -maxdepth 2 -type d 2>/dev/null "
+            f"| grep -v '.git' | sort"
+        )
         find_result = execute_command(find_cmd, use_docker=True)
 
         if ls_result.success and ls_result.stdout.strip():
@@ -686,14 +814,22 @@ class ScriptedOperations:
                 "pom.xml",
                 "build.gradle",
             ],
-            "Documentation": ["README*", "INSTALL*", "BUILDING*", "CONTRIBUTING*"],
+            "Documentation": [
+                "README*",
+                "INSTALL*",
+                "BUILDING*",
+                "CONTRIBUTING*",
+            ],
             "Config": [".env*", "config.*", "*.yaml", "*.yml", "*.json"],
         }
 
         for category, patterns in key_patterns.items():
             found_files = []
             for pattern in patterns:
-                cmd = f"find {target_path} -maxdepth 2 -name '{pattern}' -type f 2>/dev/null | head -n 5"
+                cmd = (
+                    f"find {target_path} -maxdepth 2 "
+                    f"-name '{pattern}' -type f 2>/dev/null | head -n 5"
+                )
                 result = execute_command(cmd, use_docker=True)
                 if result.success and result.stdout.strip():
                     for f in result.stdout.strip().split("\n"):
@@ -702,36 +838,55 @@ class ScriptedOperations:
                             found_files.append(rel_path)
 
             if found_files:
-                sections.append(f"- **{category}**: {', '.join(found_files[:8])}\n")
+                sections.append(
+                    f"- **{category}**: {', '.join(found_files[:8])}\n"
+                )
 
         sections.append("\n## Directory Stats\n")
 
-        stats_cmd = f"find {target_path} -maxdepth 1 -type d ! -path {target_path} 2>/dev/null | wc -l"
+        stats_cmd = (
+            f"find {target_path} -maxdepth 1 -type d "
+            f"! -path {target_path} 2>/dev/null | wc -l"
+        )
         stats_result = execute_command(stats_cmd, use_docker=True)
         if stats_result.success:
-            sections.append(f"- Root subdirectories: {stats_result.stdout.strip()}\n")
+            sections.append(
+                f"- Root subdirectories: {stats_result.stdout.strip()}\n"
+            )
 
-        src_cmd = f"find {target_path} -maxdepth 3 -type f -name '*.c' -o -name '*.cpp' -o -name '*.h' 2>/dev/null | wc -l"
+        src_cmd = (
+            f"find {target_path} -maxdepth 3 -type f -name '*.c' "
+            f"-o -name '*.cpp' -o -name '*.h' 2>/dev/null | wc -l"
+        )
         src_result = execute_command(src_cmd, use_docker=True)
         if src_result.success and src_result.stdout.strip() != "0":
-            sections.append(f"- C/C++ source files: {src_result.stdout.strip()}\n")
+            sections.append(
+                f"- C/C++ source files: {src_result.stdout.strip()}\n"
+            )
 
         go_cmd = (
-            f"find {target_path} -maxdepth 3 -type f -name '*.go' 2>/dev/null | wc -l"
+            f"find {target_path} -maxdepth 3 -type f "
+            f"-name '*.go' 2>/dev/null | wc -l"
         )
         go_result = execute_command(go_cmd, use_docker=True)
         if go_result.success and go_result.stdout.strip() != "0":
-            sections.append(f"- Go source files: {go_result.stdout.strip()}\n")
+            sections.append(
+                f"- Go source files: {go_result.stdout.strip()}\n"
+            )
 
         rs_cmd = (
-            f"find {target_path} -maxdepth 3 -type f -name '*.rs' 2>/dev/null | wc -l"
+            f"find {target_path} -maxdepth 3 -type f "
+            f"-name '*.rs' 2>/dev/null | wc -l"
         )
         rs_result = execute_command(rs_cmd, use_docker=True)
         if rs_result.success and rs_result.stdout.strip() != "0":
-            sections.append(f"- Rust source files: {rs_result.stdout.strip()}\n")
+            sections.append(
+                f"- Rust source files: {rs_result.stdout.strip()}\n"
+            )
 
         py_cmd = (
-            f"find {target_path} -maxdepth 3 -type f -name '*.py' 2>/dev/null | wc -l"
+            f"find {target_path} -maxdepth 3 -type f "
+            f"-name '*.py' 2>/dev/null | wc -l"
         )
         py_result = execute_command(py_cmd, use_docker=True)
         if py_result.success and py_result.stdout.strip() != "0":
@@ -750,7 +905,9 @@ class ScriptedOperations:
                 lines = []
                 for i, line in enumerate(f):
                     if i >= max_lines:
-                        lines.append(f"\n... (truncated after {max_lines} lines)")
+                        lines.append(
+                            f"\n... (truncated after {max_lines} lines)"
+                        )
                         break
                     lines.append(line)
                 return "".join(lines)
@@ -796,8 +953,10 @@ class ScriptedOperations:
 
         return sorted_docs[:10]  # Limit to top 10
 
-    def get_system_info(self, tools: Optional[List[str]] = None) -> Dict[str, str]:
-        """Get information about the system environment inside the CONTAINER."""
+    def get_system_info(
+        self, tools: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        """Get system environment information inside the container."""
         info = {}
         if tools is None:
             tools = [
@@ -833,10 +992,17 @@ class ScriptedOperations:
 
     # ========== Helper Methods ==========
 
-    def detect_arch_specific_build_files(self, repo_path: str) -> Dict[str, Any]:
-        """
-        Detect architecture-specific build files in the repository.
-        Returns information about existing arch files and whether RISC-V support exists.
+    def detect_arch_specific_build_files(
+        self, repo_path: str
+    ) -> Dict[str, Any]:
+        """Detect architecture-specific build files in the repository.
+
+        Args:
+            repo_path: Path to the repository root.
+
+        Returns:
+            A dict describing existing arch files and whether RISC-V
+            support already exists.
         """
         target_path = self._to_container_path(repo_path)
         result = {
@@ -848,14 +1014,27 @@ class ScriptedOperations:
         }
 
         arch_patterns = [
-            ("x64", r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(x64|x86_64|amd64)"),
-            ("arm64", r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(arm64|aarch64)"),
+            (
+                "x64",
+                r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(x64|x86_64|amd64)",
+            ),
+            (
+                "arm64",
+                r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(arm64|aarch64)",
+            ),
             ("x86", r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(x86|i386|i686)"),
-            ("riscv", r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(riscv|riscv64|rv64)"),
+            (
+                "riscv",
+                r"(cmpl_gcc_|var_gcc_|makefile\.|build_)(riscv|riscv64|rv64)",
+            ),
         ]
 
         for arch, pattern in arch_patterns:
-            cmd = f"find {target_path} -type f -name '*.mak' -o -name '*.mk' 2>/dev/null | xargs grep -l '{arch}' 2>/dev/null | head -20"
+            cmd = (
+                f"find {target_path} -type f -name '*.mak' "
+                f"-o -name '*.mk' 2>/dev/null "
+                f"| xargs grep -l '{arch}' 2>/dev/null | head -20"
+            )
             find_result = execute_command(cmd, use_docker=True)
 
             if find_result.success and find_result.stdout.strip():
@@ -872,7 +1051,9 @@ class ScriptedOperations:
                 if arch in result["arch_files"]:
                     for src_file in result["arch_files"][arch][:3]:
                         riscv_file = src_file.replace(arch, "riscv64")
-                        riscv_file = re.sub(r"x86_64|amd64", "riscv64", riscv_file)
+                        riscv_file = re.sub(
+                            r"x86_64|amd64", "riscv64", riscv_file
+                        )
                         result["suggested_riscv_files"].append(
                             {
                                 "source": src_file,
@@ -889,9 +1070,15 @@ class ScriptedOperations:
 
 
 def quick_analysis(repo_path: str) -> Dict[str, Any]:
-    """
-    Perform quick repository analysis using only scripted operations.
+    """Perform quick repository analysis using only scripted operations.
+
     This provides initial context without any LLM calls.
+
+    Args:
+        repo_path: Path to the repository root.
+
+    Returns:
+        A dict of analysis results.
     """
     ops = ScriptedOperations()
 
@@ -912,6 +1099,8 @@ def quick_analysis(repo_path: str) -> Dict[str, Any]:
         if analysis["build_system"].type == "go":
             analysis["go_main_info"] = ops.find_go_main_package(repo_path)
 
-    analysis["arch_specific_code"] = ops.find_architecture_specific_code(repo_path)
+    analysis["arch_specific_code"] = ops.find_architecture_specific_code(
+        repo_path
+    )
 
     return analysis

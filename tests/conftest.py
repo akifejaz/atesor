@@ -1,10 +1,10 @@
-"""
-Shared pytest fixtures for the Atesor AI test suite.
+"""Shared pytest fixtures for the Atesor AI test suite.
 
 Goals:
-  * Isolate every test from shared global state (MEMORY_INSTANCES, recipe cache,
-    active platform profile, llm_logger file handle).
-  * Never touch the network, never launch a real Docker exec, never call an LLM.
+  * Isolate every test from shared global state (MEMORY_INSTANCES,
+    recipe cache, active platform profile, llm_logger file handle).
+  * Never touch the network, never launch a real Docker exec, never
+    call an LLM.
   * Make file-system side effects opt-in via the `tmp_path` builtin.
 """
 
@@ -16,7 +16,6 @@ from typing import Iterator
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Isolate the global agent-memory singleton between tests
 # ---------------------------------------------------------------------------
@@ -24,7 +23,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_memory_instances() -> Iterator[None]:
-    """Wipe the MEMORY_INSTANCES singleton dict so AgentMemory tests don't bleed."""
+    """Wipe the MEMORY_INSTANCES singleton so tests don't bleed."""
     from src import memory
 
     saved = dict(memory.MEMORY_INSTANCES)
@@ -67,12 +66,13 @@ def _restore_active_profile() -> Iterator[None]:
 
 @pytest.fixture
 def empty_recipe_cache() -> Iterator[Path]:
-    """
-    Replace the real recipe cache with an empty v2 cache for the test, then
-    restore the original contents. Yields the cache path.
+    """Replace the recipe cache with an empty v2 cache for a test.
 
-    Tests that want a clean slate should depend on this fixture explicitly;
-    they should NOT just write to RECIPE_CACHE_PATH globally.
+    Restores the original contents afterwards. Yields the cache path.
+
+    Tests that want a clean slate should depend on this fixture
+    explicitly; they should NOT just write to RECIPE_CACHE_PATH
+    globally.
     """
     from src import memory
 
@@ -93,21 +93,25 @@ def empty_recipe_cache() -> Iterator[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Safe helper: stub execute_command in a single module so tests don't fork docker
+# Safe helper: stub execute_command in a single module so tests
+# don't fork docker
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def stub_execute_command(monkeypatch):
-    """
-    Return a helper that replaces execute_command in any module with a
-    deterministic callable. Example:
+    """Return a helper that stubs execute_command in any module.
+
+    The returned helper replaces execute_command with a deterministic
+    callable. Example::
 
         def fake(cmd, **kwargs):
             return CommandResult(cmd, 0, "ok", "", 0.0)
         stub_execute_command("src.scripted_ops", fake)
     """
+
     def _install(module_path: str, fake):
+        """Install."""
         import importlib
 
         mod = importlib.import_module(module_path)
@@ -128,20 +132,28 @@ def isolated_examples_dir(tmp_path) -> Path:
     """Create a tmp dir + seed a minimal scout examples file."""
     d = tmp_path / "examples"
     d.mkdir()
-    (d / "scout_examples.json").write_text(json.dumps({
-        "version": "2.0",
-        "examples": [
+    (d / "scout_examples.json").write_text(
+        json.dumps(
             {
-                "id": "scout-001",
-                "name": "Seed Example",
-                "tags": ["go"],
-                "build_system": "go",
-                "source": "manual",
-                "repo_name": "seed",
-                "sandbox": "alpine-riscv64",
-                "plan": {"phases": [{"name": "build", "commands": ["go build ."]}]},
-                "reasoning": "seed",
+                "version": "2.0",
+                "examples": [
+                    {
+                        "id": "scout-001",
+                        "name": "Seed Example",
+                        "tags": ["go"],
+                        "build_system": "go",
+                        "source": "manual",
+                        "repo_name": "seed",
+                        "sandbox": "alpine-riscv64",
+                        "plan": {
+                            "phases": [
+                                {"name": "build", "commands": ["go build ."]}
+                            ]
+                        },
+                        "reasoning": "seed",
+                    }
+                ],
             }
-        ],
-    }))
+        )
+    )
     return d

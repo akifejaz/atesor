@@ -1,10 +1,11 @@
-"""
-Aggressive tests for src/tools.py — command validation, package-manager
-helpers, Docker glue, and patch application.
+"""Aggressive tests for src/tools.py.
 
-Real subprocesses are mocked: tests never `docker exec`, `git clone`, or
-`apk add` for real. The Docker boundary is exercised via monkeypatched
-subprocess.run.
+Covers command validation, package-manager helpers, Docker glue, and
+patch application.
+
+Real subprocesses are mocked: tests never ``docker exec``,
+``git clone``, or ``apk add`` for real. The Docker boundary is
+exercised via monkeypatched subprocess.run.
 """
 
 from __future__ import annotations
@@ -14,11 +15,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
-
 from src.tools import (
     CommandValidator,
-    DockerConfig,
     _fix_pkg_names,
     _is_pkg_command,
     _is_pkg_lock_error,
@@ -26,13 +24,14 @@ from src.tools import (
     execute_command,
 )
 
-
 # ===========================================================================
 # CommandValidator — exhaustive parametrized
 # ===========================================================================
 
 
 class TestCommandValidatorSafe(unittest.TestCase):
+    """Tests for CommandValidatorSafe."""
+
     validator = CommandValidator()
 
     SAFE = [
@@ -87,7 +86,8 @@ class TestCommandValidatorSafe(unittest.TestCase):
         "for f in *.c; do gcc -c $f; done",
     ]
 
-    def test_safe_commands_pass(self):
+    def test_safe_commands_pass(self) -> None:
+        """Test safe commands pass."""
         for cmd in self.SAFE:
             with self.subTest(cmd=cmd):
                 ok, reason = self.validator.is_safe(cmd)
@@ -95,6 +95,8 @@ class TestCommandValidatorSafe(unittest.TestCase):
 
 
 class TestCommandValidatorDangerous(unittest.TestCase):
+    """Tests for CommandValidatorDangerous."""
+
     validator = CommandValidator()
 
     DANGEROUS = [
@@ -112,13 +114,15 @@ class TestCommandValidatorDangerous(unittest.TestCase):
         ("blahblah --foo", "unknown"),
     ]
 
-    def test_dangerous_commands_blocked(self):
+    def test_dangerous_commands_blocked(self) -> None:
+        """Test dangerous commands blocked."""
         for cmd, label in self.DANGEROUS:
             with self.subTest(cmd=cmd):
                 ok, reason = self.validator.is_safe(cmd)
                 self.assertFalse(ok, f"SHOULD BLOCK ({label}): {cmd}")
 
-    def test_unknown_command_specific_reason(self):
+    def test_unknown_command_specific_reason(self) -> None:
+        """Test unknown command specific reason."""
         ok, reason = self.validator.is_safe("nmap 1.2.3.4")
         self.assertFalse(ok)
         self.assertEqual(reason, "Unknown command pattern (not in whitelist)")
@@ -130,7 +134,10 @@ class TestCommandValidatorDangerous(unittest.TestCase):
 
 
 class TestPkgCommandDetection(unittest.TestCase):
-    def test_all_pkg_command_prefixes_recognised(self):
+    """Tests for PkgCommandDetection."""
+
+    def test_all_pkg_command_prefixes_recognised(self) -> None:
+        """Test all pkg command prefixes recognised."""
         cases = [
             "apk add zlib-dev",
             "apk update",
@@ -145,16 +152,22 @@ class TestPkgCommandDetection(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertTrue(_is_pkg_command(cmd), cmd)
 
-    def test_non_pkg_commands_are_ignored(self):
+    def test_non_pkg_commands_are_ignored(self) -> None:
+        """Test non pkg commands are ignored."""
         for cmd in [
-            "make -j4", "go build .", "cmake -B build", "echo hello",
-            "ls /workspace", "apk-tools-static --version",  # not a real install
+            "make -j4",
+            "go build .",
+            "cmake -B build",
+            "echo hello",
+            "ls /workspace",
+            "apk-tools-static --version",  # not a real install
         ]:
             with self.subTest(cmd=cmd):
                 self.assertFalse(_is_pkg_command(cmd), cmd)
 
-    def test_pkg_command_inside_chain_detected(self):
+    def test_pkg_command_inside_chain_detected(self) -> None:
         # commands using `&&` chaining still contain the prefix as substring
+        """Test pkg command inside chain detected."""
         self.assertTrue(_is_pkg_command("apk update && apk add zlib-dev"))
 
 
@@ -164,33 +177,63 @@ class TestPkgCommandDetection(unittest.TestCase):
 
 
 def _result(returncode, stderr="", stdout=""):
+    """Build a fake subprocess result namespace for tests."""
     return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=stdout)
 
 
 class TestPkgLockDetection(unittest.TestCase):
-    def test_apk_lock_detected(self):
-        self.assertTrue(_is_pkg_lock_error(
-            _result(1, stderr="ERROR: Unable to lock database: temporarily unavailable")
-        ))
+    """Tests for PkgLockDetection."""
 
-    def test_apt_dpkg_lock_detected(self):
-        self.assertTrue(_is_pkg_lock_error(
-            _result(100, stderr="E: Could not get lock /var/lib/dpkg/lock-frontend")
-        ))
+    def test_apk_lock_detected(self) -> None:
+        """Test apk lock detected."""
+        self.assertTrue(
+            _is_pkg_lock_error(
+                _result(
+                    1,
+                    stderr=(
+                        "ERROR: Unable to lock database: "
+                        "temporarily unavailable"
+                    ),
+                )
+            )
+        )
 
-    def test_dpkg_frontend_lock_detected(self):
-        self.assertTrue(_is_pkg_lock_error(
-            _result(1, stderr="dpkg frontend lock is held by another process")
-        ))
+    def test_apt_dpkg_lock_detected(self) -> None:
+        """Test apt dpkg lock detected."""
+        self.assertTrue(
+            _is_pkg_lock_error(
+                _result(
+                    100,
+                    stderr="E: Could not get lock /var/lib/dpkg/lock-frontend",
+                )
+            )
+        )
 
-    def test_success_never_a_lock_error(self):
-        self.assertFalse(_is_pkg_lock_error(_result(0, stderr="Unable to lock")))
+    def test_dpkg_frontend_lock_detected(self) -> None:
+        """Test dpkg frontend lock detected."""
+        self.assertTrue(
+            _is_pkg_lock_error(
+                _result(
+                    1, stderr="dpkg frontend lock is held by another process"
+                )
+            )
+        )
 
-    def test_non_lock_failure_not_treated_as_lock(self):
-        self.assertFalse(_is_pkg_lock_error(_result(1, stderr="package not found")))
+    def test_success_never_a_lock_error(self) -> None:
+        """Test success never a lock error."""
+        self.assertFalse(
+            _is_pkg_lock_error(_result(0, stderr="Unable to lock"))
+        )
 
-    def test_returncode_zero_short_circuits(self):
+    def test_non_lock_failure_not_treated_as_lock(self) -> None:
+        """Test non lock failure not treated as lock."""
+        self.assertFalse(
+            _is_pkg_lock_error(_result(1, stderr="package not found"))
+        )
+
+    def test_returncode_zero_short_circuits(self) -> None:
         # Regression: should not look at stderr when returncode == 0
+        """Test returncode zero short circuits."""
         self.assertFalse(_is_pkg_lock_error(_result(0, stderr="")))
 
 
@@ -200,34 +243,39 @@ class TestPkgLockDetection(unittest.TestCase):
 
 
 class TestFixPkgNames(unittest.TestCase):
-    """Both Alpine and Debian profiles have name corrections — exercise both."""
+    """Both Alpine and Debian profiles correct names — exercise both."""
 
     def _apply(self, command: str, platform_name: str = "alpine") -> str:
+        """Apply."""
         from src import platforms
 
         platforms.set_active_profile(platform_name)
         return _fix_pkg_names(command)
 
-    def test_alpine_corrects_debian_names(self):
+    def test_alpine_corrects_debian_names(self) -> None:
         # Alpine's name_corrections has "liblzma-dev" -> "xz-dev"
+        """Test alpine corrects debian names."""
         got = self._apply("apk add liblzma-dev curl-dev", "alpine")
         self.assertIn("xz-dev", got)
         self.assertNotIn("liblzma-dev", got)
 
-    def test_debian_corrects_alpine_names(self):
+    def test_debian_corrects_alpine_names(self) -> None:
         # Debian profile maps "zlib-dev" -> "zlib1g-dev"
+        """Test debian corrects alpine names."""
         got = self._apply("apt-get install -y zlib-dev openssl-dev", "debian")
         self.assertIn("zlib1g-dev", got)
         self.assertNotIn("zlib-dev ", got + " ")
         # openssl-dev -> libssl-dev on Debian
         self.assertIn("libssl-dev", got)
 
-    def test_no_match_passes_through(self):
+    def test_no_match_passes_through(self) -> None:
+        """Test no match passes through."""
         got = self._apply("apk add zlib-dev", "alpine")
         self.assertEqual(got, "apk add zlib-dev")
 
-    def test_word_boundary_prevents_partial_replacement(self):
+    def test_word_boundary_prevents_partial_replacement(self) -> None:
         # `xz-dev` should not match inside `xz-dev2-foo` (it has \b anchors)
+        """Test word boundary prevents partial replacement."""
         got = self._apply("apt-get install -y xz-dev2-foo", "debian")
         self.assertIn("xz-dev2-foo", got)
 
@@ -238,32 +286,42 @@ class TestFixPkgNames(unittest.TestCase):
 
 
 class TestExecuteCommand(unittest.TestCase):
-    def setUp(self):
+    """Tests for ExecuteCommand."""
+
+    def setUp(self) -> None:
         # Pre-cache platform profile to avoid detect_platform() invoking
         # subprocess.run during the tests below.
+        """Set up test fixtures."""
         from src import platforms
+
         platforms.set_active_profile("alpine")
 
         # Avoid touching real Docker
         self.patches = []
-        self.patches.append(mock.patch(
-            "src.tools.DockerConfig.is_container_running", return_value=True
-        ))
+        self.patches.append(
+            mock.patch(
+                "src.tools.DockerConfig.is_container_running",
+                return_value=True,
+            )
+        )
         for p in self.patches:
             p.start()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        """Tear down test fixtures."""
         for p in self.patches:
             p.stop()
 
-    def test_blocked_command_returns_failure_without_running(self):
+    def test_blocked_command_returns_failure_without_running(self) -> None:
+        """Test blocked command returns failure without running."""
         with mock.patch("src.tools.subprocess.run") as mrun:
             res = execute_command("rm -rf /")
             self.assertFalse(res.success)
             self.assertIn("Command blocked", res.stderr)
             mrun.assert_not_called()
 
-    def test_validate_false_bypasses_validator(self):
+    def test_validate_false_bypasses_validator(self) -> None:
+        """Test validate false bypasses validator."""
         with mock.patch("src.tools.subprocess.run") as mrun:
             mrun.return_value = SimpleNamespace(
                 returncode=0, stdout="ok", stderr=""
@@ -272,7 +330,8 @@ class TestExecuteCommand(unittest.TestCase):
             self.assertTrue(res.success)
             mrun.assert_called_once()
 
-    def test_successful_command_returns_correct_result(self):
+    def test_successful_command_returns_correct_result(self) -> None:
+        """Test successful command returns correct result."""
         with mock.patch("src.tools.subprocess.run") as mrun:
             mrun.return_value = SimpleNamespace(
                 returncode=0, stdout="hello\n", stderr=""
@@ -282,7 +341,8 @@ class TestExecuteCommand(unittest.TestCase):
             self.assertEqual(res.stdout, "hello\n")
             self.assertTrue(res.success)
 
-    def test_timeout_is_captured_as_negative_one(self):
+    def test_timeout_is_captured_as_negative_one(self) -> None:
+        """Test timeout is captured as negative one."""
         with mock.patch(
             "src.tools.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="ls", timeout=1),
@@ -292,10 +352,14 @@ class TestExecuteCommand(unittest.TestCase):
             self.assertIn("timed out", res.stderr.lower())
 
     def test_timeout_triggers_pkill_inside_container(self):
-        """Regression for orphan qemu-riscv64 after timeout (dnsx incident 2026-05-21)."""
+        """Regression for orphan qemu-riscv64 after timeout.
+
+        See the dnsx incident on 2026-05-21.
+        """
         calls = []
 
         def fake_run(args, **kwargs):
+            """Fake run."""
             calls.append(args)
             # First call (the actual docker exec) times out
             if len(calls) == 1:
@@ -304,11 +368,15 @@ class TestExecuteCommand(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with mock.patch("src.tools.subprocess.run", side_effect=fake_run):
-            res = execute_command("go build -buildvcs=false ./cmd/foo", timeout=60)
+            res = execute_command(
+                "go build -buildvcs=false ./cmd/foo", timeout=60
+            )
 
         self.assertEqual(res.exit_code, -1)
         # Second invocation must be a pkill against the container
-        self.assertGreaterEqual(len(calls), 2, "post-timeout pkill never fired")
+        self.assertGreaterEqual(
+            len(calls), 2, "post-timeout pkill never fired"
+        )
         pkill_args = calls[1]
         self.assertEqual(pkill_args[0], "docker")
         self.assertIn("pkill", pkill_args)
@@ -321,6 +389,7 @@ class TestExecuteCommand(unittest.TestCase):
         captured = {}
 
         def fake_run(args, **kwargs):
+            """Fake run."""
             captured.setdefault("args", args)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -333,7 +402,8 @@ class TestExecuteCommand(unittest.TestCase):
         self.assertIn("270s", bash_cmd)
         self.assertIn("go build ./...", bash_cmd)
 
-    def test_subprocess_exception_captured_as_negative_one(self):
+    def test_subprocess_exception_captured_as_negative_one(self) -> None:
+        """Test subprocess exception captured as negative one."""
         with mock.patch(
             "src.tools.subprocess.run",
             side_effect=OSError("disk on fire"),
@@ -342,7 +412,8 @@ class TestExecuteCommand(unittest.TestCase):
             self.assertEqual(res.exit_code, -1)
             self.assertIn("disk on fire", res.stderr)
 
-    def test_container_not_running_short_circuits(self):
+    def test_container_not_running_short_circuits(self) -> None:
+        """Test container not running short circuits."""
         with mock.patch(
             "src.tools.DockerConfig.is_container_running", return_value=False
         ):
@@ -353,9 +424,11 @@ class TestExecuteCommand(unittest.TestCase):
                 mrun.assert_not_called()
 
     def test_docker_exec_command_assembled(self):
+        """Test docker exec command assembled."""
         captured = {}
 
         def fake_run(args, **kwargs):
+            """Fake run."""
             captured["args"] = args
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -374,9 +447,11 @@ class TestExecuteCommand(unittest.TestCase):
         self.assertIn("-c", args)
 
     def test_pkg_command_wrapped_with_flock(self):
+        """Test pkg command wrapped with flock."""
         captured = {}
 
         def fake_run(args, **kwargs):
+            """Fake run."""
             captured["args"] = args
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -389,10 +464,13 @@ class TestExecuteCommand(unittest.TestCase):
         self.assertIn("apk add", bash_cmd)
 
     def test_host_workspace_path_translated_to_container_path(self):
+        """Test host workspace path translated to container path."""
         from src.config import WORKSPACE_ROOT
+
         captured = {}
 
         def fake_run(args, **kwargs):
+            """Fake run."""
             captured["args"] = args
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -406,28 +484,36 @@ class TestExecuteCommand(unittest.TestCase):
 
 
 # ===========================================================================
-# apply_patch — rejects content that isn't a valid unified diff when filepath set
+# apply_patch — rejects content that isn't a valid unified diff when
+# filepath set
 # ===========================================================================
 
 
 class TestApplyPatch(unittest.TestCase):
-    def test_empty_patch_returns_false(self):
+    """Tests for ApplyPatch."""
+
+    def test_empty_patch_returns_false(self) -> None:
+        """Test empty patch returns false."""
         self.assertFalse(apply_patch("", filepath="foo.c"))
 
-    def test_raw_content_with_filepath_is_rejected(self):
-        """Regression: applying a non-diff string with filepath used to clobber the file."""
+    def test_raw_content_with_filepath_is_rejected(self) -> None:
+        """Regression: a non-diff string with filepath clobbered the file."""
         with mock.patch("src.tools.write_file", return_value=True):
             with mock.patch("src.tools.execute_command") as exec_mock:
-                ok = apply_patch("just some random text\nnot a diff",
-                                 filepath="src/foo.c", use_docker=True)
+                ok = apply_patch(
+                    "just some random text\nnot a diff",
+                    filepath="src/foo.c",
+                    use_docker=True,
+                )
                 self.assertFalse(ok)
                 # We should never invoke patch when the content is not a diff
                 # (the rm cleanup is acceptable, the patch invocation is not)
                 cmds = [str(c) for c in exec_mock.call_args_list]
-                patch_calls = [c for c in cmds if "patch " in c]
-                # Only the cleanup rm should run
-                self.assertFalse(any("patch src/foo.c" in c for c in cmds),
-                                 f"patch was invoked on non-diff content: {cmds}")
+                # Only the cleanup rm should run.
+                self.assertFalse(
+                    any("patch src/foo.c" in c for c in cmds),
+                    f"patch was invoked on non-diff content: {cmds}",
+                )
 
 
 # ===========================================================================
@@ -437,9 +523,13 @@ class TestApplyPatch(unittest.TestCase):
 
 
 class TestCodexEnvelopePatch(unittest.TestCase):
-    """The fixer LLM frequently emits `*** Begin Patch` envelope patches.
-    Without conversion they tripped the unified-diff validator and ~25 % of
-    Debian batch builds escalated without ever applying a fix."""
+    """Convert Codex-envelope patches before validating them.
+
+    The fixer LLM frequently emits ``*** Begin Patch`` envelope
+    patches. Without conversion they tripped the unified-diff validator
+    and ~25 % of Debian batch builds escalated without ever applying a
+    fix.
+    """
 
     SAMPLE_ENVELOPE = (
         "*** Begin Patch\n"
@@ -452,7 +542,8 @@ class TestCodexEnvelopePatch(unittest.TestCase):
         "*** End Patch\n"
     )
 
-    def test_converter_recognises_envelope(self):
+    def test_converter_recognises_envelope(self) -> None:
+        """Test converter recognises envelope."""
         from src.tools import _convert_codex_envelope_to_unified_diff
 
         out = _convert_codex_envelope_to_unified_diff(self.SAMPLE_ENVELOPE)
@@ -464,7 +555,8 @@ class TestCodexEnvelopePatch(unittest.TestCase):
         self.assertIn("-go 1.24.0", out)
         self.assertIn("-toolchain go1.24.0", out)
 
-    def test_converter_passes_through_unified_diff(self):
+    def test_converter_passes_through_unified_diff(self) -> None:
+        """Test converter passes through unified diff."""
         from src.tools import _convert_codex_envelope_to_unified_diff
 
         unified = "--- a/foo\n+++ b/foo\n@@ -1 +1 @@\n-old\n+new\n"
@@ -475,21 +567,29 @@ class TestCodexEnvelopePatch(unittest.TestCase):
         called: list = []
 
         def fake_exec(cmd, **kw):
+            """Fake exec."""
             called.append(cmd)
             # All shell calls succeed in this mock.
-            return SimpleNamespace(success=True, stdout="", stderr="", exit_code=0)
+            return SimpleNamespace(
+                success=True, stdout="", stderr="", exit_code=0
+            )
 
-        with mock.patch("src.tools.write_file", return_value=True), \
-             mock.patch("src.tools.execute_command", side_effect=fake_exec):
-            ok = apply_patch(self.SAMPLE_ENVELOPE, cwd="/workspace/repos/afrog",
-                             use_docker=True)
+        with mock.patch("src.tools.write_file", return_value=True), mock.patch(
+            "src.tools.execute_command", side_effect=fake_exec
+        ):
+            ok = apply_patch(
+                self.SAMPLE_ENVELOPE,
+                cwd="/workspace/repos/afrog",
+                use_docker=True,
+            )
         self.assertTrue(ok, f"envelope patch was rejected; calls={called}")
         # Sanity: at least one `patch -pN` invocation must have happened
         # (dry-run + apply).
         joined = " ".join(str(c) for c in called)
         self.assertIn("patch -p", joined)
 
-    def test_add_file_envelope_creates_dev_null_diff(self):
+    def test_add_file_envelope_creates_dev_null_diff(self) -> None:
+        """Test add file envelope creates dev null diff."""
         from src.tools import _convert_codex_envelope_to_unified_diff
 
         envelope = (
@@ -511,28 +611,40 @@ class TestCodexEnvelopePatch(unittest.TestCase):
 
 
 class TestBundledToolchainStripping(unittest.TestCase):
-    """Installing Ubuntu jammy's golang-go (Go 1.18) breaks every modern
-    go.mod build. The sandbox bakes /usr/local/go; the stripper drops any
-    apt/apk install token for golang*, gccgo*, or go-1.X."""
+    """Strip bundled-toolchain packages from apt/apk installs.
 
-    def test_strips_golang_token_keeps_others(self):
+    Installing Ubuntu jammy's golang-go (Go 1.18) breaks every modern
+    go.mod build. The sandbox bakes /usr/local/go; the stripper drops
+    any apt/apk install token for golang*, gccgo*, or go-1.X.
+    """
+
+    def test_strips_golang_token_keeps_others(self) -> None:
+        """Test strips golang token keeps others."""
         from src.tools import _strip_bundled_toolchain_packages
-        cmd = "apt-get install -y --no-install-recommends build-essential golang libssl-dev"
+
+        cmd = (
+            "apt-get install -y --no-install-recommends "
+            "build-essential golang libssl-dev"
+        )
         out = _strip_bundled_toolchain_packages(cmd)
         self.assertNotIn("golang", out)
         self.assertIn("build-essential", out)
         self.assertIn("libssl-dev", out)
 
-    def test_strips_golang_go_and_go_dash_version(self):
+    def test_strips_golang_go_and_go_dash_version(self) -> None:
+        """Test strips golang go and go dash version."""
         from src.tools import _strip_bundled_toolchain_packages
+
         cmd = "apt-get install -y golang-go go-1.21 gccgo-12 cmake"
         out = _strip_bundled_toolchain_packages(cmd)
         for bad in ("golang-go", "go-1.21", "gccgo-12"):
             self.assertNotIn(bad, out)
         self.assertIn("cmake", out)
 
-    def test_strips_in_apk_add_too(self):
+    def test_strips_in_apk_add_too(self) -> None:
+        """Test strips in apk add too."""
         from src.tools import _strip_bundled_toolchain_packages
+
         cmd = "apk add --no-cache go cmake"
         # "go" alone is too generic — only golang*/gccgo*/go-1.* are stripped.
         out = _strip_bundled_toolchain_packages(cmd)
@@ -542,23 +654,30 @@ class TestBundledToolchainStripping(unittest.TestCase):
         self.assertNotIn("golang", out2)
         self.assertIn("cmake", out2)
 
-    def test_empty_install_becomes_true(self):
+    def test_empty_install_becomes_true(self) -> None:
+        """Test empty install becomes true."""
         from src.tools import _strip_bundled_toolchain_packages
+
         cmd = "apt-get install -y golang"
         out = _strip_bundled_toolchain_packages(cmd)
         self.assertEqual(out.strip(), "true")
 
-    def test_preserves_chain(self):
+    def test_preserves_chain(self) -> None:
+        """Test preserves chain."""
         from src.tools import _strip_bundled_toolchain_packages
+
         cmd = "apt-get install -y golang && go build ./..."
         out = _strip_bundled_toolchain_packages(cmd)
         self.assertIn("go build", out)
         # The install clause is reduced to `true` so chaining still works.
         self.assertIn("true", out)
 
-    def test_does_not_strip_unrelated_libraries(self):
+    def test_does_not_strip_unrelated_libraries(self) -> None:
+        """Test does not strip unrelated libraries."""
         from src.tools import _strip_bundled_toolchain_packages
-        cmd = "apt-get install -y libgolang-dev libgo-perf-tools"  # fake but golang-prefixed
+
+        # Fake but golang-prefixed package names.
+        cmd = "apt-get install -y libgolang-dev libgo-perf-tools"
         out = _strip_bundled_toolchain_packages(cmd)
         # Neither matches ^golang(-...)?$ or ^go-1\.\d+$, so they survive.
         self.assertIn("libgolang-dev", out)
@@ -566,61 +685,79 @@ class TestBundledToolchainStripping(unittest.TestCase):
 
 
 # ===========================================================================
-# Regression: bare ./config and ./buildconf are whitelisted (broadened pattern).
+# Regression: bare ./config and ./buildconf are whitelisted
+# (broadened pattern).
 # ===========================================================================
 
 
 class TestConfigureScriptWhitelist(unittest.TestCase):
+    """Tests for ConfigureScriptWhitelist."""
+
     validator = CommandValidator()
 
-    def test_bare_config_allowed(self):
+    def test_bare_config_allowed(self) -> None:
         # openssl ships ./config (no .sh) — was previously blocked.
+        """Test bare config allowed."""
         ok, _ = self.validator.is_safe("./config no-asm no-tests no-docs")
         self.assertTrue(ok)
 
-    def test_bare_buildconf_allowed(self):
+    def test_bare_buildconf_allowed(self) -> None:
         # curl ships ./buildconf — was previously blocked.
+        """Test bare buildconf allowed."""
         ok, _ = self.validator.is_safe("./buildconf")
         self.assertTrue(ok)
 
-    def test_existing_configure_still_allowed(self):
+    def test_existing_configure_still_allowed(self) -> None:
+        """Test existing configure still allowed."""
         ok, _ = self.validator.is_safe("./configure --prefix=/usr")
         self.assertTrue(ok)
         ok2, _ = self.validator.is_safe("./autogen.sh")
         self.assertTrue(ok2)
 
-    def test_relative_traversal_still_blocked(self):
+    def test_relative_traversal_still_blocked(self) -> None:
         # Sanity: the broadened pattern is still ./<name>, not arbitrary paths
+        """Test relative traversal still blocked."""
         ok, _ = self.validator.is_safe("../foo/bar")
         self.assertFalse(ok)
 
 
 class TestStripperAcceptsOptionsBeforeInstall(unittest.TestCase):
-    """Regression: the LLM frequently emits `apt-get -y install golang`
+    """Accept package-manager options placed before the install verb.
+
+    Regression: the LLM frequently emits ``apt-get -y install golang``
     (option BEFORE the install verb). Previously the regex required all
     options to come AFTER install, so this slipped through and Go 1.18
-    got installed on top of our bundled toolchain. See 2026-05-23 batch."""
+    got installed on top of our bundled toolchain. See 2026-05-23 batch.
+    """
 
-    def test_pre_verb_short_flag(self):
+    def test_pre_verb_short_flag(self) -> None:
+        """Test pre verb short flag."""
         from src.tools import _strip_bundled_toolchain_packages
+
         out = _strip_bundled_toolchain_packages("apt-get -y install golang")
         self.assertEqual(out.strip(), "true")
 
-    def test_pre_verb_long_flag(self):
+    def test_pre_verb_long_flag(self) -> None:
+        """Test pre verb long flag."""
         from src.tools import _strip_bundled_toolchain_packages
+
         out = _strip_bundled_toolchain_packages("apt-get --yes install golang")
         self.assertEqual(out.strip(), "true")
 
-    def test_mixed_pre_and_post_flags(self):
+    def test_mixed_pre_and_post_flags(self) -> None:
+        """Test mixed pre and post flags."""
         from src.tools import _strip_bundled_toolchain_packages
+
         out = _strip_bundled_toolchain_packages(
             "apt-get -y install --no-install-recommends golang ca-certificates"
         )
         self.assertNotIn("golang", out)
         self.assertIn("ca-certificates", out)
 
-    def test_env_prefix_preserved(self):
+    def test_env_prefix_preserved(self) -> None:
+        """Test env prefix preserved."""
         from src.tools import _strip_bundled_toolchain_packages
+
         out = _strip_bundled_toolchain_packages(
             "DEBIAN_FRONTEND=noninteractive apt-get install -y golang"
         )
@@ -631,40 +768,55 @@ class TestStripperAcceptsOptionsBeforeInstall(unittest.TestCase):
 
 
 class TestValidatorExecBlockNarrowed(unittest.TestCase):
-    """Regression: the previous `exec\\s+` pattern blocked benign uses
-    like `find … -exec sed -i {} \\;` that the fixer routinely emits.
-    The narrowed pattern (`(?:^|\\s|;|&)exec\\s+\\S+`) still blocks
-    `exec /bin/sh` but allows `find -exec`."""
+    r"""Narrow the validator's exec block to avoid false positives.
+
+    Regression: the previous ``exec\s+`` pattern blocked benign uses
+    like ``find … -exec sed -i {} \;`` that the fixer routinely emits.
+    The narrowed pattern (``(?:^|\s|;|&)exec\s+\S+``) still blocks
+    ``exec /bin/sh`` but allows ``find -exec``.
+    """
 
     validator = CommandValidator()
 
-    def test_find_exec_allowed(self):
+    def test_find_exec_allowed(self) -> None:
+        """Test find exec allowed."""
         ok, _ = self.validator.is_safe(
             "find . -type f -name '*.go' -exec sed -i 's/foo/bar/' {} \\;"
         )
         self.assertTrue(ok)
 
-    def test_bare_exec_still_blocked(self):
+    def test_bare_exec_still_blocked(self) -> None:
+        """Test bare exec still blocked."""
         ok, reason = self.validator.is_safe("exec /bin/sh")
         self.assertFalse(ok)
         self.assertIn("exec", reason)
 
 
 class TestValidatorNewlyAllowed(unittest.TestCase):
+    """Tests for ValidatorNewlyAllowed."""
+
     validator = CommandValidator()
 
-    def test_sleep_allowed(self):
+    def test_sleep_allowed(self) -> None:
+        """Test sleep allowed."""
         self.assertTrue(self.validator.is_safe("sleep 30")[0])
 
-    def test_ln_symlink_allowed(self):
-        self.assertTrue(self.validator.is_safe(
-            "ln -s /usr/bin/golangci-lint /usr/local/bin/gosec"
-        )[0])
+    def test_ln_symlink_allowed(self) -> None:
+        """Test ln symlink allowed."""
+        self.assertTrue(
+            self.validator.is_safe(
+                "ln -s /usr/bin/golangci-lint /usr/local/bin/gosec"
+            )[0]
+        )
 
-    def test_versioned_go_binary_allowed(self):
-        self.assertTrue(self.validator.is_safe("/root/go/bin/go1.22 download")[0])
+    def test_versioned_go_binary_allowed(self) -> None:
+        """Test versioned go binary allowed."""
+        self.assertTrue(
+            self.validator.is_safe("/root/go/bin/go1.22 download")[0]
+        )
 
-    def test_swap_fiddling_blocked(self):
+    def test_swap_fiddling_blocked(self) -> None:
+        """Test swap fiddling blocked."""
         ok, reason = self.validator.is_safe("mkswap /swapfile")
         self.assertFalse(ok)
 
