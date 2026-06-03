@@ -6,6 +6,9 @@ Covers build plan, fix command, fixer response, and predictions.
 import unittest
 
 from src.graph import (
+    _inject_go_flag,
+    _inject_go_output,
+    _replan_signature,
     is_toolchain_version_mismatch,
     predict_build_issues,
     validate_build_plan,
@@ -345,6 +348,35 @@ class TestToolchainMismatchDetection(unittest.TestCase):
         self.assertFalse(
             is_toolchain_version_mismatch("unable to select packages: libssl")
         )
+
+
+class TestGoCommandRewriters(unittest.TestCase):
+    """Tests for Go command rewrite helpers."""
+
+    def test_inject_go_flag_once(self) -> None:
+        """Do not duplicate flags when they already exist."""
+        cmd = "go build -buildvcs=false ./cmd/foo"
+        self.assertEqual(_inject_go_flag(cmd, "-buildvcs=false"), cmd)
+
+    def test_inject_go_output(self) -> None:
+        """Inject -o path into go build command."""
+        cmd = "go build ./cmd"
+        out = _inject_go_output(cmd, "./.atesor-bin/cmd")
+        self.assertIn("-o ./.atesor-bin/cmd", out)
+        self.assertIn("go build", out)
+
+
+class TestReplanSignature(unittest.TestCase):
+    """Tests for plan-level error signature detection."""
+
+    def test_go_output_collision_signature(self) -> None:
+        """Output-dir collision should map to replan signature."""
+        msg = 'go: build output "cmd" already exists and is a directory'
+        self.assertEqual(_replan_signature(msg), "go_output_dir_collision")
+
+    def test_unknown_signature(self) -> None:
+        """Unrelated errors should return empty signature."""
+        self.assertEqual(_replan_signature("some random error"), "")
 
 
 if __name__ == "__main__":

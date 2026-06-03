@@ -285,7 +285,7 @@ class TestClassifyError(unittest.TestCase):
         ("error: 'foo' undeclared", ErrorCategory.COMPILATION),
         ("implicit declaration of function", ErrorCategory.COMPILATION),
         ("PATH_MAX unset, refusing to compile", ErrorCategory.COMPILATION),
-        # Architecture (note: word "arch" matches; ordering matters)
+        # Architecture
         ("illegal instruction", ErrorCategory.ARCHITECTURE),
         ("unsupported instruction vsetvli", ErrorCategory.ARCHITECTURE),
         ("AVX2 intrinsic not available", ErrorCategory.ARCHITECTURE),
@@ -296,6 +296,19 @@ class TestClassifyError(unittest.TestCase):
         ("no buildable Go source files in .", ErrorCategory.CONFIGURATION),
         (
             "directory prefix . does not contain main module",
+            ErrorCategory.CONFIGURATION,
+        ),
+        (
+            'go: build output "cmd" already exists and is a directory',
+            ErrorCategory.CONFIGURATION,
+        ),
+        (
+            "go: inconsistent vendoring in /workspace/repos/foo",
+            ErrorCategory.CONFIGURATION,
+        ),
+        (
+            "CMake Error: The source directory "
+            '"/workspace/repos/foo" does not appear to contain CMakeLists.txt.',
             ErrorCategory.CONFIGURATION,
         ),
         ("unrecognized option '--with-foo'", ErrorCategory.CONFIGURATION),
@@ -318,6 +331,10 @@ class TestClassifyError(unittest.TestCase):
         ("package not found: foo", ErrorCategory.DEPENDENCY),
         ("module not found 'bar'", ErrorCategory.DEPENDENCY),
         ("unable to select packages", ErrorCategory.DEPENDENCY),
+        (
+            "E: Unable to locate package libgssapi-krb5-dev",
+            ErrorCategory.DEPENDENCY,
+        ),
         # Permission
         ("Permission denied: /usr/local/lib", ErrorCategory.PERMISSION),
         ("Operation forbidden", ErrorCategory.PERMISSION),
@@ -584,6 +601,20 @@ class TestNextAction(unittest.TestCase):
         )
         s.build_status = BuildStatus.FAILED
         s.last_error_category = ErrorCategory.DEPENDENCY
+        self.assertEqual(get_next_action_recommendation(s), Action.SCOUT)
+
+    def test_scout_when_failed_unknown(self) -> None:
+        """UNKNOWN failures should trigger replanning first."""
+        s = self._state()
+        s.task_plan = TaskPlan(phases=[])
+        s.build_plan = BuildPlan(
+            build_system="go",
+            build_system_confidence=0.9,
+            phases=[],
+            total_estimated_duration="1m",
+        )
+        s.build_status = BuildStatus.FAILED
+        s.last_error_category = ErrorCategory.UNKNOWN
         self.assertEqual(get_next_action_recommendation(s), Action.SCOUT)
 
     def test_finish_after_success_with_tests(self) -> None:

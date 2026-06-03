@@ -7,6 +7,7 @@ from unittest import mock
 from src.llm_helpers import (
     LLMCallOutcome,
     ValidationResult,
+    _is_provider_error,
     extract_content,
     extract_json_block,
     llm_call_with_validation,
@@ -182,6 +183,24 @@ class TestLLMCallWithValidation(unittest.TestCase):
                 max_retries=0,
             )
         self.assertTrue(out.used_fallback)
+
+
+class TestProviderErrorDetection(unittest.TestCase):
+    """Tests for provider-error detection used for model rotation."""
+
+    def test_detects_429_rate_limit(self) -> None:
+        """429 should be treated as provider-side failure."""
+        self.assertTrue(_is_provider_error(RuntimeError("Error code: 429")))
+
+    def test_detects_rate_limit_phrase(self) -> None:
+        """Explicit rate limit text should be recognized."""
+        self.assertTrue(
+            _is_provider_error(RuntimeError("provider temporarily rate limited"))
+        )
+
+    def test_ignores_local_validation_error(self) -> None:
+        """Non-provider failures should not match."""
+        self.assertFalse(_is_provider_error(RuntimeError("json parse failure")))
 
 
 if __name__ == "__main__":

@@ -121,6 +121,14 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
         return [primary]
     raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
     fallback_ids = [m.strip() for m in raw.split(",") if m.strip()]
+    if not fallback_ids:
+        # Default pool for free-tier OpenRouter where upstream model
+        # availability can vary by minute.
+        fallback_ids = [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "qwen/qwen3-14b:free",
+            "deepseek/deepseek-r1-0528:free",
+        ]
     fallbacks = []
     for model_id in fallback_ids:
         try:

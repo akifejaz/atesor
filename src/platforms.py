@@ -355,6 +355,10 @@ DEBIAN_RISCV = PlatformProfile(
         "libev-dev": "libev-dev",  # correct, just confirm canonical
         "libjpeg-turbo-dev": "libjpeg-turbo8-dev",
         "libabseil-dev": "libabsl-dev",
+        # Frequent typo/hallucination repairs seen in batch logs.
+        "libz1g-dev": "zlib1g-dev",
+        "libgssapi-krb5-dev": "libkrb5-dev",
+        "libgssapi-krb5": "libkrb5-dev",
     },
     extra_notes=[
         (

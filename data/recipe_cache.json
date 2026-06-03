@@ -678,7 +678,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:02:58.231066",
+        "last_built": "2026-06-03T11:24:50.447261",
         "build_plan": {
           "phases": [
             {
@@ -690,7 +690,8 @@
             {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -700,16 +701,16 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/anew/anew",
+            "path": "/workspace/repos/anew/script/release",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/anew/script/release",
-            "role": "secondary"
+            "path": "/workspace/repos/anew/anew",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 842.8,
+        "build_duration_seconds": 242.5,
         "recipe_file": "output/anew_recipe.md"
       }
     },
@@ -753,19 +754,19 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T14:54:59.656547",
+        "last_built": "2026-06-03T11:24:22.345682",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends git"
+                "apt-get update"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gf && go build -buildvcs=false ."
+                "go build ."
               ]
             }
           ]
@@ -779,7 +780,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 351.8,
+        "build_duration_seconds": 212.6,
         "recipe_file": "output/gf_recipe.md"
       }
     },
@@ -848,7 +849,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:40:56.091411",
+        "last_built": "2026-06-03T11:24:41.954383",
         "build_plan": {
           "phases": [
             {
@@ -861,7 +862,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -877,40 +878,40 @@
           {
             "type": "binary",
             "path": "/workspace/repos/gron/original-gron.php",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/example",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/release",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/test",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/lint",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/precommit",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/gron/script/profile",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 3089.1,
+        "build_duration_seconds": 233.1,
         "recipe_file": "output/gron_recipe.md"
       }
     },
@@ -959,14 +960,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:09:07.551622",
+        "last_built": "2026-06-03T11:25:51.095655",
         "build_plan": {
           "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
             {
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -982,10 +989,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/assetfinder/assetfinder",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 1213.1,
+        "build_duration_seconds": 304.0,
         "recipe_file": "output/assetfinder_recipe.md"
       }
     },
@@ -1034,7 +1041,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-01T15:30:34.293107",
+        "last_built": "2026-06-03T11:26:48.136270",
         "build_plan": {
           "phases": [
             {
@@ -1057,21 +1064,21 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/dnsx/dnsx",
+            "path": "/workspace/repos/dnsx/integration_tests/run.sh",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/dnsx/integration_tests/run.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/dnsx/cmd/functional-test/run.sh",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/dnsx/cmd/functional-test/run.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/dnsx/dnsx",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 3261.6,
+        "build_duration_seconds": 354.7,
         "recipe_file": "output/dnsx_recipe.md"
       }
     },
@@ -1120,14 +1127,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:32:16.974401",
+        "last_built": "2026-06-03T11:29:44.667735",
         "build_plan": {
           "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
             {
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1143,10 +1156,15 @@
           {
             "type": "binary",
             "path": "/workspace/repos/ffuf/pkg/filter/time_test.go",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ffuf/pkg/filter/time.go",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 2226.1,
+        "build_duration_seconds": 316.2,
         "recipe_file": "output/ffuf_recipe.md"
       }
     },
@@ -1191,7 +1209,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:45:21.914381",
+        "last_built": "2026-06-03T11:33:32.532613",
         "build_plan": {
           "phases": [
             {
@@ -1203,7 +1221,8 @@
             {
               "name": "build",
               "commands": [
-                "go mod tidy && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1217,7 +1236,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 2536.4,
+        "build_duration_seconds": 523.7,
         "recipe_file": "output/gobuster_recipe.md"
       }
     },
@@ -1299,7 +1318,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:43:10.146397",
+        "last_built": "2026-06-03T11:35:17.303906",
         "build_plan": {
           "phases": [
             {
@@ -1312,7 +1331,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1326,7 +1345,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 645.0,
+        "build_duration_seconds": 559.1,
         "recipe_file": "output/chisel_recipe.md"
       }
     },
@@ -1380,7 +1399,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:50:38.243457",
+        "last_built": "2026-06-03T11:35:44.051597",
         "build_plan": {
           "phases": [
             {
@@ -1393,7 +1412,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1403,21 +1422,21 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/croc/croc-entrypoint.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/croc/croc",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/croc/croc-entrypoint.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/croc/src/install/upload-src-tarball.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 729.0,
+        "build_duration_seconds": 529.1,
         "recipe_file": "output/croc_recipe.md"
       }
     },
@@ -1454,6 +1473,41 @@
           }
         ],
         "build_duration_seconds": 3100.2,
+        "recipe_file": "output/asnmap_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/projectdiscovery/asnmap",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T11:31:29.654374",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "go build ./cmd/asnmap"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/asnmap/asnmap",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 632.0,
         "recipe_file": "output/asnmap_recipe.md"
       }
     },
@@ -1497,7 +1551,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:02:43.314968",
+        "last_built": "2026-06-03T11:45:42.697152",
         "build_plan": {
           "phases": [
             {
@@ -1524,7 +1578,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1167.2,
+        "build_duration_seconds": 847.1,
         "recipe_file": "output/gau_recipe.md"
       }
     },
@@ -1563,7 +1617,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:15:08.702354",
+        "last_built": "2026-06-03T11:53:36.038938",
         "build_plan": {
           "phases": [
             {
@@ -1575,7 +1629,8 @@
             {
               "name": "build",
               "commands": [
-                "go mod tidy && go build ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1589,7 +1644,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1742.2,
+        "build_duration_seconds": 1181.9,
         "recipe_file": "output/glow_recipe.md"
       }
     },
@@ -1637,6 +1692,51 @@
           }
         ],
         "build_duration_seconds": 2484.2,
+        "recipe_file": "output/cvemap_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/projectdiscovery/cvemap",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T11:45:19.622543",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "go build ./cmd/vulnx"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/cvemap/scripts/git-hook-install.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/cvemap/cmd/integration-test/vulnsh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/cvemap/vulnx",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 1466.7,
         "recipe_file": "output/cvemap_recipe.md"
       }
     },
@@ -1780,7 +1880,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:23:47.695545",
+        "last_built": "2026-06-03T11:52:48.587974",
         "build_plan": {
           "phases": [
             {
@@ -1792,7 +1892,8 @@
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gum && go mod tidy && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -1861,7 +1962,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 2089.2,
+        "build_duration_seconds": 1046.0,
         "recipe_file": "output/gum_recipe.md"
       }
     },
@@ -1905,7 +2006,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:54:29.500148",
+        "last_built": "2026-06-03T11:40:32.554139",
         "build_plan": {
           "phases": [
             {
@@ -1918,7 +2019,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/age"
+                "go build ./cmd/age"
               ]
             }
           ]
@@ -1932,7 +2033,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 540.7,
+        "build_duration_seconds": 414.0,
         "recipe_file": "output/age_recipe.md"
       }
     },
@@ -1985,19 +2086,20 @@
         "build_system": "autotools",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:02:13.558728",
+        "last_built": "2026-06-03T11:47:21.485817",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config",
+                "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "./configure --disable-dependency-tracking --disable-tests --disable-shared --enable-static"
+                "./configure"
               ]
             },
             {
@@ -2013,106 +2115,106 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/fping/autoclean.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/missing",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/compile",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/config.sub",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/config.status",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/config.guess",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/install-sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/depcomp",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/configure",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fping/autogen.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/fping/src/fping",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/fping/autoclean.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/missing",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/compile",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/config.sub",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/config.status",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/config.guess",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/install-sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/depcomp",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/configure",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/fping/autogen.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/fping/src/maketags.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/deploy-bintray.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/run-tests.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/test-15-netdata.pl",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/test-07-options-i-m.pl",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/test-09-option-r-t.pl",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/run-lcov.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/build-3-prepare-macos.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/fping/ci/test-10-option-u-x.pl",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 795.4,
+        "build_duration_seconds": 403.4,
         "recipe_file": "output/fping_recipe.md"
       }
     },
@@ -2156,7 +2258,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T15:59:00.289031",
+        "last_built": "2026-06-03T11:49:57.029906",
         "build_plan": {
           "phases": [
             {
@@ -2168,8 +2270,8 @@
             {
               "name": "build",
               "commands": [
-                "go mod init airixss && go mod tidy",
-                "go build -buildvcs=false airixss.go"
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -2183,7 +2285,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 263.3,
+        "build_duration_seconds": 270.5,
         "recipe_file": "output/airixss_recipe.md"
       }
     },
@@ -2229,7 +2331,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:09:15.462929",
+        "last_built": "2026-06-03T11:55:41.292890",
         "build_plan": {
           "phases": [
             {
@@ -2256,7 +2358,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 607.8,
+        "build_duration_seconds": 592.7,
         "recipe_file": "output/allxfr_recipe.md"
       }
     },
@@ -2300,7 +2402,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:06:49.948022",
+        "last_built": "2026-06-03T11:55:00.984875",
         "build_plan": {
           "phases": [
             {
@@ -2313,7 +2415,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -2327,7 +2429,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 238.9,
+        "build_duration_seconds": 298.3,
         "recipe_file": "output/AnalyticsRelationships_recipe.md"
       }
     },
@@ -2367,7 +2469,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:15:30.690992",
+        "last_built": "2026-06-03T12:02:07.487843",
         "build_plan": {
           "phases": [
             {
@@ -2380,7 +2482,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -2394,7 +2496,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 514.5,
+        "build_duration_seconds": 552.6,
         "recipe_file": "output/anyproxy_recipe.md"
       }
     },
@@ -2532,7 +2634,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:19:42.247901",
+        "last_built": "2026-06-03T11:59:19.360285",
         "build_plan": {
           "phases": [
             {
@@ -2545,7 +2647,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -2559,7 +2661,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 246.0,
+        "build_duration_seconds": 252.6,
         "recipe_file": "output/byp4xx_recipe.md"
       }
     },
@@ -2604,7 +2706,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:41:27.854773",
+        "last_built": "2026-06-03T12:11:05.012732",
         "build_plan": {
           "phases": [
             {
@@ -2631,7 +2733,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1445.7,
+        "build_duration_seconds": 916.7,
         "recipe_file": "output/cariddi_recipe.md"
       }
     },
@@ -2670,7 +2772,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:28:45.286530",
+        "last_built": "2026-06-03T12:09:23.619699",
         "build_plan": {
           "phases": [
             {
@@ -2683,7 +2785,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -2697,7 +2799,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 615.4,
+        "build_duration_seconds": 593.3,
         "recipe_file": "output/certgraph_recipe.md"
       }
     },
@@ -9854,7 +9956,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:05:33.819999",
+        "last_built": "2026-06-03T12:41:37.502830",
         "build_plan": {
           "phases": [
             {
@@ -9867,7 +9969,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -9881,7 +9983,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 28318.2,
+        "build_duration_seconds": 232.7,
         "recipe_file": "output/dlevel_recipe.md"
       }
     },
@@ -12448,7 +12550,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:17:14.157485",
+        "last_built": "2026-06-03T11:54:35.287656",
         "build_plan": {
           "phases": [
             {
@@ -12461,7 +12563,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -12475,7 +12577,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1696.3,
+        "build_duration_seconds": 1126.5,
         "recipe_file": "output/freeze_recipe.md"
       }
     },
@@ -12520,7 +12622,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:28:23.723238",
+        "last_built": "2026-06-03T12:09:07.214124",
         "build_plan": {
           "phases": [
             {
@@ -12547,7 +12649,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 514.7,
+        "build_duration_seconds": 412.8,
         "recipe_file": "output/certspotter_recipe.md"
       }
     },
@@ -12639,7 +12741,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:42:51.263643",
+        "last_built": "2026-06-03T12:20:37.877127",
         "build_plan": {
           "phases": [
             {
@@ -12652,7 +12754,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -12662,16 +12764,16 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/cleed/cleed",
+            "path": "/workspace/repos/cleed/mocks/generate_mocks.sh",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/cleed/mocks/generate_mocks.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/cleed/cleed",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 861.8,
+        "build_duration_seconds": 775.8,
         "recipe_file": "output/cleed_recipe.md"
       }
     },
@@ -12739,14 +12841,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:33:35.454920",
+        "last_built": "2026-06-03T12:13:58.650014",
         "build_plan": {
           "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
             {
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/cgrep"
+                "go build ./cmd/cgrep"
               ]
             }
           ]
@@ -12757,30 +12865,30 @@
           {
             "type": "binary",
             "path": "/workspace/repos/codesearch/cgrep",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/codesearch/lib/buildall",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/codesearch/cindex",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/codesearch/csearch",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/codesearch/csweb",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 250.7,
+        "build_duration_seconds": 269.0,
         "recipe_file": "output/codesearch_recipe.md"
       }
     },
@@ -12819,7 +12927,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:35:30.637686",
+        "last_built": "2026-06-03T12:18:48.843669",
         "build_plan": {
           "phases": [
             {
@@ -12846,7 +12954,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 289.5,
+        "build_duration_seconds": 458.0,
         "recipe_file": "output/crlfuzz_recipe.md"
       }
     },
@@ -12885,7 +12993,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T17:04:43.759850",
+        "last_built": "2026-06-03T12:36:14.273173",
         "build_plan": {
           "phases": [
             {
@@ -12898,7 +13006,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/csprecon"
+                "go build ./cmd/csprecon"
               ]
             }
           ]
@@ -12912,7 +13020,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1861.5,
+        "build_duration_seconds": 1328.0,
         "recipe_file": "output/csprecon_recipe.md"
       }
     },
@@ -12953,6 +13061,61 @@
           }
         ],
         "build_duration_seconds": 1831.9,
+        "recipe_file": "output/csvtk_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/shenwei356/csvtk",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T12:47:54.728805",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/csvtk -buildvcs=false ./csvtk"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/csvtk/csvtk/packaging.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/csvtk/csvtk-bin",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/csvtk/.gitignore",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/csvtk/testdata/empty.csv.xlsx",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/csvtk/testdata/test.sh",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 1739.0,
         "recipe_file": "output/csvtk_recipe.md"
       }
     },
@@ -13003,7 +13166,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:46:27.660097",
+        "last_built": "2026-06-03T12:25:46.068178",
         "build_plan": {
           "phases": [
             {
@@ -13016,7 +13179,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -13032,10 +13195,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/curlie/args/gen.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 292.3,
+        "build_duration_seconds": 302.0,
         "recipe_file": "output/curlie_recipe.md"
       }
     },
@@ -13080,7 +13243,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T17:13:29.764217",
+        "last_built": "2026-06-03T12:39:00.338393",
         "build_plan": {
           "phases": [
             {
@@ -13093,7 +13256,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/dasel"
+                "go build ./cmd/dasel"
               ]
             }
           ]
@@ -13107,7 +13270,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1831.8,
+        "build_duration_seconds": 1020.5,
         "recipe_file": "output/dasel_recipe.md"
       }
     },
@@ -13161,7 +13324,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T17:14:00.448016",
+        "last_built": "2026-06-03T12:37:39.262086",
         "build_plan": {
           "phases": [
             {
@@ -13174,7 +13337,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -13198,7 +13361,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1521.9,
+        "build_duration_seconds": 705.5,
         "recipe_file": "output/dbin_recipe.md"
       }
     },
@@ -13297,7 +13460,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T17:05:33.718270",
+        "last_built": "2026-06-03T12:37:29.126987",
         "build_plan": {
           "phases": [
             {
@@ -13320,21 +13483,66 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/writing.html",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/login.html",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/logout.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/writing.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/save.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/login.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/web/webhookTest.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/ddns-go/ddns-go",
             "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/ddns-go/config/domains_test.go",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/ddns-go/config/netInterface_test.go",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/config/netInterface.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/ddns-go/config/config.go",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 878.8,
+        "build_duration_seconds": 570.1,
         "recipe_file": "output/ddns-go_recipe.md"
       }
     },
@@ -13373,7 +13581,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:08:09.439177",
+        "last_built": "2026-06-03T12:35:13.431573",
         "build_plan": {
           "phases": [
             {
@@ -13386,7 +13594,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -13400,7 +13608,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 29132.8,
+        "build_duration_seconds": 304.2,
         "recipe_file": "output/depsdev_recipe.md"
       }
     },
@@ -13445,7 +13653,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T17:10:19.046407",
+        "last_built": "2026-06-03T12:39:58.358774",
         "build_plan": {
           "phases": [
             {
@@ -13472,7 +13680,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 279.6,
+        "build_duration_seconds": 218.1,
         "recipe_file": "output/dish_recipe.md"
       }
     },
@@ -13482,7 +13690,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:14:28.086474",
+        "last_built": "2026-06-03T12:50:36.163668",
         "build_plan": {
           "phases": [
             {
@@ -13494,8 +13702,8 @@
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/dnstake && go mod tidy",
-                "cd /workspace/repos/dnstake && go build -buildvcs=false ./cmd/dnstake"
+                "go mod tidy",
+                "go build ./cmd/dnstake"
               ]
             }
           ]
@@ -13509,7 +13717,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 528.0,
+        "build_duration_seconds": 533.3,
         "recipe_file": "output/dnstake_recipe.md"
       },
       "alpine-riscv64": {
@@ -15241,7 +15449,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:24:21.375841",
+        "last_built": "2026-06-03T12:04:48.225831",
         "build_plan": {
           "phases": [
             {
@@ -15268,7 +15476,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 545.5,
+        "build_duration_seconds": 607.3,
         "recipe_file": "output/axfr2hosts_recipe.md"
       }
     },
@@ -15278,14 +15486,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:48:32.487565",
+        "last_built": "2026-06-03T12:30:02.241296",
         "build_plan": {
           "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
             {
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/cheat"
+                "go build ./cmd/cheat"
               ]
             }
           ]
@@ -15300,11 +15514,16 @@
           },
           {
             "type": "binary",
+            "path": "/workspace/repos/cheat/cmd/cheat/main.go",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/cheat/test/fuzz.sh",
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1431.3,
+        "build_duration_seconds": 1490.4,
         "recipe_file": "output/cheat_recipe.md"
       }
     },

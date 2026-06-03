@@ -8,6 +8,7 @@ that state.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+import re
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage
@@ -531,12 +532,12 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.COMPILATION
 
-    # Architecture-specific errors
+    # Architecture-specific errors. Keep this strict: broad substring
+    # checks (e.g. plain "arch") misclassify unrelated messages.
     if any(
         term in error_lower
         for term in [
             "architecture",
-            "arch",
             "sse",
             "avx",
             "neon",
@@ -546,7 +547,7 @@ def classify_error(error_message: str) -> ErrorCategory:
             "x86_64",
             "amd64",
         ]
-    ):
+    ) or re.search(r"\barch\b", error_lower):
         return ErrorCategory.ARCHITECTURE
 
     # Configuration errors
@@ -567,6 +568,10 @@ def classify_error(error_message: str) -> ErrorCategory:
             "cannot find main module",
             "no required module provides",
             "directory prefix . does not contain main module",
+            "build output",
+            "already exists and is a directory",
+            "inconsistent vendoring",
+            "does not appear to contain cmakelists.txt",
         ]
     ):
         return ErrorCategory.CONFIGURATION
@@ -633,6 +638,7 @@ def classify_error(error_message: str) -> ErrorCategory:
         for term in [
             "unable to select packages",
             "no such package",
+            "unable to locate package",
             "unable to lock database",
             "broken packages",
         ]
@@ -814,8 +820,14 @@ def get_next_action_recommendation(state: AgentState) -> Action:
 
     # Error recovery
     if state.build_status == BuildStatus.FAILED:
-        if state.last_error_category == ErrorCategory.DEPENDENCY:
+        if state.last_error_category in {
+            ErrorCategory.DEPENDENCY,
+            ErrorCategory.MISSING_TOOLS,
+            ErrorCategory.UNKNOWN,
+        }:
             return Action.SCOUT  # Need more info
+        if _looks_like_replan_failure(state.last_error or ""):
+            return Action.SCOUT
         else:
             return Action.FIXER  # Try to fix
 
@@ -830,3 +842,19 @@ def get_next_action_recommendation(state: AgentState) -> Action:
 
     # Default to builder
     return Action.BUILDER
+
+
+def _looks_like_replan_failure(error_message: str) -> bool:
+    """Return True when rebuilding the plan is usually better than patching."""
+    msg = (error_message or "").lower()
+    return any(
+        pat in msg
+        for pat in [
+            "no required module provides",
+            "already exists and is a directory",
+            "does not appear to contain cmakelists.txt",
+            "unable to locate package",
+            "inconsistent vendoring",
+            "./configure: no such file or directory",
+        ]
+    )

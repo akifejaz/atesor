@@ -226,6 +226,40 @@ def is_toolchain_version_mismatch(error_message: str) -> bool:
     return any(p in err for p in patterns)
 
 
+def _replan_signature(error_message: str) -> str:
+    """Return a normalized signature for failures that need a new build plan."""
+    msg = (error_message or "").lower()
+    signatures = {
+        "go_missing_module": "no required module provides",
+        "go_output_dir_collision": "already exists and is a directory",
+        "cmake_wrong_source_root": "does not appear to contain cmakelists.txt",
+        "missing_package": "unable to locate package",
+        "go_inconsistent_vendoring": "inconsistent vendoring",
+        "missing_configure_script": "./configure: no such file or directory",
+    }
+    for key, needle in signatures.items():
+        if needle in msg:
+            return key
+    return ""
+
+
+def _should_force_replan(state: AgentState) -> bool:
+    """Bounded replan guard to avoid fixer/scout thrash on bad plans."""
+    signature = _replan_signature(state.last_error or "")
+    if not signature:
+        return False
+    attempts_by_sig = state.context_cache.setdefault(
+        "replan_attempts_by_signature", {}
+    )
+    count = int(attempts_by_sig.get(signature, 0))
+    # Only force one scout replan per unique signature; if it still fails,
+    # let normal routing decide between fixer/escalation.
+    if count >= 1:
+        return False
+    attempts_by_sig[signature] = count + 1
+    return True
+
+
 # ============================================================================
 # NODE WRAPPER
 # ============================================================================
@@ -888,6 +922,17 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
 
     if state.build_status == BuildStatus.FAILED:
+        if _should_force_replan(state):
+            sig = _replan_signature(state.last_error or "") or "unknown"
+            state.log_agent_decision(
+                AgentRole.SUPERVISOR,
+                "SCOUT",
+                f"Failure signature '{sig}' indicates plan-level issue; "
+                "requesting one bounded replan.",
+            )
+            state.current_phase = "scout"
+            return state
+
         # MISSING_TOOLS / DEPENDENCY need an updated build plan from
         # scout (add packages, change steps).
         # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE -> send to
@@ -895,6 +940,7 @@ def supervisor_node(state: AgentState) -> AgentState:
         if state.last_error_category in (
             ErrorCategory.MISSING_TOOLS,
             ErrorCategory.DEPENDENCY,
+            ErrorCategory.UNKNOWN,
         ):
             if (
                 state.last_error_category == ErrorCategory.MISSING_TOOLS
@@ -1124,7 +1170,9 @@ SCOUT_PROMPT = (
     "go build`. **If `Project context` above gives a `build_command`, us"
     "e exactly that command — do not substitute `go build ./...` (which "
     "compiles every helper and fails on the first one with missing deps)"
-    ".**\n"
+    ".** Never emit `go build ./cmd` or `go build ./<top-level-dir>` "
+    "without an explicit output path; if building a subpackage, use "
+    "`go build -o ./bin/<name> <package>`.\n"
     "7. Disable optional features that pull in heavy or x86-specific dep"
     "s (tests, SIMD, examples, docs).\n"
     "8. NEVER reference paths or files you can't see in the project stru"
@@ -1722,6 +1770,31 @@ def _fixup_top_builddir_in_submakefiles(docker_repo_path: str) -> None:
         logger.warning(f"_fixup_top_builddir_in_submakefiles: {exc}")
 
 
+def _extract_cd_prefix(command: str) -> str:
+    """Extract leading `cd ... &&` prefix so companion commands match context."""
+    match = re.match(r"^\s*(cd\s+[^&;]+&&\s*)", command)
+    return match.group(1) if match else ""
+
+
+def _inject_go_flag(command: str, flag: str) -> str:
+    """Inject a Go build/install flag once, preserving existing command shape."""
+    if flag in command:
+        return command
+    return re.sub(
+        r"\bgo\s+(build|install)\b",
+        rf"go \1 {flag}",
+        command,
+        count=1,
+    )
+
+
+def _inject_go_output(command: str, output_path: str) -> str:
+    """Inject `-o <path>` into Go build/install commands."""
+    if re.search(r"\b-o\s+\S+", command):
+        return command
+    return _inject_go_flag(command, f"-o {output_path}")
+
+
 @agent_node(AgentRole.BUILDER)
 def builder_node(state: AgentState) -> AgentState:
     """Execute the build plan with smart error detection."""
@@ -1810,7 +1883,10 @@ def builder_node(state: AgentState) -> AgentState:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error: {result.stderr[:500]}")
 
-                is_go_build = "go build" in command or "go install" in command
+                is_go_build = (
+                    "go build" in optimized_cmd
+                    or "go install" in optimized_cmd
+                )
                 is_vcs_error = any(
                     pattern in result.stderr
                     for pattern in [
@@ -1824,16 +1900,13 @@ def builder_node(state: AgentState) -> AgentState:
                 if (
                     is_go_build
                     and is_vcs_error
-                    and "-buildvcs=false" not in command
+                    and "-buildvcs=false" not in optimized_cmd
                 ):
                     logger.warning(
                         "Detected Go VCS error, retrying with -buildvcs=false"
                     )
-                    retry_command = command.replace(
-                        "go build", "go build -buildvcs=false"
-                    )
-                    retry_command = retry_command.replace(
-                        "go install", "go install -buildvcs=false"
+                    retry_command = _inject_go_flag(
+                        optimized_cmd, "-buildvcs=false"
                     )
 
                     retry_result = execute_command(
@@ -1853,6 +1926,114 @@ def builder_node(state: AgentState) -> AgentState:
                             f"Retry also failed: {retry_result.stderr[:500]}"
                         )
                         result = retry_result
+
+                if (
+                    is_go_build
+                    and "already exists and is a directory"
+                    in (result.stderr or "").lower()
+                    and "build output" in (result.stderr or "").lower()
+                ):
+                    out_match = re.search(
+                        r'build output "([^"]+)"', result.stderr or ""
+                    )
+                    out_name = (
+                        out_match.group(1)
+                        if out_match
+                        else f"{state.repo_name or 'build'}-bin"
+                    )
+                    safe_out = re.sub(r"[^A-Za-z0-9._-]", "-", out_name)
+                    retry_command = _inject_go_output(
+                        optimized_cmd, f"./.atesor-bin/{safe_out}"
+                    )
+                    retry_command = (
+                        "mkdir -p ./.atesor-bin && " f"{retry_command}"
+                    )
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Resolved Go output-dir collision by using -o"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
+
+                if (
+                    is_go_build
+                    and "inconsistent vendoring" in (result.stderr or "").lower()
+                    and "-mod=mod" not in optimized_cmd
+                ):
+                    retry_command = _inject_go_flag(optimized_cmd, "-mod=mod")
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Resolved inconsistent vendoring with -mod=mod"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
+
+                if (
+                    is_go_build
+                    and "no required module provides"
+                    in (result.stderr or "").lower()
+                ):
+                    prefix = _extract_cd_prefix(optimized_cmd)
+                    tidy_cmd = f"{prefix}go mod tidy"
+                    tidy_result = execute_command(tidy_cmd, cwd=state.repo_path)
+                    state.cache_command_result(tidy_cmd, tidy_result)
+                    state.log_scripted_op("retry_build_command")
+                    if tidy_result.success:
+                        retry_result = execute_command(
+                            optimized_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(
+                            optimized_cmd, retry_result
+                        )
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Resolved missing module by running go mod tidy"
+                            )
+                            continue
+                        result = retry_result
+
+                if (
+                    re.search(r"\bautoreconf\b", optimized_cmd)
+                    and "autopoint" in (result.stderr or "").lower()
+                    and "no such file" in (result.stderr or "").lower()
+                ):
+                    retry_command = (
+                        "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+                        " && aclocal -I m4 -I /usr/share/aclocal"
+                        " && autoconf"
+                    )
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Recovered from autopoint failure via copy-first "
+                            "gettext regeneration."
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
 
                 error_message = _build_command_error_message(
                     result, f"Build command failed: {command}"
@@ -2241,7 +2422,9 @@ FIXER_PROMPT = (
     "ith `&&`.\n"
     "- Do NOT propose unrelated cleanups. Fix only what's broken.\n"
     "- For Go: `-buildvcs=false` is required; never install Go via the p"
-    "ackage manager (it is preinstalled in the sandbox).\n"
+    "ackage manager (it is preinstalled in the sandbox). Avoid `go build "
+    "./cmd` / `go build ./<dir>` unless you also set `-o` to a file path"
+    " (directory-name output collisions are common).\n"
     "- For autotools failures involving gettext macros: copy macros BEFO"
     "RE `aclocal`,\n"
     "  do NOT run `autoreconf` (it reverts the fix via `autopoint`).\n"

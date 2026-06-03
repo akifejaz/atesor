@@ -295,6 +295,9 @@ def _accepts_timeout(fn: Callable) -> bool:
 _PROVIDER_ERROR_PATTERNS = (
     "model not found",
     "404",
+    "429",
+    "rate limit",
+    "too many requests",
     "provider returned error",
     "no endpoints found",
     "internal server error",
