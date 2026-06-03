@@ -646,6 +646,11 @@ def classify_error(error_message: str) -> ErrorCategory:
             "go.mod requires go >=",
             "requires go >=",
             "running go ",
+            "feature `edition2024` is required",
+            "not stabilized in this version of cargo",
+            "requires rustc ",
+            "requires rust version",
+            "this package requires rustc",
         ]
     ):
         return ErrorCategory.MISSING_TOOLS

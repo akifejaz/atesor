@@ -304,6 +304,15 @@ class TestClassifyError(unittest.TestCase):
         ("cmake: not found", ErrorCategory.MISSING_TOOLS),
         ("/bin/sh: ninja: command not found", ErrorCategory.MISSING_TOOLS),
         ("go.mod requires go >= 1.22", ErrorCategory.MISSING_TOOLS),
+        (
+            "feature `edition2024` is required; "
+            "not stabilized in this version of Cargo (1.75.0)",
+            ErrorCategory.MISSING_TOOLS,
+        ),
+        (
+            "error: this package requires rustc 1.85.0 or newer",
+            ErrorCategory.MISSING_TOOLS,
+        ),
         # Dependency (package not found)
         ("cannot find header 'zlib.h'", ErrorCategory.DEPENDENCY),
         ("package not found: foo", ErrorCategory.DEPENDENCY),

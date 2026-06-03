@@ -6,6 +6,7 @@ Covers build plan, fix command, fixer response, and predictions.
 import unittest
 
 from src.graph import (
+    is_toolchain_version_mismatch,
     predict_build_issues,
     validate_build_plan,
     validate_fix_command,
@@ -317,6 +318,33 @@ class TestPredictBuildIssues(unittest.TestCase):
         state.context_cache["missing_tools"] = ["protoc"]
         preds = predict_build_issues(state)
         self.assertTrue(any(p["pattern"] == "missing_tools" for p in preds))
+
+
+class TestToolchainMismatchDetection(unittest.TestCase):
+    """Tests for toolchain-version mismatch detection helper."""
+
+    def test_detects_go_version_mismatch(self) -> None:
+        """Go `go.mod requires go >=` errors are treated as mismatches."""
+        self.assertTrue(
+            is_toolchain_version_mismatch(
+                "go: go.mod requires go >= 1.26.0 (running go 1.22.5)"
+            )
+        )
+
+    def test_detects_rust_edition_mismatch(self) -> None:
+        """Cargo edition gating errors are treated as mismatches."""
+        self.assertTrue(
+            is_toolchain_version_mismatch(
+                "feature `edition2024` is required and not stabilized "
+                "in this version of Cargo"
+            )
+        )
+
+    def test_ignores_regular_dependency_errors(self) -> None:
+        """Ordinary missing package errors are not toolchain mismatches."""
+        self.assertFalse(
+            is_toolchain_version_mismatch("unable to select packages: libssl")
+        )
 
 
 if __name__ == "__main__":

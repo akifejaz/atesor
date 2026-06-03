@@ -1176,6 +1176,46 @@ def cleanup_container(remove_image: bool = False) -> None:
         print(colored(f"Error during cleanup: {e}", "red"))
 
 
+def rebuild_all_sandboxes() -> bool:
+    """Rebuild Alpine and Debian sandbox images/containers.
+
+    Returns:
+        True if both sandbox environments are rebuilt successfully.
+    """
+    from src.platforms import set_active_profile
+
+    original_platform = os.environ.get("ATESOR_PLATFORM")
+    original_container = os.environ.get("ATESOR_CONTAINER")
+    os.environ["REBUILD_IMAGE"] = "true"
+
+    try:
+        for platform_name in ("alpine", "debian"):
+            os.environ["ATESOR_PLATFORM"] = platform_name
+            os.environ.pop("ATESOR_CONTAINER", None)
+            set_active_profile(platform_name)
+            print(
+                colored(
+                    f"\nRebuilding sandbox: {platform_name}",
+                    "cyan",
+                    attrs=["bold"],
+                )
+            )
+            if not setup_docker_environment():
+                return False
+    finally:
+        if original_platform is None:
+            os.environ.pop("ATESOR_PLATFORM", None)
+        else:
+            os.environ["ATESOR_PLATFORM"] = original_platform
+
+        if original_container is None:
+            os.environ.pop("ATESOR_CONTAINER", None)
+        else:
+            os.environ["ATESOR_CONTAINER"] = original_container
+
+    return True
+
+
 def main() -> None:
     """Run the CLI entry point and start the porting workflow."""
     parser = argparse.ArgumentParser(
@@ -1236,7 +1276,10 @@ def main() -> None:
     parser.add_argument(
         "--rebuild",
         action="store_true",
-        help="Force rebuild of the Docker image",
+        help=(
+            "Force rebuild of sandbox image(s). In infra-only mode, "
+            "without --platform/--container, rebuilds both Alpine and Debian."
+        ),
     )
     parser.add_argument(
         "--force",
@@ -1293,27 +1336,44 @@ def main() -> None:
     # Handle cleanup
     if args.cleanup:
         cleanup_container(remove_image=args.clean_image)
-        return 0
+        if not args.rebuild:
+            return 0
 
     if args.clean_image and not args.cleanup:
         # If only --clean-image is provided, still perform cleanup
         cleanup_container(remove_image=True)
-        return 0
+        if not args.rebuild:
+            return 0
 
     # Handle workspace cleanup
     if args.clean_workspace:
         cleanup_workspace()
         return 0
 
+    infra_only = args.setup_only or (args.rebuild and not args.repo)
+    dual_rebuild = (
+        infra_only
+        and args.rebuild
+        and args.platform == "auto"
+        and not args.container
+    )
+
     # Require repo URL before starting long-running setup or API checks
-    if not args.repo and not args.setup_only:
+    if not args.repo and not infra_only:
         print(colored("ERROR: --repo argument is required", "red"))
         parser.print_help()
         return 1
 
-    # Check API keys
-    if not check_keys():
-        return 1
+    if dual_rebuild:
+        if not rebuild_all_sandboxes():
+            return 1
+        print(colored("\nRebuild complete!", "green"))
+        return 0
+
+    # API keys are only required when we are actually running the agent.
+    if args.repo and not args.setup_only:
+        if not check_keys():
+            return 1
 
     # Set up Docker environment
     if args.rebuild:
@@ -1322,9 +1382,12 @@ def main() -> None:
     if not setup_docker_environment():
         return 1
 
-    # Setup only mode
-    if args.setup_only:
-        print(colored("\nSetup complete!", "green"))
+    # Setup/Rebuild only mode (no repository run)
+    if infra_only:
+        message = "\nSetup complete!"
+        if args.rebuild and not args.setup_only:
+            message = "\nRebuild complete!"
+        print(colored(message, "green"))
         return 0
 
     # Check recipe cache (skip with --force)

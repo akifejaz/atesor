@@ -212,6 +212,20 @@ def _build_command_error_message(result, fallback: str) -> str:
     return f"{fallback} (exit {result.exit_code}) - {detail}"
 
 
+def is_toolchain_version_mismatch(error_message: str) -> bool:
+    """Return True if an error indicates an outdated compiler toolchain."""
+    err = (error_message or "").lower()
+    patterns = [
+        "go.mod requires go >=",
+        "running go ",
+        "feature `edition2024` is required",
+        "not stabilized in this version of cargo",
+        "this package requires rustc",
+        "requires rust version",
+    ]
+    return any(p in err for p in patterns)
+
+
 # ============================================================================
 # NODE WRAPPER
 # ============================================================================
@@ -882,6 +896,17 @@ def supervisor_node(state: AgentState) -> AgentState:
             ErrorCategory.MISSING_TOOLS,
             ErrorCategory.DEPENDENCY,
         ):
+            if (
+                state.last_error_category == ErrorCategory.MISSING_TOOLS
+                and is_toolchain_version_mismatch(state.last_error)
+            ):
+                state.log_agent_decision(
+                    AgentRole.SUPERVISOR,
+                    "ESCALATE",
+                    "Sandbox toolchain is too old for this repository.",
+                )
+                state.current_phase = "escalate"
+                return state
             state.log_agent_decision(
                 AgentRole.SUPERVISOR,
                 "SCOUT",
