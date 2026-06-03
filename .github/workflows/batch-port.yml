@@ -39,6 +39,9 @@ permissions:
 env:
   PYTHON_VERSION: "3.11"
   DEFAULT_PLATFORM: debian
+  # Force unbuffered stdout/stderr so batch_test.py logs stream live to
+  # the Actions UI instead of buffering until the process exits.
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   # ------------------------------------------------------------------------- #
