@@ -1,4 +1,6 @@
-"""
-Atesor AI: Smart Multi-stage Agentic System for RISC-V Software Porting source package.
-Initialization for the core source module.
+"""Core package for the Atesor AI RISC-V software porting system.
+
+Atesor AI is a smart, multi-stage agentic system that automates porting
+software packages to RISC-V. This package initializes the core source
+module.
 """

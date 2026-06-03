@@ -1,93 +1,23 @@
 """
-Static knowledge base for RISC-V porting on Alpine Linux (musl/riscv64).
-Covers tool installation, architecture detection, common porting patterns, and known issues.
+Static knowledge base for RISC-V porting.
+
+Distro-specific bits (package names, install commands, libc-specific
+errors) live in `src.platforms.PlatformProfile`. This module covers the
+distro-agnostic RISC-V architecture knowledge plus a renderer that
+composes the full system_knowledge prompt block from a given profile.
 """
 
-# ============================================================================
-# ALPINE LINUX (riscv64) PACKAGE MAP
-# ============================================================================
+from typing import Optional
 
-ALPINE_TOOL_MAP = {
-    # Build systems
-    "cmake": "cmake",
-    "make": "make",
-    "ninja": "ninja",
-    "meson": "meson",
-    "autotools": "automake autoconf libtool",
-    "gcc": "build-base",
-    "g++": "build-base",
-    "pkgconfig": "pkgconf",
-    "nasm": "nasm",
-    "yasm": "yasm",
-    "perl": "perl",
-    "fortran": "gfortran",
-    # Languages
-    "go": "go",
-    "rust": "rust cargo",
-    "python3": "python3 py3-pip",
-    "node": "nodejs npm",
-    "java": "openjdk17",
-    # Core C/C++ development libraries
-    "zlib": "zlib-dev",
-    "openssl": "openssl-dev",
-    "curl": "curl-dev",
-    "git": "git",
-    "libatomic": "libatomic",
-    # Compression libraries
-    "zstd": "zstd-dev",
-    "lz4": "lz4-dev",
-    "brotli": "brotli-dev",
-    "xz": "xz-dev",
-    "bzip2": "bzip2-dev",
-    "snappy": "snappy-dev",
-    # Image libraries
-    "libpng": "libpng-dev",
-    "libjpeg": "libjpeg-turbo-dev",
-    "libjpeg-turbo": "libjpeg-turbo-dev",
-    "libwebp": "libwebp-dev",
-    "libtiff": "tiff-dev",
-    "openjpeg": "openjpeg-dev",
-    "libheif": "libheif-dev",
-    "lcms2": "lcms2-dev",
-    "freetype": "freetype-dev",
-    # Audio/Video
-    "opus": "opus-dev",
-    "flac": "flac-dev",
-    "ogg": "libogg-dev",
-    "vorbis": "libvorbis-dev",
-    "dav1d": "dav1d-dev",
-    # Cryptography
-    "mbedtls": "mbedtls-dev",
-    "libsodium": "libsodium-dev",
-    # Networking
-    "libssh2": "libssh2-dev",
-    "nghttp2": "nghttp2-dev",
-    "c-ares": "c-ares-dev",
-    "libuv": "libuv-dev",
-    "libevent": "libevent-dev",
-    # Data formats
-    "libxml2": "libxml2-dev",
-    "expat": "expat-dev",
-    "jansson": "jansson-dev",
-    "yaml": "yaml-dev",
-    "pcre2": "pcre2-dev",
-    # Archive
-    "libarchive": "libarchive-dev",
-    # Database
-    "sqlite": "sqlite-dev",
-    # C++ libraries
-    "abseil-cpp": "abseil-cpp-dev",
-    "absl": "abseil-cpp-dev",
-    "protobuf": "protobuf-dev",
-    "protoc": "protoc",
-    "gtest": "gtest-dev",
-    "benchmark": "benchmark-dev",
-    # System
-    "linux-headers": "linux-headers",
-    "musl-dev": "musl-dev",
-    "libexecinfo": "libexecinfo-dev",
-    "libunwind": "libunwind-dev",
-}
+from .platforms import (
+    ALPINE_RISCV,
+    PlatformProfile,
+    get_active_profile,
+)
+
+# Backward-compat aliases — older code/tests may import these names.
+ALPINE_TOOL_MAP = ALPINE_RISCV.package_map
+ALPINE_PACKAGE_CORRECTIONS = ALPINE_RISCV.name_corrections
 
 # ============================================================================
 # RISC-V ARCHITECTURE KNOWLEDGE
@@ -96,7 +26,9 @@ ALPINE_TOOL_MAP = {
 RISCV_PREPROCESSOR_MACROS = {
     "__riscv": "Defined on any RISC-V target",
     "__riscv_xlen": "Register width: 32 or 64",
-    "__riscv_flen": "FP register width: 32 (F ext) or 64 (D ext), absent if no FP",
+    "__riscv_flen": (
+        "FP register width: 32 (F ext) or 64 (D ext), absent if no FP"
+    ),
     "__riscv_atomic": "Defined when A (atomic) extension is present",
     "__riscv_mul": "Defined when M (multiply/divide) extension is present",
     "__riscv_vector": "Defined when V (vector) extension is present",
@@ -125,10 +57,22 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "x86 SSE/AVX SIMD intrinsics not available on RISC-V",
         "solutions": [
-            "Use SIMDe (SIMD Everywhere) header-only library for portable SIMD",
-            "Provide scalar C fallback under #if !defined(__x86_64__) && !defined(__aarch64__)",
-            "Use RISC-V Vector (RVV) intrinsics if V extension is available (#ifdef __riscv_vector)",
-            "Disable SIMD via build option (e.g., -DENABLE_SSE=OFF, -DWITH_SIMD=0)",
+            (
+                "Use SIMDe (SIMD Everywhere) header-only library for"
+                " portable SIMD"
+            ),
+            (
+                "Provide scalar C fallback under #if"
+                " !defined(__x86_64__) && !defined(__aarch64__)"
+            ),
+            (
+                "Use RISC-V Vector (RVV) intrinsics if V extension is"
+                " available (#ifdef __riscv_vector)"
+            ),
+            (
+                "Disable SIMD via build option (e.g., -DENABLE_SSE=OFF,"
+                " -DWITH_SIMD=0)"
+            ),
         ],
     },
     "inline_assembly": {
@@ -141,7 +85,10 @@ COMMON_PORTING_ISSUES = {
         "solutions": [
             "Guard with #if defined(__x86_64__) / #elif defined(__riscv)",
             "Replace with portable C code or compiler builtins",
-            "Provide RISC-V assembly implementation for performance-critical paths",
+            (
+                "Provide RISC-V assembly implementation for"
+                " performance-critical paths"
+            ),
         ],
     },
     "builtin_functions": {
@@ -152,7 +99,10 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "x86-specific GCC/Clang builtin functions",
         "solutions": [
-            "Replace __rdtsc with __builtin_readcyclecounter() or clock_gettime()",
+            (
+                "Replace __rdtsc with __builtin_readcyclecounter() or"
+                " clock_gettime()"
+            ),
             "Replace __builtin_ia32_* with portable C equivalents",
             "Use C11 atomics instead of __sync_* builtins where possible",
         ],
@@ -162,10 +112,15 @@ COMMON_PORTING_ISSUES = {
             "data races under RISC-V that pass on x86",
             "lock-free algorithms failing",
         ],
-        "root_cause": "RISC-V has a weaker memory model (RVWMO) than x86 (TSO)",
+        "root_cause": (
+            "RISC-V has a weaker memory model (RVWMO) than x86 (TSO)"
+        ),
         "solutions": [
             "Use C11/C++11 atomics with explicit memory orderings",
-            "Add __atomic_thread_fence() where x86 relied on implicit ordering",
+            (
+                "Add __atomic_thread_fence() where x86 relied on"
+                " implicit ordering"
+            ),
             "Audit lock-free data structures for RISC-V memory model",
         ],
     },
@@ -179,11 +134,17 @@ COMMON_PORTING_ISSUES = {
             "error: 'REG_EIP' undeclared",
             "'sys/cdefs.h' file not found",
         ],
-        "root_cause": "Alpine uses musl libc, not glibc; some GNU extensions are absent",
+        "root_cause": (
+            "Alpine uses musl libc, not glibc; some GNU extensions"
+            " are absent"
+        ),
         "solutions": [
             "Guard backtrace usage with #ifdef __GLIBC__",
             "Replace mallinfo with platform-independent memory tracking",
-            "Install musl-compatible alternatives (e.g., libexecinfo-dev for backtrace)",
+            (
+                "Install musl-compatible alternatives (e.g.,"
+                " libexecinfo-dev for backtrace)"
+            ),
             "Use portable signal handling instead of x86 register names",
         ],
     },
@@ -194,10 +155,19 @@ COMMON_PORTING_ISSUES = {
             "invalid configuration",
             "config.sub: too many arguments",
         ],
-        "root_cause": "Stale config.guess/config.sub that predate RISC-V support",
+        "root_cause": (
+            "Stale config.guess/config.sub that predate RISC-V support"
+        ),
         "solutions": [
-            "Update config.guess and config.sub: apk add config-guess-wrapper || cp /usr/share/automake-*/config.* .",
-            "Specify --build/--host explicitly: ./configure --build=riscv64-alpine-linux-musl",
+            (
+                "Update config.guess and config.sub: apk add"
+                " config-guess-wrapper || cp"
+                " /usr/share/automake-*/config.* ."
+            ),
+            (
+                "Specify --build/--host explicitly: ./configure"
+                " --build=riscv64-alpine-linux-musl"
+            ),
             "For CMake: no action needed (CMake auto-detects RISC-V)",
         ],
     },
@@ -209,7 +179,10 @@ COMMON_PORTING_ISSUES = {
         ],
         "root_cause": "Some atomic operations require libatomic on RISC-V",
         "solutions": [
-            "Link with -latomic (add to LDFLAGS or CMake target_link_libraries)",
+            (
+                "Link with -latomic (add to LDFLAGS or CMake"
+                " target_link_libraries)"
+            ),
             "For CMake: target_link_libraries(target PRIVATE atomic)",
             "For Makefile: LDFLAGS += -latomic",
         ],
@@ -219,10 +192,16 @@ COMMON_PORTING_ISSUES = {
             "hardcoded CACHELINE_SIZE 64",
             "performance regression due to false sharing",
         ],
-        "root_cause": "RISC-V cache line size varies by implementation (32/64/128 bytes)",
+        "root_cause": (
+            "RISC-V cache line size varies by implementation"
+            " (32/64/128 bytes)"
+        ),
         "solutions": [
             "Use runtime detection or conservative default",
-            "Replace hardcoded values with sysconf or macro-based detection",
+            (
+                "Replace hardcoded values with sysconf or macro-based"
+                " detection"
+            ),
         ],
     },
 }
@@ -235,16 +214,35 @@ RISCV_TRIPLETS = {
 }
 
 
-def get_system_knowledge_summary() -> str:
-    """Produce a compact knowledge summary for injection into agent prompts."""
+def get_system_knowledge_summary(
+    profile: Optional[PlatformProfile] = None,
+) -> str:
+    """Produce a compact knowledge summary for agent prompts.
+
+    Distro-specific text (install command, package map, libc,
+    corrections) is rendered from ``profile``. RISC-V architecture
+    knowledge is always included.
+
+    Args:
+        profile: Platform profile to render distro-specific text from.
+            Defaults to the active platform profile when ``None``.
+
+    Returns:
+        The composed system-knowledge prompt block as a string.
+    """
+    if profile is None:
+        profile = get_active_profile()
+
+    install_cmd = f"{profile.pkg_update} && {profile.pkg_install} <package>"
     lines = [
-        "## RISC-V Porting Knowledge (Alpine Linux / musl / riscv64)",
+        f"## RISC-V Porting Knowledge ({profile.display_name})",
         "",
         "### Package Installation",
-        "Use `apk add <package>`. Common mappings:",
+        f"Install command: `{install_cmd}`",
+        "Canonical name → distro package:",
     ]
-    for tool, pkg in ALPINE_TOOL_MAP.items():
-        lines.append(f"  - {tool} → `{pkg}`")
+    for canonical, pkg in profile.package_map.items():
+        lines.append(f"  - {canonical} → `{pkg}`")
 
     lines.append("")
     lines.append("### Architecture Detection (C/C++ preprocessor)")
@@ -259,10 +257,33 @@ def get_system_knowledge_summary() -> str:
 
     lines.append("")
     lines.append("### Key Facts")
-    lines.append("  - Alpine uses **musl libc**, not glibc — some GNU extensions are missing")
-    lines.append("  - Native target triplet: `riscv64-alpine-linux-musl`")
-    lines.append("  - Do NOT use cross-compilation flags when building natively inside the sandbox")
-    lines.append("  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) — explicit fences may be needed")
-    lines.append("  - RISC-V ISA extensions vary by hardware — detect, do not assume")
+    lines.append(
+        f"  - libc: **{profile.libc}** — adjust GNU-extension usage"
+        " accordingly"
+    )
+    lines.append(f"  - Native target triplet: `{profile.target_triplet}`")
+    lines.append(
+        "  - Do NOT use cross-compilation flags when building natively"
+        " inside the sandbox"
+    )
+    lines.append(
+        "  - RISC-V memory model (RVWMO) is weaker than x86 (TSO) —"
+        " explicit fences may be needed"
+    )
+    lines.append(
+        "  - RISC-V ISA extensions vary by hardware — detect, do not assume"
+    )
+    for note in profile.extra_notes:
+        lines.append(f"  - {note}")
+
+    if profile.name_corrections:
+        lines.append("")
+        lines.append(f"### Package Name Corrections ({profile.display_name})")
+        lines.append(
+            "  Common LLM mistakes — these names are WRONG on this"
+            " distro. Use the correct names:"
+        )
+        for wrong, correct in profile.name_corrections.items():
+            lines.append(f"  - `{wrong}` → use `{correct}`")
 
     return "\n".join(lines)

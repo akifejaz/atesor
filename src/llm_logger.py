@@ -1,33 +1,34 @@
-"""
-Comprehensive LLM call logging and tracking system.
+"""Comprehensive LLM call logging and tracking system.
 
-Logs ALL LLM invocations with their prompts, responses, and results for debugging.
-Creates agent-call.log in the workspace/logs directory.
+Logs all LLM invocations with their prompts, responses, and results for
+debugging. Creates ``agent-call.log`` in the ``workspace/logs`` directory.
 """
 
 import json
 import logging
 import os
-from collections import deque
-from datetime import datetime
-from typing import Any, Dict, Optional, List
 import threading
 import uuid
+from collections import deque
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
 
 
 class LLMCallLogger:
-    """
-    Centralized logger for all LLM calls across the agent system.
-    Provides detailed audit trail for debugging and analysis.
+    """Centralized logger for all LLM calls across the agent system.
+
+    Provides a detailed audit trail for debugging and analysis. The class
+    is a thread-safe singleton, so every caller shares one log file.
     """
 
     _instance = None
     _lock = threading.Lock()
 
     def __new__(cls):
+        """Return the process-wide singleton instance."""
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -54,10 +55,11 @@ class LLMCallLogger:
             os.makedirs(LOGS_DIR, exist_ok=True)
 
             self.log_file = os.path.join(LOGS_DIR, "agent-call.log")
+            self._logs_dir = LOGS_DIR
 
             # Write header if file is new
             if not os.path.exists(self.log_file):
-                with open(self.log_file, 'w') as f:
+                with open(self.log_file, "w") as f:
                     f.write("=" * 80 + "\n")
                     f.write("ATESOR AI - LLM CALL LOG\n")
                     f.write(f"Created: {datetime.now().isoformat()}\n")
@@ -67,6 +69,19 @@ class LLMCallLogger:
         except Exception as e:
             logger.error(f"Failed to initialize LLM call log: {e}")
             self.log_file = None
+            self._logs_dir = None
+
+    def set_repo_name(self, repo_name: str) -> None:
+        """Switch to a per-repo log file for multi-process batch safety.
+
+        Args:
+            repo_name: Name of the repository whose log to write to.
+        """
+        if not repo_name or not self._logs_dir:
+            return
+        self.log_file = os.path.join(
+            self._logs_dir, f"agent-call_{repo_name}.log"
+        )
 
     def log_call(
         self,
@@ -75,21 +90,21 @@ class LLMCallLogger:
         response: str,
         model: str,
         cost_usd: float = 0.0,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """
-        Log an LLM call with complete context.
+        """Log an LLM call with complete context.
 
         Args:
-            agent_role: The agent role making the call (SCOUT, BUILDER, FIXER, etc.)
-            prompt: The full prompt sent to the LLM
-            response: The response received from the LLM
-            model: The model used
-            cost_usd: Estimated cost of the call
-            metadata: Additional metadata about the call
+            agent_role: The agent role making the call (e.g. SCOUT,
+                BUILDER, FIXER).
+            prompt: The full prompt sent to the LLM.
+            response: The response received from the LLM.
+            model: The model used.
+            cost_usd: Estimated cost of the call.
+            metadata: Additional metadata about the call.
 
         Returns:
-            Call ID for cross-referencing
+            A call ID string for cross-referencing.
         """
         call_id = f"call_{uuid.uuid4().hex[:8]}"
         timestamp = datetime.now().isoformat()
@@ -102,7 +117,7 @@ class LLMCallLogger:
             "cost_usd": cost_usd,
             "prompt_length": len(prompt),
             "response_length": len(response),
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         self.calls.append(call_record)
@@ -111,7 +126,7 @@ class LLMCallLogger:
         if self.log_file:
             with self._write_lock:
                 try:
-                    with open(self.log_file, 'a') as f:
+                    with open(self.log_file, "a") as f:
                         f.write("\n" + "=" * 80 + "\n")
                         f.write(f"CALL: {call_id}\n")
                         f.write(f"TIMESTAMP: {timestamp}\n")
@@ -120,24 +135,32 @@ class LLMCallLogger:
                         f.write(f"COST: ${cost_usd:.6f}\n")
 
                         if metadata:
-                            f.write(f"METADATA: {json.dumps(metadata, indent=2)}\n")
+                            meta_json = json.dumps(metadata, indent=2)
+                            f.write(f"METADATA: {meta_json}\n")
 
                         f.write("\n--- PROMPT ---\n")
-                        f.write(prompt[:10000])  # First 10k chars
+                        f.write(prompt[:10000])  # First 10k chars.
                         if len(prompt) > 10000:
-                            f.write(f"\n[... truncated {len(prompt) - 10000} characters ...]\n")
+                            dropped = len(prompt) - 10000
+                            f.write(
+                                f"\n[... truncated {dropped} characters"
+                                " ...]\n"
+                            )
 
                         f.write("\n--- RESPONSE ---\n")
-                        f.write(response[:10000])  # First 10k chars
+                        f.write(response[:10000])  # First 10k chars.
                         if len(response) > 10000:
-                            f.write(f"\n[... truncated {len(response) - 10000} characters ...]\n")
+                            dropped = len(response) - 10000
+                            f.write(
+                                f"\n[... truncated {dropped} characters"
+                                " ...]\n"
+                            )
 
                         f.write("\n" + "=" * 80 + "\n\n")
                 except Exception as e:
                     logger.error(f"Failed to write LLM call log: {e}")
 
         return call_id
-
 
 
 # Global instance
@@ -150,7 +173,18 @@ def log_llm_call(
     response: str,
     model: str,
     cost_usd: float = 0.0,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Convenience function to log an LLM call."""
-    return _llm_logger.log_call(agent_role, prompt, response, model, cost_usd, metadata)
+    """Log an LLM call through the global logger instance."""
+    return _llm_logger.log_call(
+        agent_role, prompt, response, model, cost_usd, metadata
+    )
+
+
+def set_llm_log_repo(repo_name: str) -> None:
+    """Switch the LLM call log to a per-repo file for batch safety.
+
+    Args:
+        repo_name: Name of the repository whose log to write to.
+    """
+    _llm_logger.set_repo_name(repo_name)

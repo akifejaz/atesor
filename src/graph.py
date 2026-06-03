@@ -1,6 +1,7 @@
-"""
-Core orchestration logic defining the multi-agent state machine and workflow nodes.
-Utilizes LangGraph to manage agent transitions and state.
+"""Multi-agent state machine orchestration and workflow nodes.
+
+Uses LangGraph to manage agent transitions and shared state for the
+RISC-V porting pipeline.
 """
 
 import base64
@@ -10,36 +11,40 @@ import os
 import re
 import shlex
 import subprocess
-from typing import List, Dict
 from pathlib import Path
+from typing import Dict, List
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
+from .artifact_scanner import ArtifactScanner
+from .knowledge import get_system_knowledge_summary
+from .llm_helpers import ValidationResult, llm_call_with_validation
+from .llm_logger import log_llm_call
+from .memory import (
+    format_few_shot_examples,
+    save_learned_example,
+    save_to_recipe_cache,
+)
+from .models import create_llm
+from .scripted_ops import ScriptedOperations, quick_analysis
 from .state import (
+    AgentRole,
     AgentState,
+    BuildPhase,
+    BuildPlan,
     BuildStatus,
     ErrorCategory,
     FailureSeverity,
-    AgentRole,
-    classify_error,
-    create_initial_state,
-    should_escalate,
-    get_next_action_recommendation,
-    create_error_record,
-    BuildPlan,
-    BuildPhase,
-    TaskPlan,
-    TaskPhase,
     FixAttempt,
+    TaskPhase,
+    TaskPlan,
+    classify_error,
+    create_error_record,
+    get_next_action_recommendation,
+    should_escalate,
 )
-from .scripted_ops import ScriptedOperations, quick_analysis
-from .models import create_llm
-from .tools import execute_command, apply_patch
-from .knowledge import get_system_knowledge_summary
-from .memory import format_few_shot_examples, save_learned_example, save_to_recipe_cache
-from .llm_logger import log_llm_call
-from .artifact_scanner import ArtifactScanner
+from .tools import apply_patch, execute_command
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,17 +59,31 @@ scripted_ops = ScriptedOperations()
 
 
 def get_model_for_role(role: AgentRole):
-    """Factory to get the right model for an agent role."""
+    """Return the right model for an agent role."""
     return create_llm(role)
 
 
-def invoke_llm(llm, messages, timeout: int = 120):
+def get_model_pool_for_role(role: AgentRole):
+    """Return ``[primary, *fallbacks]`` for the role.
+
+    Used by validated LLM calls so transient provider errors (404 /
+    5xx) rotate to a backup model instead of escalating the whole
+    agent.
     """
-    Invoke an LLM with a hard timeout to prevent indefinite hangs.
-    Uses a daemon thread so blocking HTTP connections don't prevent process exit.
-    Raises TimeoutError if the call exceeds `timeout` seconds.
+    from .models import create_llm_pool
+
+    return create_llm_pool(role)
+
+
+def invoke_llm(llm, messages, timeout: int = 120):
+    """Invoke an LLM with a hard timeout to prevent indefinite hangs.
+
+    Uses a daemon thread so blocking HTTP connections don't prevent
+    process exit. Raises TimeoutError if the call exceeds ``timeout``
+    seconds.
     """
     import threading
+
     result = [None]
     exception = [None]
     done = threading.Event()
@@ -96,7 +115,11 @@ def extract_content(content) -> str:
     if isinstance(content, list):
         return "\n".join(
             [
-                str(item.get("text", item)) if isinstance(item, dict) else str(item)
+                (
+                    str(item.get("text", item))
+                    if isinstance(item, dict)
+                    else str(item)
+                )
                 for item in content
             ]
         )
@@ -112,10 +135,71 @@ def extract_json_block(text: str) -> str:
     return text
 
 
+def _build_platform_banner() -> str:
+    """Build a banner describing the active sandbox/package manager.
+
+    Injected at the TOP of scout & fixer prompts so the LLM cannot
+    ignore it (knowledge appendices buried at the bottom tend to lose
+    to early-context few-shot examples in free-tier models).
+    """
+    try:
+        from .platforms import get_active_profile
+
+        p = get_active_profile()
+        pm = p.pkg_install.split()[0]  # "apk" / "apt-get"
+        install_example = p.install_cmd(["<pkg>"])
+        other_pms = (
+            "apt-get / apt / dpkg" if pm == "apk" else "apk / apk-tools"
+        )
+        # Pick one concrete correction example to anchor the LLM on
+        # the right names. name_corrections maps WRONG_NAME ->
+        # RIGHT_NAME for THIS distro.
+        correction_example = ""
+        if p.name_corrections:
+            wrong, right = next(iter(p.name_corrections.items()))
+            correction_example = (
+                f"\n- Correct package names for {p.display_name}: "
+                f"e.g. `{wrong}` is WRONG, use `{right}` instead."
+            )
+        # Pick a concrete worked install example using a real
+        # canonical -> distro mapping.
+        worked_example = ""
+        if p.package_map:
+            canonical, distro_pkg = next(iter(p.package_map.items()))
+            worked_example = (
+                f"\n- Worked example for this distro: install "
+                f"`{canonical}` via `{p.install_cmd([distro_pkg])}`."
+            )
+        return (
+            f"- Distro: **{p.display_name}** (libc: **{p.libc}**, "
+            f"triplet: `{p.target_triplet}`)\n"
+            f"- Package manager: **{pm}** (full install: "
+            f"`{install_example}`)\n"
+            f"- NEVER emit {other_pms} commands — they do not exist "
+            f"in this container\n"
+            f"  and will fail with `command not found`. This is "
+            f"unrecoverable for the build."
+            f"{worked_example}"
+            f"{correction_example}\n"
+            f"- If you are unsure of a package name on this distro, "
+            f"prefer the canonical\n"
+            f"  short name (e.g. `openssl-dev`, `zlib-dev`) — the "
+            f"agent auto-corrects to\n"
+            f"  the distro-specific name. NEVER guess a name from "
+            f"another distro."
+        )
+    except Exception:
+        return (
+            "- Platform: unknown (default to apt-get on "
+            "debian/ubuntu, apk on alpine)"
+        )
+
+
 def _to_host_path(path: str) -> str:
-    """Translate a /workspace Docker container path to the host filesystem path."""
+    """Translate a /workspace container path to a host path."""
     if path.startswith("/workspace") and not os.path.exists("/workspace"):
         from .config import WORKSPACE_ROOT
+
         return path.replace("/workspace", WORKSPACE_ROOT, 1)
     return path
 
@@ -128,6 +212,53 @@ def _build_command_error_message(result, fallback: str) -> str:
     return f"{fallback} (exit {result.exit_code}) - {detail}"
 
 
+def is_toolchain_version_mismatch(error_message: str) -> bool:
+    """Return True if an error indicates an outdated compiler toolchain."""
+    err = (error_message or "").lower()
+    patterns = [
+        "go.mod requires go >=",
+        "running go ",
+        "feature `edition2024` is required",
+        "not stabilized in this version of cargo",
+        "this package requires rustc",
+        "requires rust version",
+    ]
+    return any(p in err for p in patterns)
+
+
+def _replan_signature(error_message: str) -> str:
+    """Return a normalized signature for failures that need a new build plan."""
+    msg = (error_message or "").lower()
+    signatures = {
+        "go_missing_module": "no required module provides",
+        "go_output_dir_collision": "already exists and is a directory",
+        "cmake_wrong_source_root": "does not appear to contain cmakelists.txt",
+        "missing_package": "unable to locate package",
+        "go_inconsistent_vendoring": "inconsistent vendoring",
+        "missing_configure_script": "./configure: no such file or directory",
+    }
+    for key, needle in signatures.items():
+        if needle in msg:
+            return key
+    return ""
+
+
+def _should_force_replan(state: AgentState) -> bool:
+    """Bounded replan guard to avoid fixer/scout thrash on bad plans."""
+    signature = _replan_signature(state.last_error or "")
+    if not signature:
+        return False
+    attempts_by_sig = state.context_cache.setdefault(
+        "replan_attempts_by_signature", {}
+    )
+    count = int(attempts_by_sig.get(signature, 0))
+    # Only force one scout replan per unique signature; if it still fails,
+    # let normal routing decide between fixer/escalation.
+    if count >= 1:
+        return False
+    attempts_by_sig[signature] = count + 1
+    return True
+
 
 # ============================================================================
 # NODE WRAPPER
@@ -135,11 +266,15 @@ def _build_command_error_message(result, fallback: str) -> str:
 
 
 def agent_node(role: AgentRole):
-    """Decorator to wrap agent nodes with error handling, state tracking, and rate-limit retry."""
+    """Wrap agent nodes with error handling and retries.
+
+    Provides state tracking and automatic rate-limit retry.
+    """
 
     def decorator(func):
         def wrapper(state: AgentState) -> AgentState:
             import time
+
             state.current_agent = role
             logger.info(f"Node Started: {role.value}")
 
@@ -153,19 +288,31 @@ def agent_node(role: AgentRole):
                     error_str = str(e).lower()
                     is_rate_limit = any(
                         term in error_str
-                        for term in ["rate limit", "429", "too many requests", "quota exceeded", "resource_exhausted", "402", "spend limit exceeded", "usd spend limit"]
+                        for term in [
+                            "rate limit",
+                            "429",
+                            "too many requests",
+                            "quota exceeded",
+                            "resource_exhausted",
+                            "402",
+                            "spend limit exceeded",
+                            "usd spend limit",
+                        ]
                     )
                     if is_rate_limit and attempt < max_retries - 1:
                         wait_time = 30 * (attempt + 1)
                         logger.warning(
-                            f"Rate limit hit in {role.value} (attempt {attempt + 1}/{max_retries}), "
+                            f"Rate limit hit in {role.value} "
+                            f"(attempt {attempt + 1}/{max_retries}), "
                             f"waiting {wait_time}s before retry..."
                         )
                         time.sleep(wait_time)
                         continue
 
                     logger.exception(f"Exception in {role.value} node: {e}")
-                    error_msg = f"Unexpected error in {role.value} agent: {str(e)}"
+                    error_msg = (
+                        f"Unexpected error in {role.value} agent: {str(e)}"
+                    )
                     error = create_error_record(
                         message=error_msg,
                         category=classify_error(str(e)),
@@ -191,13 +338,16 @@ def agent_node(role: AgentRole):
 
 @agent_node(AgentRole.SUPERVISOR)
 def init_node(state: AgentState) -> AgentState:
-    """
-    Initialize the workflow by cloning the repository using scripted operations.
-    This is a zero-cost operation (no LLM calls).
+    """Initialize the workflow by cloning the repository.
+
+    Uses scripted operations; this is a zero-cost operation (no LLM
+    calls).
     """
     logger.info(f"Initializing workflow for {state.repo_url}")
 
-    result = scripted_ops.clone_or_update_repository(state.repo_url, state.repo_name)
+    result = scripted_ops.clone_or_update_repository(
+        state.repo_url, state.repo_name
+    )
     state.log_scripted_op("clone_or_update_repository")
 
     if not result.success:
@@ -216,7 +366,8 @@ def init_node(state: AgentState) -> AgentState:
         state.log_agent_decision(
             AgentRole.SUPERVISOR,
             "ESCALATE",
-            f"Critical init failure ({error.severity.value}): {error.message[:200]}",
+            f"Critical init failure ({error.severity.value}): "
+            f"{error.message[:200]}",
         )
         return state
 
@@ -228,11 +379,17 @@ def init_node(state: AgentState) -> AgentState:
         state.build_system_info = analysis.get("build_system")
 
         # Warn if build system could not be detected
-        if state.build_system_info and state.build_system_info.type == "unknown":
+        if (
+            state.build_system_info
+            and state.build_system_info.type == "unknown"
+        ):
             logger.warning(
-                f"⚠️  WARNING: Unable to identify build system in {state.repo_name}. "
-                "Exhaustive search was performed but no build configuration files found. "
-                "The system will attempt configuration-free analysis or request manual input."
+                f" WARNING: Unable to identify build system in "
+                f"{state.repo_name}. "
+                "Exhaustive search was performed but no build "
+                "configuration files found. "
+                "The system will attempt configuration-free analysis "
+                "or request manual input."
             )
 
         state.dependencies = analysis.get("dependencies")
@@ -250,14 +407,19 @@ def init_node(state: AgentState) -> AgentState:
 
         if "go_main_info" in analysis:
             state.context_cache["go_main_info"] = analysis["go_main_info"]
-            logger.info(f"Go main package detected: {analysis['go_main_info']}")
+            logger.info(
+                f"Go main package detected: {analysis['go_main_info']}"
+            )
 
         if "arch_build_files" in analysis:
-            state.context_cache["arch_build_files"] = analysis["arch_build_files"]
+            state.context_cache["arch_build_files"] = analysis[
+                "arch_build_files"
+            ]
             arch_info = analysis["arch_build_files"]
             if arch_info.get("has_arch_specific"):
                 logger.info(
-                    f"Arch-specific build files detected: {arch_info.get('archs_found')}, "
+                    f"Arch-specific build files detected: "
+                    f"{arch_info.get('archs_found')}, "
                     f"RISC-V exists: {arch_info.get('riscv_exists')}"
                 )
 
@@ -274,11 +436,15 @@ def init_node(state: AgentState) -> AgentState:
         state.context_cache["system_info"] = system_info
         state.context_cache["missing_tools"] = missing_tools
 
+        bsi = state.build_system_info
+        bsi_type = bsi.type if bsi else "unknown"
+        missing_str = ", ".join(missing_tools) if missing_tools else "None"
         logger.info(
             f"Quick analysis complete: "
-            f"Build system: {state.build_system_info.type if state.build_system_info else 'unknown'}, "
-            f"Arch-specific code: {len(state.arch_specific_code)} instances. "
-            f"Relevant missing tools: {', '.join(missing_tools) if missing_tools else 'None'}"
+            f"Build system: {bsi_type}, "
+            f"Arch-specific code: "
+            f"{len(state.arch_specific_code)} instances. "
+            f"Relevant missing tools: {missing_str}"
         )
 
     except Exception as e:
@@ -293,96 +459,76 @@ def init_node(state: AgentState) -> AgentState:
 # ============================================================================
 # NODE: PLANNER (Strategic Planning)
 # ============================================================================
- 
-PLANNER_PROMPT = """You are a strategic planner for RISC-V software porting. Analyze the repository and produce a phased execution plan.
 
-## Context
-
-**Repository:** {repo_name} ({repo_url})
-**Path:** {repo_path}
-**Build System:** {build_system_info}
-**Dependencies:** {dependencies_info}
-**Target:** {target_arch}
-
-### Architecture Analysis
-{arch_patterns}
-
-Existing architecture support: {existing_archs}
-
-### Codebase Structure
-{repo_tree}
-
-### RISC-V Porting Knowledge
-{system_knowledge}
-
-## Planning Principles
-
-1. **Pattern-based porting:** Study how the codebase handles existing architectures (x86, ARM), then replicate that pattern for RISC-V. If no patterns exist, use a generic build approach.
-2. **Native compilation:** We build natively inside an Alpine Linux riscv64 Docker container — never use cross-compilation flags (`--host`, `GOOS/GOARCH`, `-DCMAKE_SYSTEM_PROCESSOR`).
-3. **Alpine/musl awareness:** Alpine uses musl libc, not glibc. Watch for glibc-only APIs (`execinfo.h`, `backtrace`, `mallinfo`, `REG_RIP`).
-4. **ISA extension safety:** Do not assume specific RISC-V extensions (V, Zba, Zbb). Use detection macros (`__riscv`, `__riscv_xlen`, `__riscv_atomic`, `__riscv_vector`).
-5. **Minimal intervention:** Prefer configuration changes over code modification, conditional compilation over replacing code.
-6. **Dependency awareness:** For C/C++ projects, identify required libraries by reading CMakeLists.txt (`find_package`, `pkg_check_modules`), meson.build (`dependency()`), or configure.ac (`AC_CHECK_LIB`, `PKG_CHECK_MODULES`). Install all `-dev` packages upfront.
-7. **SIMD strategy:** Many C/C++ libraries use x86 SIMD (SSE/AVX). For RISC-V, first try disabling SIMD via build options (e.g., `-DWITH_SIMD=OFF`). If no option exists, the code must compile with scalar fallbacks.
-
-## Risk Factors to Evaluate
-- x86/ARM SIMD intrinsics (SSE, AVX, NEON) — need SIMDe or scalar fallback
-- Inline assembly — must be guarded or replaced
-- Stale `config.guess`/`config.sub` that predate RISC-V support
-- glibc-only APIs on musl
-- Missing `-latomic` for atomic operations
-- Hardcoded cache line sizes or page sizes
-
-## Output
-
-Return ONLY a valid JSON object:
-{{
-  "strategy": "brief description of your porting approach",
-  "complexity_score": 1-10,
-  "estimated_total_time": "duration estimate",
-  "estimated_total_cost": 0.01,
-  "can_parallelize": [],
-  "phases": [
-    {{
-      "id": 1,
-      "name": "phase_name",
-      "description": "what this phase does and why",
-      "agent": "scout|builder|fixer",
-      "use_scripted_ops": true,
-      "depends_on": [],
-      "estimated_cost": 0.01
-    }}
-  ]
-}}
-
-Agent assignment:
-- **scout**: Information gathering, dependency detection, build plan creation
-- **builder**: Build configuration, compilation, artifact generation
-- **fixer**: Error diagnosis, patching, rebuilding after failures
-
-## Example
-
-For a CMake project with existing ARM64 support:
-{{
-  "strategy": "Mirror existing ARM64 CMake pattern for RISC-V; install build-base and cmake via apk",
-  "complexity_score": 5,
-  "estimated_total_time": "10 minutes",
-  "estimated_total_cost": 0.03,
-  "can_parallelize": [],
-  "phases": [
-    {{"id": 1, "name": "analyze_and_plan", "description": "Detect build system, dependencies, and arch-specific code", "agent": "scout", "use_scripted_ops": true, "depends_on": [], "estimated_cost": 0.01}},
-    {{"id": 2, "name": "build", "description": "Configure and compile for RISC-V", "agent": "builder", "use_scripted_ops": false, "depends_on": [1], "estimated_cost": 0.02}}
-  ]
-}}
-
-Generate the plan now."""
+PLANNER_PROMPT = (
+    "You are the strategic planner for a RISC-V (riscv64) software porti"
+    "ng agent.\n"
+    "\n"
+    "## Active sandbox (READ FIRST — overrides any conflicting knowledge"
+    " below)\n"
+    "{platform_banner}\n"
+    "\n"
+    "## Repository\n"
+    "- Name: {repo_name} ({repo_url})\n"
+    "- Path: {repo_path}\n"
+    "- Build system: {build_system_info}\n"
+    "- Dependencies (detected): {dependencies_info}\n"
+    "- Existing arch support: {existing_archs}\n"
+    "- Arch-specific code patterns: {arch_patterns}\n"
+    "\n"
+    "## Codebase structure\n"
+    "{repo_tree}\n"
+    "\n"
+    "## RISC-V / platform knowledge\n"
+    "{system_knowledge}\n"
+    "\n"
+    "## Your task\n"
+    "Produce a short phased plan delegated to specialist agents. Keep it"
+    " minimal —\n"
+    "one scout phase + one builder phase is usually enough; only add mor"
+    "e if the\n"
+    "repo has unusual structure (e.g. autogen needed, subprojects, branc"
+    "h switch).\n"
+    "\n"
+    "Agent roles:\n"
+    "- **scout**: read build files, decide build commands, produce a Bui"
+    "ldPlan\n"
+    "- **builder**: execute commands, compile, verify artifacts\n"
+    "- **fixer**: diagnose & patch failures (only added if predicted to "
+    "be needed)\n"
+    "\n"
+    "Before answering, silently check: did I cover (a) the right build s"
+    "ystem, (b)\n"
+    "required `-dev` deps, (c) any arch-specific risks worth a fixer pha"
+    "se? If\n"
+    "unsure on build system, default to one scout phase that figures it "
+    "out.\n"
+    "\n"
+    "## Output schema\n"
+    "Return ONLY a JSON object with this exact shape:\n"
+    "{{\n"
+    '  "strategy": "<one sentence describing the porting approach>",\n'
+    '  "complexity_score": <int 1-10>,\n'
+    '  "estimated_total_time": "<e.g. \'5m\'>",\n'
+    '  "estimated_total_cost": <float USD>,\n'
+    '  "can_parallelize": [],\n'
+    '  "phases": [\n'
+    '    {{"id": 1, "name": "<short>", "description": "<what & '
+    'why>",\n'
+    '      "agent": "scout|builder|fixer", "use_scripted_ops": <bo'
+    "ol>,\n"
+    '      "depends_on": [], "estimated_cost": <float>}}\n'
+    "  ]\n"
+    "}}\n"
+    "No prose, no markdown fences."
+)
 
 
 @agent_node(AgentRole.PLANNER)
 def planner_node(state: AgentState) -> AgentState:
-    """
-    Strategic planning phase - decomposes task and creates execution plan.
-    This reduces downstream LLM calls by providing clear direction.
+    """Decompose the task and create an execution plan.
+
+    Reduces downstream LLM calls by providing clear direction.
     """
     logger.info("Starting strategic planning phase...")
 
@@ -394,7 +540,14 @@ def planner_node(state: AgentState) -> AgentState:
     deps = state.dependencies
 
     # Build system info
-    build_system_info = f"Type: {build_sys.type if build_sys else 'Unknown'}\nConfidence: {f'{build_sys.confidence:.2f}' if build_sys else '0.0'}\nPrimary File: {build_sys.primary_file if build_sys else 'Unknown'}"
+    bs_type = build_sys.type if build_sys else "Unknown"
+    bs_conf = f"{build_sys.confidence:.2f}" if build_sys else "0.0"
+    bs_file = build_sys.primary_file if build_sys else "Unknown"
+    build_system_info = (
+        f"Type: {bs_type}\n"
+        f"Confidence: {bs_conf}\n"
+        f"Primary File: {bs_file}"
+    )
 
     # Dependencies info
     dependencies_info = "Unknown"
@@ -431,18 +584,25 @@ def planner_node(state: AgentState) -> AgentState:
         for arch_code in state.arch_specific_code:
             if arch_code.arch_type not in patterns_by_type:
                 patterns_by_type[arch_code.arch_type] = []
-            patterns_by_type[arch_code.arch_type].append(f"{arch_code.file}:{arch_code.line}")
+            patterns_by_type[arch_code.arch_type].append(
+                f"{arch_code.file}:{arch_code.line}"
+            )
 
         for arch_type, locations in patterns_by_type.items():
-            arch_patterns_list.append(f"- {arch_type}: {len(locations)} occurrences in {', '.join(locations[:3])}")
+            arch_patterns_list.append(
+                f"- {arch_type}: {len(locations)} occurrences in "
+                f"{', '.join(locations[:3])}"
+            )
 
-    arch_patterns = "\n".join(arch_patterns_list) if arch_patterns_list else "No architecture-specific patterns detected"
-    existing_archs = f"Detected: {', '.join(existing_archs_list)}" if existing_archs_list else "No existing multi-architecture patterns detected"
-
-    # System Environment summary
-    system_info_raw = state.context_cache.get("system_info", {})
-    system_info = "\n".join(
-        [f"  - {tool}: {status}" for tool, status in system_info_raw.items()]
+    arch_patterns = (
+        "\n".join(arch_patterns_list)
+        if arch_patterns_list
+        else "No architecture-specific patterns detected"
+    )
+    existing_archs = (
+        f"Detected: {', '.join(existing_archs_list)}"
+        if existing_archs_list
+        else "No existing multi-architecture patterns detected"
     )
 
     system_knowledge = get_system_knowledge_summary()
@@ -458,35 +618,63 @@ def planner_node(state: AgentState) -> AgentState:
         arch_patterns=arch_patterns,
         existing_archs=existing_archs,
         system_knowledge=system_knowledge,
+        platform_banner=_build_platform_banner(),
     )
 
-    # Call LLM
+    # Validated LLM call: retry-with-critique up to 2x, then fall back
+    # to a deterministic plan.
+    def _validate_plan(data: dict) -> ValidationResult:
+        phases = data.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return ValidationResult.bad(
+                "'phases' must be a non-empty array of phase objects"
+            )
+        if not all(isinstance(p, dict) and "name" in p for p in phases):
+            return ValidationResult.bad(
+                "each phase must be an object with at least a 'name' key"
+            )
+        return ValidationResult.good()
+
+    _planner_pool = get_model_pool_for_role(AgentRole.PLANNER)
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=_planner_pool[0],
+        fallback_llms=_planner_pool[1:],
+        prompt=prompt,
+        validator=_validate_plan,
+        # we materialize the default TaskPlan below
+        fallback_factory=lambda: None,
+        role=AgentRole.PLANNER.value,
+        audit_metadata={"repo": state.repo_name, "phase": "planner"},
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.PLANNER)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)  # Estimate
+        if outcome.used_fallback or outcome.data is None:
+            logger.warning(
+                f"Planner: using deterministic fallback after "
+                f"{outcome.attempts} attempts "
+                f"({outcome.last_error or 'no data'})"
+            )
+            state.task_plan = create_default_plan()
+            state.context_cache["task_plan"] = {
+                "fallback": True,
+                "reason": outcome.last_error,
+            }
+            state.current_phase = "planned"
+            return state
 
-        content = extract_content(response.content)
+        plan_data = outcome.data
 
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.PLANNER.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={"repo": state.repo_name, "phase": "planner"}
-        )
-
-        # Parse JSON response
-        json_match = extract_json_block(content)
-        plan_data = json.loads(json_match)
-
-        # Create TaskPlan
+        # Create TaskPlan from validated payload
         phases = []
         for p in plan_data["phases"]:
-            agent_str = p["agent"].lower()
+            if not isinstance(p, dict):
+                logger.warning(f"Skipping non-dict phase entry: {p}")
+                continue
+            agent_str = p.get("agent", "builder").lower()
             if agent_str in ["architect", "supervisor"]:
                 role = AgentRole.BUILDER  # Fallback for planning
             elif "scout" in agent_str:
@@ -506,19 +694,31 @@ def planner_node(state: AgentState) -> AgentState:
                 name=p.get("name", "unknown"),
                 description=p.get("description", ""),
                 agent=role,
-                use_scripted_ops=p.get("use_scripted_ops", "scout" not in agent_str),
+                use_scripted_ops=p.get(
+                    "use_scripted_ops", "scout" not in agent_str
+                ),
                 depends_on=p.get("depends_on", []),
                 estimated_cost=p.get("estimated_cost", 0.0),
             )
             phases.append(phase)
 
-        state.task_plan = TaskPlan(
-            phases=phases,
-            can_parallelize=plan_data.get("can_parallelize", []),
-            estimated_total_cost=plan_data.get("estimated_total_cost", 0.0),
-            estimated_total_time=plan_data.get("estimated_total_time", "unknown"),
-            complexity_score=plan_data.get("complexity_score", 5),
-        )
+        if not phases:
+            logger.warning(
+                "No valid phases parsed from LLM response — using default plan"
+            )
+            state.task_plan = create_default_plan()
+        else:
+            state.task_plan = TaskPlan(
+                phases=phases,
+                can_parallelize=plan_data.get("can_parallelize", []),
+                estimated_total_cost=plan_data.get(
+                    "estimated_total_cost", 0.0
+                ),
+                estimated_total_time=plan_data.get(
+                    "estimated_total_time", "unknown"
+                ),
+                complexity_score=plan_data.get("complexity_score", 5),
+            )
 
         logger.info(
             f"Strategic plan created: {len(phases)} phases, "
@@ -526,12 +726,10 @@ def planner_node(state: AgentState) -> AgentState:
             f"estimated cost: ${state.task_plan.estimated_total_cost:.3f}"
         )
 
-        # Store plan in context
         state.context_cache["task_plan"] = plan_data
 
     except Exception as e:
-        logger.error(f"Planning failed: {e}")
-        # Fall back to default plan
+        logger.error(f"Planning post-processing failed: {e}")
         state.task_plan = create_default_plan()
 
     state.current_phase = "planned"
@@ -542,35 +740,45 @@ def planner_node(state: AgentState) -> AgentState:
 # NODE: SUMMARIZER (New - Professional Documentation)
 # ============================================================================
 
-SUMMARIZER_PROMPT = """You are a technical writer producing a RISC-V porting guide for **{repo_name}**.
-
-## Build Context
-- **Repository:** {repo_url}
-- **Build System:** {build_system}
-- **Duration:** {duration}
-- **API Calls:** {api_calls} (est. cost: ${cost:.4f})
-
-## Architecture Issues Found
-{arch_issues}
-
-## Fixes Applied
-{fixes}
-
-## Build Steps
-{build_steps}
-
-## Task
-
-Write a professional Markdown porting report with these sections:
-
-1. **Executive Summary** — Build status, key findings, overall portability assessment.
-2. **Prerequisites** — Required Alpine packages, tools, and environment setup.
-3. **Build Instructions** — Exact step-by-step commands to reproduce the build on riscv64.
-4. **Architecture Notes** — What was architecture-specific, what was changed, and why. Include RISC-V preprocessor macros used (`__riscv`, `__riscv_xlen`, etc.) if applicable.
-5. **Verification** — How to confirm the build produced valid RISC-V ELF binaries (e.g., `file <binary>`, `readelf -h`).
-6. **Known Issues & Recommendations** — Remaining portability concerns and upstream contribution opportunities.
-
-Be precise and technical. Use fenced code blocks for all commands. Do not include generic advice — only information specific to this project's RISC-V port."""
+SUMMARIZER_PROMPT = (
+    "You are writing the RISC-V porting report for **{repo_name}**.\n"
+    "\n"
+    "## Build context\n"
+    "- Repo: {repo_url}\n"
+    "- Build system: {build_system}\n"
+    "- Duration: {duration} | API calls: {api_calls} (~${cost:.4f})\n"
+    "\n"
+    "## Architecture issues observed\n"
+    "{arch_issues}\n"
+    "\n"
+    "## Fixes applied\n"
+    "{fixes}\n"
+    "\n"
+    "## Build steps actually executed\n"
+    "{build_steps}\n"
+    "\n"
+    "## Required sections (use exactly these H2 headings, in order)\n"
+    "1. `## Executive Summary` — status (success / partial / failed), 1-"
+    "2 sentence portability verdict.\n"
+    "2. `## Prerequisites` — exact package install command(s) for the ta"
+    "rget distro.\n"
+    "3. `## Build Instructions` — copy-pasteable shell commands, one fen"
+    "ced block per logical step, in order.\n"
+    "4. `## Architecture Notes` — only the arch-specific things this pro"
+    "ject needed (preprocessor macros, SIMD handling, libc differences)."
+    " Omit if N/A.\n"
+    "5. `## Verification` — how to confirm produced binaries are riscv64"
+    " (`file`, `readelf -h`).\n"
+    "6. `## Known Issues & Recommendations` — leftover concerns + upstre"
+    "am contribution ideas.\n"
+    "\n"
+    "Rules:\n"
+    "- Every command in fenced ```bash blocks.\n"
+    "- Only mention packages/flags that were actually used.\n"
+    "- No generic RISC-V tutorial content — be specific to this project.\n"
+    "- If a section has nothing useful to say, write a single sentence a"
+    "cknowledging that and move on."
+)
 
 
 def create_default_plan() -> TaskPlan:
@@ -578,9 +786,16 @@ def create_default_plan() -> TaskPlan:
     return TaskPlan(
         phases=[
             TaskPhase(
-                1, "scout", "Analyze and create build plan", AgentRole.SCOUT, False, []
+                1,
+                "scout",
+                "Analyze and create build plan",
+                AgentRole.SCOUT,
+                False,
+                [],
             ),
-            TaskPhase(2, "build", "Execute build", AgentRole.BUILDER, False, [1]),
+            TaskPhase(
+                2, "build", "Execute build", AgentRole.BUILDER, False, [1]
+            ),
         ],
         estimated_total_cost=0.02,
         complexity_score=5,
@@ -590,80 +805,57 @@ def create_default_plan() -> TaskPlan:
 # ============================================================================
 # NODE: SUPERVISOR (Orchestration)
 # ============================================================================
- 
-SUPERVISOR_PROMPT = """You are the workflow supervisor for a RISC-V porting system. Analyze the current state and decide the next action.
 
-## Current State
-- **Phase:** {current_phase}
-- **Build Status:** {build_status}
-- **Attempt:** {attempt_count} / {max_attempts}
-- **Previous Agent:** {current_agent}
-
-### Build Plan
-{build_plan_summary}
-
-### Execution History
-Scripted ops: {scripted_ops_count} | API calls: {api_calls} | Cost: ${cost:.4f}
-
-{agent_history}
-
-### Architecture Issues
-{arch_issues_summary}
-
-### Errors
-{error_summary}
-
-### Additional Context
-{additional_context}
-
-## Available Actions
-
-| Action | When to Use |
-|--------|-------------|
-| **SCOUT** | No build plan exists, or build plan needs revision after new information |
-| **BUILD** | Build plan ready, no blocking issues, ready to compile |
-| **FIX** | Build failed with actionable errors that can be patched |
-| **FINISH** | Build succeeded, or max attempts exhausted |
-| **ESCALATE** | Unrecoverable error, loop detected, or critical dependency missing |
-
-## Decision Rules
-
-- If build succeeded → **FINISH**
-- If max attempts reached → **FINISH** (with partial report)
-- If same error repeats 3+ times → **ESCALATE**
-- If no build plan → **SCOUT**
-- If build failed with fixable error → **FIX**
-- If build plan ready and no blockers → **BUILD**
-- If critical failure (missing toolchain, network) → **ESCALATE**
-
-## Examples
-
-Build ready:
-{{"next_agent": "BUILD", "reasoning": "Build plan exists, no blockers, attempt 1.", "confidence": "high", "expected_outcome": "Build executes or produces actionable errors", "fallback_plan": "FIX agent handles errors"}}
-
-Build failed:
-{{"next_agent": "FIX", "reasoning": "Build failed with missing header error, fixable by installing dev package.", "confidence": "high", "expected_outcome": "Fixer installs dependency and adjusts build", "fallback_plan": "ESCALATE if fix fails twice"}}
-
-Stuck in loop:
-{{"next_agent": "ESCALATE", "reasoning": "Same compilation error after 3 fix attempts. Requires human expertise.", "confidence": "high", "expected_outcome": "Escalation report generated", "fallback_plan": "N/A"}}
-
-Return ONLY a JSON object:
-{{
-  "next_agent": "SCOUT|BUILD|FIX|FINISH|ESCALATE",
-  "reasoning": "2-3 sentence justification",
-  "confidence": "high|medium|low",
-  "expected_outcome": "what should happen next",
-  "fallback_plan": "what to do if this fails"
-}}"""
+SUPERVISOR_PROMPT = (
+    "You are the routing supervisor for a RISC-V porting agent. The\n"
+    "heuristic router already produced a recommendation; you decide whet"
+    "her to\n"
+    "follow it or override.\n"
+    "\n"
+    "## State snapshot\n"
+    "- Phase: {current_phase} | Build status: {build_status}\n"
+    "- Attempt {attempt_count}/{max_attempts} | Last agent: {current_age"
+    "nt}\n"
+    "- Stats: scripted ops={scripted_ops_count}, API calls={api_calls}, "
+    "cost=${cost:.4f}\n"
+    "\n"
+    "### Build plan\n"
+    "{build_plan_summary}\n"
+    "\n"
+    "### Recent agent history\n"
+    "{agent_history}\n"
+    "\n"
+    "### Architecture issues\n"
+    "{arch_issues_summary}\n"
+    "\n"
+    "### Recent errors\n"
+    "{error_summary}\n"
+    "\n"
+    "### Extra context\n"
+    "{additional_context}\n"
+    "\n"
+    "## Verification step (do this before answering)\n"
+    "1. Has the same error category fired 3+ times in a row? → ESCALATE\n"
+    "2. Is the build green and verified? → FINISH\n"
+    "3. Is there no build plan yet? → SCOUT\n"
+    "4. Has the last build failed with a fixable error? → FIX\n"
+    "5. Otherwise → BUILD\n"
+    "\n"
+    "## Output schema (JSON only, no prose)\n"
+    "{{\n"
+    '  "next_agent": "SCOUT|BUILD|FIX|FINISH|ESCALATE",\n'
+    '  "reasoning": "<2 sentences max>",\n'
+    '  "confidence": "high|medium|low"\n'
+    "}}"
+)
 
 
 @agent_node(AgentRole.SUPERVISOR)
 def supervisor_node(state: AgentState) -> AgentState:
-    """
-    Enhanced supervisor with better context awareness, cost optimization, and heuristic routing.
-    """
+    """Make a routing decision with cost-aware heuristics."""
+    bp_state = "Exists" if state.build_plan else "Missing"
     logger.info(
-        f"Supervisor making routing decision... (BuildPlan: {'Exists' if state.build_plan else 'Missing'})"
+        f"Supervisor making routing decision... (BuildPlan: {bp_state})"
     )
 
     should_esc, esc_reason = should_escalate(state)
@@ -681,7 +873,9 @@ def supervisor_node(state: AgentState) -> AgentState:
             recommended_action.value,
             "Cost optimization heuristic (API calls > 8 or cost > $0.08)",
         )
-        logger.info(f"Using cost-optimized routing: {recommended_action.value}")
+        logger.info(
+            f"Using cost-optimized routing: {recommended_action.value}"
+        )
         state.current_phase = recommended_action.value.lower()
         return state
 
@@ -712,34 +906,68 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
 
     if not state.task_plan:
-        state.log_agent_decision(AgentRole.SUPERVISOR, "PLAN", "No task plan exists.")
+        state.log_agent_decision(
+            AgentRole.SUPERVISOR, "PLAN", "No task plan exists."
+        )
         state.current_phase = "planner"
         return state
 
     if not state.build_plan and state.task_plan:
         state.log_agent_decision(
-            AgentRole.SUPERVISOR, "SCOUT", "Build plan missing but task plan exists."
+            AgentRole.SUPERVISOR,
+            "SCOUT",
+            "Build plan missing but task plan exists.",
         )
         state.current_phase = "scout"
         return state
 
     if state.build_status == BuildStatus.FAILED:
-        # MISSING_TOOLS / DEPENDENCY need an updated build plan from scout (add packages, change steps)
-        # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE → send to fixer to patch in-place
+        if _should_force_replan(state):
+            sig = _replan_signature(state.last_error or "") or "unknown"
+            state.log_agent_decision(
+                AgentRole.SUPERVISOR,
+                "SCOUT",
+                f"Failure signature '{sig}' indicates plan-level issue; "
+                "requesting one bounded replan.",
+            )
+            state.current_phase = "scout"
+            return state
+
+        # MISSING_TOOLS / DEPENDENCY need an updated build plan from
+        # scout (add packages, change steps).
+        # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE -> send to
+        # fixer to patch in-place.
         if state.last_error_category in (
             ErrorCategory.MISSING_TOOLS,
             ErrorCategory.DEPENDENCY,
+            ErrorCategory.UNKNOWN,
         ):
+            if (
+                state.last_error_category == ErrorCategory.MISSING_TOOLS
+                and is_toolchain_version_mismatch(state.last_error)
+            ):
+                state.log_agent_decision(
+                    AgentRole.SUPERVISOR,
+                    "ESCALATE",
+                    "Sandbox toolchain is too old for this repository.",
+                )
+                state.current_phase = "escalate"
+                return state
             state.log_agent_decision(
-                AgentRole.SUPERVISOR, "SCOUT", f"{state.last_error_category.value} - need updated build plan."
+                AgentRole.SUPERVISOR,
+                "SCOUT",
+                f"{state.last_error_category.value} - need updated "
+                f"build plan.",
             )
             state.current_phase = "scout"
             return state
         else:
+            err_cat = state.last_error_category
+            err_val = err_cat.value if err_cat else "Unknown"
             state.log_agent_decision(
                 AgentRole.SUPERVISOR,
                 "FIXER",
-                f"Error: {state.last_error_category.value if state.last_error_category else 'Unknown'}",
+                f"Error: {err_val}",
             )
             state.current_phase = "fixer"
             return state
@@ -750,12 +978,6 @@ def supervisor_node(state: AgentState) -> AgentState:
         )
         state.current_phase = "builder"
         return state
-
-    task_plan_status = "No plan yet"
-    if state.task_plan:
-        completed = len([p for p in state.task_plan.phases if p.status == "completed"])
-        total = len(state.task_plan.phases)
-        task_plan_status = f"Progress: {completed}/{total} phases completed"
 
     decision_context = ""
     if state.build_status == BuildStatus.FAILED:
@@ -776,35 +998,51 @@ def supervisor_node(state: AgentState) -> AgentState:
     build_plan_summary = "No build plan yet"
     if state.build_plan:
         phase_names = [p.name for p in state.build_plan.phases]
-        build_plan_summary = f"Build System: {state.build_plan.build_system}, Phases: {', '.join(phase_names)}, Last completed: {state.last_successful_phase}"
+        build_plan_summary = (
+            f"Build System: {state.build_plan.build_system}, "
+            f"Phases: {', '.join(phase_names)}, "
+            f"Last completed: {state.last_successful_phase}"
+        )
 
     agent_history = ""
     if state.audit_trail:
         recent = state.audit_trail[-5:]
-        agent_history = "\n".join([
-            f"- {entry.get('agent', 'unknown')}: {entry.get('event', 'unknown')} - {str(entry.get('data', ''))[:100]}"
-            for entry in recent
-        ])
+        agent_history = "\n".join(
+            [
+                f"- {entry.get('agent', 'unknown')}: "
+                f"{entry.get('event', 'unknown')} - "
+                f"{str(entry.get('data', ''))[:100]}"
+                for entry in recent
+            ]
+        )
     else:
         agent_history = "No previous agent actions"
 
     arch_issues_summary = "None detected"
     if state.arch_specific_code:
-        arch_issues_summary = f"{len(state.arch_specific_code)} architecture-specific code instances found"
+        arch_issues_summary = (
+            f"{len(state.arch_specific_code)} "
+            f"architecture-specific code instances found"
+        )
 
     error_summary = "No errors"
     if state.error_history:
         recent_errors = state.error_history[-3:]
-        error_summary = "\n".join([
-            f"- [{e.category.value}] {e.message[:150]}" for e in recent_errors
-        ])
+        error_summary = "\n".join(
+            [
+                f"- [{e.category.value}] {e.message[:150]}"
+                for e in recent_errors
+            ]
+        )
 
     prompt = SUPERVISOR_PROMPT.format(
         current_phase=state.current_phase,
         build_status=state.build_status.value,
         attempt_count=state.attempt_count,
         max_attempts=state.max_attempts,
-        current_agent=state.current_agent.value if state.current_agent else "none",
+        current_agent=(
+            state.current_agent.value if state.current_agent else "none"
+        ),
         build_plan_summary=build_plan_summary,
         scripted_ops_count=state.scripted_ops_count,
         api_calls=state.api_calls_made,
@@ -828,9 +1066,13 @@ def supervisor_node(state: AgentState) -> AgentState:
             agent_role=AgentRole.SUPERVISOR.value,
             prompt=prompt,
             response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
+            model=llm.model_name if hasattr(llm, "model_name") else "unknown",
             cost_usd=0.002,
-            metadata={"repo": state.repo_name, "phase": "supervisor", "status": state.build_status.value}
+            metadata={
+                "repo": state.repo_name,
+                "phase": "supervisor",
+                "status": state.build_status.value,
+            },
         )
 
         # Try to parse JSON response
@@ -850,7 +1092,9 @@ def supervisor_node(state: AgentState) -> AgentState:
         }
 
         state.log_agent_decision(
-            AgentRole.SUPERVISOR, action_str, decision.get("reasoning", "LLM decision")
+            AgentRole.SUPERVISOR,
+            action_str,
+            decision.get("reasoning", "LLM decision"),
         )
         state.current_phase = action_map.get(action_str, "scout")
 
@@ -866,135 +1110,96 @@ def supervisor_node(state: AgentState) -> AgentState:
 # ============================================================================
 # NODE: SCOUT (Architecture Analysis)
 # ============================================================================
- 
-SCOUT_PROMPT = """You are a build engineer creating a native RISC-V build plan for **{repo_name}**.
 
-## Target Environment
-- **Architecture:** {target_arch} ({arch_identifiers})
-- **OS:** Alpine Linux (musl libc, not glibc)
-- **Compilation:** Native (not cross-compilation)
-- **Working directory:** `{repo_path}`
+SCOUT_PROMPT = (
+    "You are the build scout for a RISC-V porting agent. Produce a\n"
+    "minimal, executable BuildPlan for **{repo_name}** built natively at"
+    " `{repo_path}`.\n"
+    "\n"
+    "## ACTIVE SANDBOX (use ONLY these package commands)\n"
+    "{platform_banner}\n"
+    "\n"
+    "## Target\n"
+    "- Architecture: {target_arch} ({arch_identifiers})\n"
+    "- Native compilation only (DO NOT set `--host`, `GOOS/GOARCH`, `-DC"
+    "MAKE_SYSTEM_PROCESSOR`).\n"
+    "\n"
+    "## Repo facts\n"
+    "- Build system: {build_system} | Module dir: `{module_dir}`\n"
+    "- Arch-specific code: {arch_code_count} occurrences | Cached docs: "
+    "{doc_count}\n"
+    "- Project context: {go_main_info}\n"
+    "\n"
+    "### Project structure\n"
+    "{repo_tree}\n"
+    "\n"
+    "### Arch patterns\n"
+    "{arch_build_patterns}\n"
+    "\n"
+    "### Detected dependencies\n"
+    "{dependencies}\n"
+    "\n"
+    "### Arch concerns\n"
+    "{arch_concerns}\n"
+    "\n"
+    "### Sandbox tools available\n"
+    "{system_info}\n"
+    "\n"
+    "### Documentation excerpts\n"
+    "{documentation}\n"
+    "\n"
+    "## Platform knowledge (USE THIS — don't invent package names)\n"
+    "{system_knowledge}\n"
+    "\n"
+    "{few_shot_examples}\n"
+    "\n"
+    "## Build plan rules\n"
+    "1. Each command runs in a fresh shell at `{repo_path}`. **Always ch"
+    "ain `cd` with `&&`** — e.g. `cd build && cmake ..`, never two comma"
+    "nds.\n"
+    "2. Group commands into ≤3 phases: `setup` (install deps) → `configu"
+    "re` (optional) → `build`. Skip phases that have nothing to do.\n"
+    "3. Install only `-dev` packages you can justify from CMakeLists.txt"
+    " / configure.ac / meson.build / go.mod. No guessing.\n"
+    "4. Use the package names from the platform knowledge above. Do NOT "
+    "use names from a different distro.\n"
+    "5. If the project has both CMake and autotools, prefer the one whos"
+    "e dependencies are easier to satisfy; if unsure, prefer autotools.\n"
+    "6. For Go: if `go.mod` is missing, first phase must `go mod init <m"
+    "odule_path>` then `go mod tidy`. Always pass `-buildvcs=false` to `"
+    "go build`. **If `Project context` above gives a `build_command`, us"
+    "e exactly that command — do not substitute `go build ./...` (which "
+    "compiles every helper and fails on the first one with missing deps)"
+    ".** Never emit `go build ./cmd` or `go build ./<top-level-dir>` "
+    "without an explicit output path; if building a subpackage, use "
+    "`go build -o ./bin/<name> <package>`.\n"
+    "7. Disable optional features that pull in heavy or x86-specific dep"
+    "s (tests, SIMD, examples, docs).\n"
+    "8. NEVER reference paths or files you can't see in the project stru"
+    "cture.\n"
+    "\n"
+    "## Self-check (do silently before responding)\n"
+    "- Did I read the actual build files (or admit I couldn't)?\n"
+    "- Does every package install command exist for the target distro?\n"
+    "- Do my commands actually run if pasted into a shell at `{repo_path"
+    "}`?\n"
+    "\n"
+    "## Output schema (JSON only)\n"
+    "{{\n"
+    '  "build_system": "go|cmake|make|autotools|cargo|meson|other",\n'
+    '  "build_system_confidence": <0-1 float>,\n'
+    '  "phases": [\n'
+    '    {{"id": 1, "name": "setup", "commands": ["..."], "ca'
+    'n_parallelize": false, "expected_duration": "30s"}},\n'
+    '    {{"id": 2, "name": "build", "commands": ["..."], "ca'
+    'n_parallelize": false, "expected_duration": "2m"}}\n'
+    "  ],\n"
+    '  "total_estimated_duration": "<sum>",\n'
+    '  "notes": ["..."],\n'
+    '  "architecture_concerns": ["..."]\n'
+    "}}"
+)
 
-## Repository Analysis
-- **Build system:** {build_system}
-- **Module directory:** {module_dir}
-- **Architecture-specific code:** {arch_code_count} instances
-- **Dependencies detected:** {deps_count}
-- **Cached docs:** {doc_count}
-
-### Project Structure
-{repo_tree}
-
-### Architecture Patterns Found
-{arch_build_patterns}
-
-### Detected Dependencies
-{dependencies}
-
-### Architecture Concerns
-{arch_concerns}
-
-### System Environment
-{system_info}
-
-### Documentation
-{documentation}
-
-### Go Main Package Info
-{go_main_info}
-
-## RISC-V / Alpine Knowledge
-{system_knowledge}
-
-{few_shot_examples}
-
-## Build Plan Rules
-
-1. **All commands must be executable as-is** inside a Docker container at `{repo_path}`. No placeholders like `/path/to/` or `<value>`.
-   - **CRITICAL: Each command runs in a separate shell starting at `{repo_path}`**. A `cd` in one command does NOT carry over to the next. Always chain `cd` with subsequent commands using `&&`. Example: `cd build && cmake ..` NOT separate `cd build` then `cmake ..`.
-2. **Native compilation only** — do NOT use cross-compilation flags (e.g., `GOOS`/`GOARCH`, `--host=riscv64-*`, `-DCMAKE_SYSTEM_PROCESSOR=riscv64`). The build runs natively on {architecture}. The compiler already targets riscv64.
-3. **Use the correct build system:**
-   - Go: Check `Go Main Package Info` for whether `go.mod` exists.
-     - **If `needs_go_init: true`** (no go.mod found): First run `go mod init <module_name>` then `go mod tidy` then `go build .`.
-       Use the GitHub repo path as module name (e.g. `github.com/tomnomnom/assetfinder`).
-     - **If `has_go_mod: true`**: Run `go mod tidy` then `go build ./...` or target path from `build_command`.
-     - **Always** use `go build ./...` or specific path — never just `go build` alone when a main path is known.
-   - CMake: `mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)`
-     - **CRITICAL**: If you split cmake steps across phases, ALWAYS include `mkdir -p build` BEFORE any `cd build` command. Never assume the build directory exists.
-     - **Read CMakeLists.txt** to discover optional features that may cause build issues on RISC-V:
-       - Look for `option(...)` and `find_package(...)` to find toggleable features and required dependencies.
-       - **Disable tests/examples/docs** to speed up build: e.g. `-DBUILD_TESTING=OFF`, `-DBUILD_TESTS=OFF`, `-DBUILD_EXAMPLES=OFF`, `-DBUILD_PROGRAMS=OFF`
-       - **Disable x86-specific SIMD** if the project has SSE/AVX options: e.g. `-DENABLE_SSE=OFF`, `-DWITH_SIMD=OFF`, `-DHWY_ENABLE_TESTS=OFF`
-       - **Install required `-dev` packages** for each `find_package()`/`pkg_check_modules()` call in CMakeLists.txt. Common Alpine mappings:
-         - `ZLIB` → `zlib-dev`, `PNG` → `libpng-dev`, `JPEG/JPEGTURBO` → `libjpeg-turbo-dev`
-         - `OpenSSL` → `openssl-dev`, `CURL` → `curl-dev`, `LibXml2` → `libxml2-dev`
-         - `Threads` → already available, `EXPAT` → `expat-dev`, `BZip2` → `bzip2-dev`
-     - If CMake fails with "Could NOT find ..." → install the missing `-dev` package via `apk add`
-   - Make: `make -j$(nproc)` — read the Makefile first to check for required variables or config targets.
-   - Autotools: Check if `./configure` exists.
-     - If `./configure` exists: Run `./configure && make -j$(nproc)` (do NOT pass `--host` when building natively)
-     - If `./configure` does NOT exist but `autogen.sh` exists: **CRITICAL**: Run `./autogen.sh -s -f` (MUST pass `-s` for dev setup mode and `-f` to force — without these flags, many autogen.sh scripts silently exit without generating configure). Then `./configure && make -j$(nproc)`
-     - If `./configure` does NOT exist but `configure.ac`/`configure.in` exists: Run `autoreconf -fi` to generate it, then `./configure && make -j$(nproc)`
-     - If `autoreconf -fi` fails with "undefined macro" or "macro not found": **Copy gettext.m4 FIRST, then run aclocal**: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`, then run `./configure && make -j$(nproc)`.
-     - **IMPORTANT**: If the repo has an `m4/` directory, include `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true` as the FIRST command in the setup phase to ensure modern gettext M4 macros are present before running autoreconf or aclocal
-   - **Build system preference**: If a project has BOTH CMakeLists.txt AND configure.ac/autogen.sh, and the CMake build fails with parse errors or missing features, fall back to autotools.
-   - Meson: `meson setup build && ninja -C build`
-     - Install `meson` and `ninja` via `apk add meson ninja`
-     - If the project uses NASM/YASM for assembly: `apk add nasm`
-   - Cargo: `cargo build --release`
-   - Custom build systems (e.g., OpenSSL, SQLite):
-     - If the project uses `./Configure` (capital C, Perl script): `perl ./Configure <target> && make -j$(nproc)`
-     - For OpenSSL specifically: use `perl ./Configure linux64-riscv64 no-asm no-tests no-docs` (do NOT use -Wl, flags — pass `-latomic` via LDFLAGS env var instead: `export LDFLAGS="-latomic"`)
-     - If the project provides a standalone amalgamation file (e.g. sqlite3.c): compile directly with `gcc -o output source.c -lpthread -ldl`
-     - Always read the project's INSTALL/README for the correct build procedure
-4. **Install all dependencies** via `apk add <package>` in the setup phase. Use Alpine package names (e.g., `build-base`, `linux-headers`, `cmake`).
-   - For C/C++ libraries, always install the `-dev` variant (e.g., `zlib-dev`, `openssl-dev`, `curl-dev`).
-   - **IMPORTANT: Never repeat the same package name in an `apk add` command. List each package exactly once.**
-   - **Alpine/musl package gotchas** (these packages do NOT exist — do NOT try to install them):
-     - `libiconv-dev` → musl has iconv built-in, no separate package needed
-     - `libatomic-dev` → libatomic is part of gcc, already installed via `build-base`
-     - `librt-dev`, `libpthread-dev` → part of musl, no separate packages
-     - `libdl-dev` → part of musl, no separate package
-   - Check the project README/INSTALL and CMakeLists.txt/meson.build for required dependencies.
-   - For CMake projects, check `find_package()` calls in CMakeLists.txt — each required package needs a corresponding `-dev` install. Common: `absl` → `abseil-cpp-dev`, `Protobuf` → `protobuf-dev`, `OpenSSL` → `openssl-dev`, `ZLIB` → `zlib-dev`, `LibSSH2` → `libssh2-dev`.
-5. **Verify source code location**: CMakeLists.txt or configure.ac may be in a subdirectory (e.g., `expat/`, `src/`). If the root has no build files, check subdirectories. If README says source is on a different branch (e.g., `c_master`, `cpp_master`), add `git fetch origin <branch>:<branch> && git checkout <branch>` as the FIRST command in setup phase. The `:<branch>` syntax is required for shallow clones to create a local branch.
-   - **If both CMake and autotools are available** (both CMakeLists.txt and configure/configure.ac exist), prefer autotools (`./configure && make`) as it is usually more mature and handles code generation better on RISC-V.
-   - **If `./configure` already exists**, use it directly — do NOT run autoreconf, bootstrap.sh, or autogen.sh unnecessarily.
-6. **If architecture-specific code is found**, note it in `architecture_concerns`. Common RISC-V issues:
-   - x86 SIMD intrinsics (SSE/AVX/NEON) — disable via build option or add scalar fallback
-   - Inline assembly — must be guarded for RISC-V or replaced with C code
-   - `__builtin_ia32_*` — x86-specific GCC builtins
-   - Stale `config.guess`/`config.sub` — update via `apk add automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .`
-   - Missing `-latomic` for atomic operations on RISC-V
-   - glibc-only APIs on musl (e.g., `execinfo.h`, `backtrace`, `mallinfo`)
-6. **Do NOT reference non-existent directories or files.**
-
-## Output Format
-
-Return ONLY a JSON object:
-{{
-  "build_system": "go|cmake|make|autotools|cargo|meson|other",
-  "build_system_confidence": 0.95,
-  "phases": [
-    {{
-      "id": 1,
-      "name": "setup",
-      "commands": ["apk add <needed packages>"],
-      "can_parallelize": false,
-      "expected_duration": "30s"
-    }},
-    {{
-      "id": 2,
-      "name": "build",
-      "commands": ["<actual build commands>"],
-      "can_parallelize": false,
-      "expected_duration": "2m"
-    }}
-  ],
-  "total_estimated_duration": "3m",
-  "notes": ["any important observations"],
-  "architecture_concerns": ["list of RISC-V-specific issues found"]
-}}"""
 
 def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
     """Validate BuildPlan for hallucinations and common issues."""
@@ -1006,7 +1211,18 @@ def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
     ]
 
     # Go subcommands that must not appear as apk package names
-    go_subcommands = {"mod", "build", "get", "install", "run", "test", "tool", "generate", "fmt", "vet"}
+    go_subcommands = {
+        "mod",
+        "build",
+        "get",
+        "install",
+        "run",
+        "test",
+        "tool",
+        "generate",
+        "fmt",
+        "vet",
+    }
 
     for phase in plan.phases:
         for cmd in phase.commands:
@@ -1014,40 +1230,61 @@ def validate_build_plan(plan: BuildPlan) -> tuple[bool, str]:
                 if pattern in cmd:
                     return (
                         False,
-                        f"Hallucination detected in command: '{cmd}' (contains '{pattern}')",
+                        f"Hallucination detected in command: '{cmd}' "
+                        f"(contains '{pattern}')",
                     )
 
             # Check for absolute paths that look guessed
             if "/home/" in cmd and "/workspace/" not in cmd:
                 return False, f"Suspicious absolute path in command: '{cmd}'"
 
-            # Check for `apk add go mod` or `apk add go build` style hallucinations
-            if cmd.strip().startswith("apk add"):
-                parts = cmd.split()
-                pkg_names = [p for p in parts[2:] if not p.startswith("-")]
+            # Check for `apk add go mod` / `apt-get install go build`
+            # style hallucinations where Go subcommands are mistaken
+            # for package names.
+            stripped = cmd.strip()
+            if (
+                stripped.startswith("apk add")
+                or stripped.startswith("apt-get install")
+                or stripped.startswith("apt install")
+            ):
+                parts = stripped.split()
+                # apk add <pkgs> / apt-get install <pkgs>
+                skip = 2 if stripped.startswith("apk") else 2
+                pkg_names = [p for p in parts[skip:] if not p.startswith("-")]
                 for pkg in pkg_names:
                     if pkg in go_subcommands:
                         return False, (
-                            f"Hallucination: '{cmd}' — '{pkg}' is a Go subcommand, not an apk package. "
+                            f"Hallucination: '{cmd}' — '{pkg}' is a Go "
+                            f"subcommand, not a package. "
                             f"Use 'go {pkg}' as a separate command."
                         )
 
             # Check for bad cmake patterns
             if "cmake" in cmd:
                 if "cd build &&" in cmd and "-B build" in cmd:
-                    return False, f"Bad cmake command (would create nested build dir): '{cmd}'"
-                # Ensure we're doing `cmake ..` from inside build dir, not `cmake -S . -B build`
-                if "cd build &&" in cmd and "cmake -S" in cmd and "-B build" in cmd:
-                    return False, f"Bad cmake pattern (creates build/build): '{cmd}'"
+                    return (
+                        False,
+                        f"Bad cmake command (would create nested "
+                        f"build dir): '{cmd}'",
+                    )
+                # Ensure we're doing `cmake ..` from inside build dir,
+                # not `cmake -S . -B build`.
+                if (
+                    "cd build &&" in cmd
+                    and "cmake -S" in cmd
+                    and "-B build" in cmd
+                ):
+                    return (
+                        False,
+                        f"Bad cmake pattern (creates build/build): '{cmd}'",
+                    )
 
     return True, ""
 
 
 @agent_node(AgentRole.SCOUT)
 def scout_node(state: AgentState) -> AgentState:
-    """
-    Enhanced scout that leverages pre-analysis from scripted operations.
-    """
+    """Analyze the repository, leveraging scripted pre-analysis."""
     logger.info("Scout analyzing repository...")
 
     state.build_status = BuildStatus.SCOUTING
@@ -1093,16 +1330,28 @@ def scout_node(state: AgentState) -> AgentState:
         )
 
     system_info_raw = scripted_ops.get_system_info()
-    system_info = "\n".join([f"- {k}: {v}" for k, v in system_info_raw.items()])
+    system_info = "\n".join(
+        [f"- {k}: {v}" for k, v in system_info_raw.items()]
+    )
 
     module_dir = (
-        build_sys.module_dir if build_sys and hasattr(build_sys, "module_dir") else ""
+        build_sys.module_dir
+        if build_sys and hasattr(build_sys, "module_dir")
+        else ""
     )
 
     go_main_info = state.context_cache.get("go_main_info", {})
-    go_main_str = (
-        json.dumps(go_main_info, indent=2) if go_main_info else "Not a Go project"
-    )
+    build_type_lower = (build_sys.type if build_sys else "").lower()
+    if go_main_info:
+        go_main_str = json.dumps(go_main_info, indent=2)
+    elif build_type_lower == "go":
+        go_main_str = (
+            "Go project detected; main package not auto-discovered "
+            "(scout should inspect the repo for main.go or cmd/ "
+            "subdirs)"
+        )
+    else:
+        go_main_str = "Not a Go project"
 
     few_shot_context = {
         "build_system": build_sys.type if build_sys else "unknown",
@@ -1123,19 +1372,25 @@ def scout_node(state: AgentState) -> AgentState:
                 arch_patterns_by_type[arch_code.arch_type] = 0
             arch_patterns_by_type[arch_code.arch_type] += 1
         arch_patterns_str = "\n".join(
-            [f"- {arch_type}: {count} matches" for arch_type, count in arch_patterns_by_type.items()]
+            [
+                f"- {arch_type}: {count} matches"
+                for arch_type, count in arch_patterns_by_type.items()
+            ]
         )
 
     prompt = SCOUT_PROMPT.format(
         target_arch="RISC-V (riscv64)",
         arch_identifiers="rv64, riscv, riscv64, RISCV64",
         repo_name=state.repo_name,
+        platform_banner=_build_platform_banner(),
         build_system=(build_sys.type if build_sys else "unknown")
         .replace("{", "{{")
         .replace("}", "}}"),
-        repo_tree=state.repo_tree.replace("{", "{{").replace("}", "}}")
-        if state.repo_tree
-        else "(Not available)",
+        repo_tree=(
+            state.repo_tree.replace("{", "{{").replace("}", "}}")
+            if state.repo_tree
+            else "(Not available)"
+        ),
         arch_build_patterns=arch_patterns_str,
         module_dir=module_dir,
         deps_count=len(deps.system_packages) if deps else 0,
@@ -1156,44 +1411,108 @@ def scout_node(state: AgentState) -> AgentState:
         few_shot_examples=few_shot_examples,
     )
 
+    def _validate_scout(data: dict) -> ValidationResult:
+        phases = data.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return ValidationResult.bad("'phases' must be a non-empty array")
+        for i, p in enumerate(phases):
+            if not isinstance(p, dict):
+                return ValidationResult.bad(f"phase {i} is not an object")
+            if not p.get("name"):
+                return ValidationResult.bad(f"phase {i} missing 'name'")
+            cmds = p.get("commands")
+            if not isinstance(cmds, list) or not cmds:
+                return ValidationResult.bad(
+                    f"phase {i} ({p.get('name')}) must have a "
+                    f"non-empty 'commands' array"
+                )
+            if not all(isinstance(c, str) and c.strip() for c in cmds):
+                return ValidationResult.bad(
+                    f"phase {i} ({p.get('name')}) has empty/non-string command"
+                )
+        # Dry-build a BuildPlan to reuse the existing semantic validator
+        try:
+            trial_phases = [
+                BuildPhase(
+                    id=p.get("id", i + 1),
+                    name=p["name"],
+                    commands=p["commands"],
+                    can_parallelize=p.get("can_parallelize", False),
+                    expected_duration=p.get("expected_duration", "unknown"),
+                )
+                for i, p in enumerate(phases)
+            ]
+            trial_plan = BuildPlan(
+                build_system=data.get(
+                    "build_system", build_sys.type if build_sys else "unknown"
+                ),
+                build_system_confidence=data.get(
+                    "build_system_confidence", 0.5
+                ),
+                phases=trial_phases,
+                total_estimated_duration=data.get(
+                    "total_estimated_duration", "unknown"
+                ),
+            )
+            ok, reason = validate_build_plan(trial_plan)
+            if not ok:
+                return ValidationResult.bad(
+                    f"{reason}. Avoid absolute paths like "
+                    f"/path/to/, /home/, /root/"
+                )
+        except Exception as exc:
+            return ValidationResult.bad(
+                f"could not materialize BuildPlan: {exc}"
+            )
+        return ValidationResult.good()
+
+    _scout_pool = get_model_pool_for_role(AgentRole.SCOUT)
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=_scout_pool[0],
+        fallback_llms=_scout_pool[1:],
+        prompt=prompt,
+        validator=_validate_scout,
+        fallback_factory=lambda: None,  # we build the BuildPlan fallback below
+        role=AgentRole.SCOUT.value,
+        audit_metadata={
+            "repo": state.repo_name,
+            "build_system": (
+                state.build_system_info.type
+                if state.build_system_info
+                else "unknown"
+            ),
+        },
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.SCOUT)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)
+        if outcome.data is None:
+            raise ValueError(
+                outcome.last_error or "scout produced no valid plan"
+            )
 
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.SCOUT.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={"repo": state.repo_name, "build_system": state.build_system_info.type if state.build_system_info else 'unknown'}
-        )
-
-        json_match = extract_json_block(content)
-        plan_data = json.loads(json_match)
-
-        phases = []
-        for i, p in enumerate(plan_data["phases"]):
-            phase = BuildPhase(
+        plan_data = outcome.data
+        phases = [
+            BuildPhase(
                 id=p.get("id", i + 1),
                 name=p["name"],
                 commands=p["commands"],
                 can_parallelize=p.get("can_parallelize", False),
                 expected_duration=p.get("expected_duration", "unknown"),
             )
-            phases.append(phase)
+            for i, p in enumerate(plan_data["phases"])
+        ]
 
         state.build_plan = BuildPlan(
             build_system=plan_data.get(
                 "build_system", build_sys.type if build_sys else "unknown"
             ),
             build_system_confidence=plan_data.get(
-                "build_system_confidence", build_sys.confidence if build_sys else 0.5
+                "build_system_confidence",
+                build_sys.confidence if build_sys else 0.5,
             ),
             phases=phases,
             total_estimated_duration=plan_data.get(
@@ -1202,30 +1521,14 @@ def scout_node(state: AgentState) -> AgentState:
             notes=plan_data.get("notes", []),
         )
         state.last_successful_phase = 0
-
-        is_valid, reason = validate_build_plan(state.build_plan)
-        if not is_valid:
-            logger.warning(f"Plan validation failed: {reason}")
-            state.add_error(
-                create_error_record(
-                    message=f"Invalid build plan: {reason}. Please avoid absolute paths and placeholders.",
-                    category=ErrorCategory.CONFIGURATION,
-                )
-            )
-            state.build_plan = None
-
-            if state.attempt_count >= 2:
-                logger.info("Using fallback build plan after repeated failures")
-                state.build_plan = create_fallback_build_plan(state)
-        else:
-            logger.info(f"Build plan created and validated: {len(phases)} phases")
+        logger.info(f"Build plan created and validated: {len(phases)} phases")
 
     except Exception as e:
         logger.error(f"Scout failed: {e}")
-        logger.info("Using fallback build plan due to LLM parsing error")
+        logger.info("Using fallback build plan due to scout failure")
         state.add_error(
             create_error_record(
-                message=f"Scout LLM failed: {e}",
+                message=f"Scout failed: {e}",
                 category=ErrorCategory.UNKNOWN,
             )
         )
@@ -1237,83 +1540,129 @@ def scout_node(state: AgentState) -> AgentState:
 
 def create_fallback_build_plan(state: AgentState) -> BuildPlan:
     """Create a basic fallback build plan based on detected build system."""
+    from .platforms import get_active_profile
+
+    profile = get_active_profile()
     build_sys = state.build_system_info
     build_type = build_sys.type if build_sys else "unknown"
+
+    def _setup(canonical_pkgs: List[str]) -> str:
+        """Render install command for canonical package names.
+
+        Uses the active platform profile.
+        """
+        return profile.install_cmd(
+            [profile.resolve(p) for p in canonical_pkgs]
+        )
 
     if build_type == "go":
         go_main_info = state.context_cache.get("go_main_info", {})
         needs_init = go_main_info.get("needs_go_init", False)
-        build_cmd = go_main_info.get("build_command", "go build -buildvcs=false ./...")
-        # Infer module name from repo URL
-        module_name = state.repo_url.replace("https://", "").rstrip("/") if state.repo_url else f"github.com/unknown/{state.repo_name}"
+        build_cmd = go_main_info.get(
+            "build_command", "go build -buildvcs=false ./..."
+        )
+        module_name = (
+            state.repo_url.replace("https://", "").rstrip("/")
+            if state.repo_url
+            else f"github.com/unknown/{state.repo_name}"
+        )
 
         build_cmds = []
         if needs_init:
             build_cmds += [f"go mod init {module_name}", "go mod tidy"]
         else:
             build_cmds.append("go mod tidy")
-        build_cmds.append(build_cmd if build_cmd != "go build ." else "go build -buildvcs=false ./...")
+        build_cmds.append(
+            build_cmd
+            if build_cmd != "go build ."
+            else "go build -buildvcs=false ./..."
+        )
 
         return BuildPlan(
             build_system="go",
             build_system_confidence=0.8,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add go git"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["git"])], False, "30s"),
                 BuildPhase(2, "build", build_cmds, False, "3m"),
             ],
             total_estimated_duration="4m",
-            notes=["Fallback Go build plan"],
+            notes=[f"Fallback Go build plan ({profile.name})"],
         )
     elif build_type == "cmake":
         return BuildPlan(
             build_system="cmake",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base cmake"], False, "30s"),
-                BuildPhase(2, "configure", ["mkdir -p build", "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"], False, "1m"),
-                BuildPhase(3, "build", ["cd build && make -j$(nproc)"], False, "5m"),
+                BuildPhase(
+                    1, "setup", [_setup(["gcc", "cmake"])], False, "30s"
+                ),
+                BuildPhase(
+                    2,
+                    "configure",
+                    [
+                        "mkdir -p build",
+                        "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
+                    ],
+                    False,
+                    "1m",
+                ),
+                BuildPhase(
+                    3, "build", ["cd build && make -j$(nproc)"], False, "5m"
+                ),
             ],
             total_estimated_duration="7m",
-            notes=["Fallback CMake build plan"],
+            notes=[f"Fallback CMake build plan ({profile.name})"],
         )
     elif build_type == "make":
         return BuildPlan(
             build_system="make",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
                 BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Fallback Make build plan"],
+            notes=[f"Fallback Make build plan ({profile.name})"],
         )
     elif build_type == "cargo":
         return BuildPlan(
             build_system="cargo",
             build_system_confidence=0.8,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add rust cargo"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["rust"])], False, "30s"),
                 BuildPhase(2, "build", ["cargo build --release"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Fallback Cargo build plan"],
+            notes=[f"Fallback Cargo build plan ({profile.name})"],
         )
     elif build_type == "meson":
         return BuildPlan(
             build_system="meson",
             build_system_confidence=0.7,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base meson ninja"], False, "30s"),
-                BuildPhase(2, "configure", ["meson setup builddir"], False, "1m"),
+                BuildPhase(
+                    1,
+                    "setup",
+                    [_setup(["gcc", "meson", "ninja"])],
+                    False,
+                    "30s",
+                ),
+                BuildPhase(
+                    2, "configure", ["meson setup builddir"], False, "1m"
+                ),
                 BuildPhase(3, "build", ["ninja -C builddir"], False, "5m"),
             ],
             total_estimated_duration="7m",
-            notes=["Fallback Meson build plan"],
+            notes=[f"Fallback Meson build plan ({profile.name})"],
         )
     elif build_type == "autotools":
-        # Check if configure script exists in the repo
-        has_configure = os.path.exists(os.path.join(_to_host_path(state.repo_path), "configure")) if state.repo_path else True
-        # Native build: do NOT use --host flag (we are compiling on riscv64 natively)
+        has_configure = (
+            os.path.exists(
+                os.path.join(_to_host_path(state.repo_path), "configure")
+            )
+            if state.repo_path
+            else True
+        )
         configure_phase_cmds = ["./configure"]
         if not has_configure:
             configure_phase_cmds = [
@@ -1325,30 +1674,40 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
             build_system="autotools",
             build_system_confidence=0.6,
             phases=[
-                BuildPhase(1, "setup", [
-                    "apk update && apk add build-base autoconf automake libtool gettext-dev pkgconf",
-                    "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
-                ], False, "30s"),
+                BuildPhase(
+                    1,
+                    "setup",
+                    [
+                        _setup(["gcc", "autotools", "pkgconfig"]),
+                        "cp /usr/share/gettext/m4/*.m4 "
+                        "m4/ 2>/dev/null || true",
+                    ],
+                    False,
+                    "30s",
+                ),
                 BuildPhase(2, "configure", configure_phase_cmds, False, "3m"),
                 BuildPhase(3, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="9m",
-            notes=["Fallback Autotools build plan"],
+            notes=[f"Fallback Autotools build plan ({profile.name})"],
         )
     else:
-        # Unknown build system - try to guess from files present
-        logger.warning(f"Unknown build system '{build_type}', using generic fallback")
+        logger.warning(
+            f"Unknown build system '{build_type}', using generic fallback"
+        )
         return BuildPlan(
             build_system=build_type,
             build_system_confidence=0.3,
             phases=[
-                BuildPhase(1, "setup", ["apk update && apk add build-base"], False, "30s"),
+                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
                 BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="6m",
-            notes=["Generic fallback - build system not recognized"],
+            notes=[
+                f"Generic fallback - build system not recognized "
+                f"({profile.name})"
+            ],
         )
-
 
 
 # ============================================================================
@@ -1357,52 +1716,88 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
 
 
 def _fixup_top_builddir_in_submakefiles(docker_repo_path: str) -> None:
-    """
-    Post-configure fixup for old gettext/autotools projects.
+    """Post-configure fixup for old gettext/autotools projects.
 
-    Old po/Makefile.in.in templates reference $(top_builddir) as a make variable
-    but never define it (they expected @top_builddir@ substitution that was added
-    in newer gettext). When make descends into po/ without passing top_builddir,
-    the dependency $(top_builddir)/config.status expands to /config.status which
-    doesn't exist → "No rule to make target '/config.status'".
+    Old po/Makefile.in.in templates reference $(top_builddir) as a
+    make variable but never define it (they expected @top_builddir@
+    substitution that was added in newer gettext). When make descends
+    into po/ without passing top_builddir, the dependency
+    $(top_builddir)/config.status expands to /config.status which
+    doesn't exist -> "No rule to make target '/config.status'".
 
-    Fix: run a shell script INSIDE Docker (to avoid host permission issues with
-    root-owned files) that scans all subdirectory Makefiles and injects the
-    correct relative top_builddir assignment.
+    Fix: run a shell script INSIDE Docker (to avoid host permission
+    issues with root-owned files) that scans all subdirectory
+    Makefiles and injects the correct relative top_builddir assignment.
+
+    Args:
+        docker_repo_path: Path to the repository inside the container.
     """
     try:
-        from src.config import CONTAINER_NAME
-        container = CONTAINER_NAME
-        # Shell script: walk subdirs, find Makefiles using $(top_builddir)
-        # that don't already define it, and inject `top_builddir = <relpath>`
+        from src.platforms import get_container_name
+
+        container = get_container_name()
+        # Shell script: walk subdirs, find Makefiles using
+        # $(top_builddir) that don't already define it, and inject
+        # `top_builddir = <relpath>`.
         script = (
             f"cd {docker_repo_path} && "
-            "find . -mindepth 2 -name Makefile -not -path './.git/*' | while read f; do "
-            "  if grep -q '\\$(top_builddir)' \"$f\" && ! grep -q '^top_builddir' \"$f\"; then "
-            "    depth=$(echo \"$f\" | tr -cd '/' | wc -c); depth=$((depth - 1)); "
+            "find . -mindepth 2 -name Makefile "
+            "-not -path './.git/*' | while read f; do "
+            "  if grep -q '\\$(top_builddir)' \"$f\" "
+            "&& ! grep -q '^top_builddir' \"$f\"; then "
+            "    depth=$(echo \"$f\" | tr -cd '/' | wc -c); "
+            "depth=$((depth - 1)); "
             "    rel=$(python3 -c \"print('/'.join(['..'] * $depth))\"); "
-            "    sed -i \"1s|^|top_builddir = $rel\\n|\" \"$f\" && "
-            "    echo \"Injected top_builddir=$rel into $f\"; "
+            '    sed -i "1s|^|top_builddir = $rel\\n|" "$f" && '
+            '    echo "Injected top_builddir=$rel into $f"; '
             "  fi; "
             "done"
         )
         result = subprocess.run(
             ["docker", "exec", container, "sh", "-c", script],
-            capture_output=True, text=True, timeout=30
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.stdout.strip():
             logger.info(f"top_builddir fixup: {result.stdout.strip()}")
         if result.returncode != 0 and result.stderr.strip():
-            logger.warning(f"_fixup_top_builddir_in_submakefiles stderr: {result.stderr.strip()}")
+            logger.warning(
+                f"_fixup_top_builddir_in_submakefiles stderr: "
+                f"{result.stderr.strip()}"
+            )
     except Exception as exc:
         logger.warning(f"_fixup_top_builddir_in_submakefiles: {exc}")
 
 
+def _extract_cd_prefix(command: str) -> str:
+    """Extract leading `cd ... &&` prefix so companion commands match context."""
+    match = re.match(r"^\s*(cd\s+[^&;]+&&\s*)", command)
+    return match.group(1) if match else ""
+
+
+def _inject_go_flag(command: str, flag: str) -> str:
+    """Inject a Go build/install flag once, preserving existing command shape."""
+    if flag in command:
+        return command
+    return re.sub(
+        r"\bgo\s+(build|install)\b",
+        rf"go \1 {flag}",
+        command,
+        count=1,
+    )
+
+
+def _inject_go_output(command: str, output_path: str) -> str:
+    """Inject `-o <path>` into Go build/install commands."""
+    if re.search(r"\b-o\s+\S+", command):
+        return command
+    return _inject_go_flag(command, f"-o {output_path}")
+
+
 @agent_node(AgentRole.BUILDER)
 def builder_node(state: AgentState) -> AgentState:
-    """
-    Execute the build plan with smart error detection and proactive issue prediction.
-    """
+    """Execute the build plan with smart error detection."""
     logger.info("Builder executing build plan...")
 
     state.build_status = BuildStatus.BUILDING
@@ -1421,7 +1816,9 @@ def builder_node(state: AgentState) -> AgentState:
 
     predictions = predict_build_issues(state)
     if predictions:
-        logger.info(f"Proactively identified {len(predictions)} potential issues")
+        logger.info(
+            f"Proactively identified {len(predictions)} potential issues"
+        )
         state.context_cache["predicted_issues"] = predictions
 
     for phase in state.build_plan.phases:
@@ -1438,19 +1835,29 @@ def builder_node(state: AgentState) -> AgentState:
 
             optimized_cmd = command
             for pred in predictions:
-                if pred["pattern"] == "dubious ownership" and "go build" in command:
+                if (
+                    pred["pattern"] == "dubious ownership"
+                    and "go build" in command
+                ):
                     if "-buildvcs=false" not in command:
                         optimized_cmd = command.replace(
                             "go build", "go build -buildvcs=false"
                         )
-                        logger.info(f"Proactively optimized command: {optimized_cmd}")
+                        logger.info(
+                            f"Proactively optimized command: {optimized_cmd}"
+                        )
                         break
 
-            # Rewrite autoreconf to copy-first sequence when the repo has m4/gettext.m4.
-            # autoreconf calls autopoint internally which reverts any gettext.m4 fix.
-            # Only rewrite when m4/gettext.m4 exists — other repos are unaffected.
+            # Rewrite autoreconf to copy-first sequence when the repo
+            # has m4/gettext.m4. autoreconf calls autopoint internally
+            # which reverts any gettext.m4 fix. Only rewrite when
+            # m4/gettext.m4 exists — other repos are unaffected.
             if re.search(r"\bautoreconf\b", optimized_cmd):
-                if os.path.isfile(os.path.join(_to_host_path(state.repo_path), "m4", "gettext.m4")):
+                if os.path.isfile(
+                    os.path.join(
+                        _to_host_path(state.repo_path), "m4", "gettext.m4"
+                    )
+                ):
                     optimized_cmd = (
                         "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
                         " && aclocal -I m4 -I /usr/share/aclocal"
@@ -1461,9 +1868,10 @@ def builder_node(state: AgentState) -> AgentState:
                         "(autoreconf/autopoint would revert gettext.m4)"
                     )
 
-            # Before any make command, proactively fix po/Makefile top_builddir if needed.
-            # This handles the case where configure was run by the fixer (not the builder),
-            # so the post-configure hook wouldn't have fired yet.
+            # Before any make command, proactively fix po/Makefile
+            # top_builddir if needed. This handles the case where
+            # configure was run by the fixer (not the builder), so the
+            # post-configure hook wouldn't have fired yet.
             if re.match(r"\bmake\b", optimized_cmd.lstrip()):
                 _fixup_top_builddir_in_submakefiles(state.repo_path)
 
@@ -1475,7 +1883,10 @@ def builder_node(state: AgentState) -> AgentState:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error: {result.stderr[:500]}")
 
-                is_go_build = "go build" in command or "go install" in command
+                is_go_build = (
+                    "go build" in optimized_cmd
+                    or "go install" in optimized_cmd
+                )
                 is_vcs_error = any(
                     pattern in result.stderr
                     for pattern in [
@@ -1486,28 +1897,143 @@ def builder_node(state: AgentState) -> AgentState:
                     ]
                 )
 
-                if is_go_build and is_vcs_error and "-buildvcs=false" not in command:
+                if (
+                    is_go_build
+                    and is_vcs_error
+                    and "-buildvcs=false" not in optimized_cmd
+                ):
                     logger.warning(
                         "Detected Go VCS error, retrying with -buildvcs=false"
                     )
-                    retry_command = command.replace(
-                        "go build", "go build -buildvcs=false"
-                    )
-                    retry_command = retry_command.replace(
-                        "go install", "go install -buildvcs=false"
+                    retry_command = _inject_go_flag(
+                        optimized_cmd, "-buildvcs=false"
                     )
 
-                    retry_result = execute_command(retry_command, cwd=state.repo_path)
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
                     state.cache_command_result(retry_command, retry_result)
                     state.log_scripted_op("retry_build_command")
 
                     if retry_result.success:
                         logger.info("Retry with -buildvcs=false succeeded!")
-                        phase.commands[phase.commands.index(command)] = retry_command
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
                         continue
                     else:
-                        logger.error(f"Retry also failed: {retry_result.stderr[:500]}")
+                        logger.error(
+                            f"Retry also failed: {retry_result.stderr[:500]}"
+                        )
                         result = retry_result
+
+                if (
+                    is_go_build
+                    and "already exists and is a directory"
+                    in (result.stderr or "").lower()
+                    and "build output" in (result.stderr or "").lower()
+                ):
+                    out_match = re.search(
+                        r'build output "([^"]+)"', result.stderr or ""
+                    )
+                    out_name = (
+                        out_match.group(1)
+                        if out_match
+                        else f"{state.repo_name or 'build'}-bin"
+                    )
+                    safe_out = re.sub(r"[^A-Za-z0-9._-]", "-", out_name)
+                    retry_command = _inject_go_output(
+                        optimized_cmd, f"./.atesor-bin/{safe_out}"
+                    )
+                    retry_command = (
+                        "mkdir -p ./.atesor-bin && " f"{retry_command}"
+                    )
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Resolved Go output-dir collision by using -o"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
+
+                if (
+                    is_go_build
+                    and "inconsistent vendoring" in (result.stderr or "").lower()
+                    and "-mod=mod" not in optimized_cmd
+                ):
+                    retry_command = _inject_go_flag(optimized_cmd, "-mod=mod")
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Resolved inconsistent vendoring with -mod=mod"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
+
+                if (
+                    is_go_build
+                    and "no required module provides"
+                    in (result.stderr or "").lower()
+                ):
+                    prefix = _extract_cd_prefix(optimized_cmd)
+                    tidy_cmd = f"{prefix}go mod tidy"
+                    tidy_result = execute_command(tidy_cmd, cwd=state.repo_path)
+                    state.cache_command_result(tidy_cmd, tidy_result)
+                    state.log_scripted_op("retry_build_command")
+                    if tidy_result.success:
+                        retry_result = execute_command(
+                            optimized_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(
+                            optimized_cmd, retry_result
+                        )
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Resolved missing module by running go mod tidy"
+                            )
+                            continue
+                        result = retry_result
+
+                if (
+                    re.search(r"\bautoreconf\b", optimized_cmd)
+                    and "autopoint" in (result.stderr or "").lower()
+                    and "no such file" in (result.stderr or "").lower()
+                ):
+                    retry_command = (
+                        "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+                        " && aclocal -I m4 -I /usr/share/aclocal"
+                        " && autoconf"
+                    )
+                    retry_result = execute_command(
+                        retry_command, cwd=state.repo_path
+                    )
+                    state.cache_command_result(retry_command, retry_result)
+                    state.log_scripted_op("retry_build_command")
+                    if retry_result.success:
+                        logger.info(
+                            "Recovered from autopoint failure via copy-first "
+                            "gettext regeneration."
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            retry_command
+                        )
+                        continue
+                    result = retry_result
 
                 error_message = _build_command_error_message(
                     result, f"Build command failed: {command}"
@@ -1526,9 +2052,10 @@ def builder_node(state: AgentState) -> AgentState:
         state.last_successful_phase = phase.id
         logger.info(f"Phase {phase.id} completed successfully")
 
-        # Post-configure fixup: after any configure phase, patch subdirectory Makefiles
-        # that reference $(top_builddir) but don't define it. This is a common issue
-        # with old gettext/autotools projects where po/Makefile.in.in lacks the
+        # Post-configure fixup: after any configure phase, patch
+        # subdirectory Makefiles that reference $(top_builddir) but
+        # don't define it. This is a common issue with old
+        # gettext/autotools projects where po/Makefile.in.in lacks the
         # top_builddir = @top_builddir@ substitution.
         if phase.name.lower() in ("configure", "config") or any(
             "./configure" in c for c in phase.commands
@@ -1539,16 +2066,20 @@ def builder_node(state: AgentState) -> AgentState:
     logger.info("All build phases completed - verifying artifacts...")
 
     # Determine where to look for build artifacts based on build system
-    build_system = state.build_plan.build_system if state.build_plan else "unknown"
-    
+    build_system = (
+        state.build_plan.build_system if state.build_plan else "unknown"
+    )
+
     # Check multiple possible artifact locations
     artifact_dirs = [state.repo_path]  # Always check repo root
-    
+
     # Add build-system-specific directories
     build_subdir = os.path.join(state.repo_path, "build")
     if build_system in ["cmake", "meson"]:
-        artifact_dirs.insert(0, build_subdir)  # Check build/ first for cmake/meson
-    
+        artifact_dirs.insert(
+            0, build_subdir
+        )  # Check build/ first for cmake/meson
+
     # Also check common output directories
     for subdir in ["bin", "dist", "target/release", "output"]:
         artifact_dirs.append(os.path.join(state.repo_path, subdir))
@@ -1557,10 +2088,10 @@ def builder_node(state: AgentState) -> AgentState:
     for artifact_dir in artifact_dirs:
         check_cmd = f"test -d {artifact_dir}"
         check_result = execute_command(check_cmd, cwd=state.repo_path)
-        
+
         if not check_result.success:
             continue
-            
+
         logger.info(f"Checking for artifacts in: {artifact_dir}")
         scanner = ArtifactScanner(artifact_dir, cwd=state.repo_path)
         artifacts = scanner.scan()
@@ -1574,11 +2105,14 @@ def builder_node(state: AgentState) -> AgentState:
                 state.add_build_artifact(
                     filepath=artifact["filepath"],
                     artifact_type=artifact["type"],
-                    architecture=artifact["architecture"]
+                    architecture=artifact["architecture"],
                 )
 
             summary = scanner.get_summary()
-            logger.info(f"Build artifacts summary: {json.dumps(summary, indent=2, default=str)}")
+            logger.info(
+                f"Build artifacts summary: "
+                f"{json.dumps(summary, indent=2, default=str)}"
+            )
             state.context_cache["artifact_summary"] = summary
             artifacts_found = True
             break
@@ -1586,7 +2120,9 @@ def builder_node(state: AgentState) -> AgentState:
     if not artifacts_found:
         # For Go projects, check if any binary was produced in the repo root
         if build_system == "go":
-            find_cmd = f"find {state.repo_path} -maxdepth 1 -type f -executable"
+            find_cmd = (
+                f"find {state.repo_path} -maxdepth 1 -type f -executable"
+            )
             find_result = execute_command(find_cmd, cwd=state.repo_path)
             if find_result.success and find_result.stdout.strip():
                 logger.info(f"Go binary found: {find_result.stdout.strip()}")
@@ -1595,28 +2131,43 @@ def builder_node(state: AgentState) -> AgentState:
                     if binary_path:
                         # Verify it's a RISC-V binary
                         file_cmd = f"file {binary_path}"
-                        file_result = execute_command(file_cmd, cwd=state.repo_path)
-                        if file_result.success and "RISC-V" in file_result.stdout:
+                        file_result = execute_command(
+                            file_cmd, cwd=state.repo_path
+                        )
+                        if (
+                            file_result.success
+                            and "RISC-V" in file_result.stdout
+                        ):
                             state.add_build_artifact(
                                 filepath=binary_path,
                                 artifact_type="binary",
-                                architecture="riscv64"
+                                architecture="riscv64",
                             )
                             artifacts_found = True
-                            logger.info(f"Verified RISC-V binary: {binary_path}")
-                        elif file_result.success and "ELF" in file_result.stdout:
+                            logger.info(
+                                f"Verified RISC-V binary: {binary_path}"
+                            )
+                        elif (
+                            file_result.success and "ELF" in file_result.stdout
+                        ):
                             # ELF binary on RISC-V host is likely RISC-V
                             state.add_build_artifact(
                                 filepath=binary_path,
                                 artifact_type="binary",
-                                architecture="riscv64"
+                                architecture="riscv64",
                             )
                             artifacts_found = True
-                            logger.info(f"Found ELF binary (assumed RISC-V on native host): {binary_path}")
+                            logger.info(
+                                f"Found ELF binary (assumed RISC-V on "
+                                f"native host): {binary_path}"
+                            )
 
     if not artifacts_found:
-        logger.warning("No build artifacts found, but all phases completed successfully")
-        # Don't fail the build - phases completed successfully, artifacts may be installed elsewhere
+        logger.warning(
+            "No build artifacts found, but all phases completed successfully"
+        )
+        # Don't fail the build - phases completed successfully,
+        # artifacts may be installed elsewhere.
         logger.info("Treating as success since all build commands succeeded")
 
     state.build_status = BuildStatus.SUCCESS
@@ -1631,9 +2182,10 @@ def builder_node(state: AgentState) -> AgentState:
 
 
 def validate_fix_command(command: str) -> tuple[bool, str]:
-    """
-    Validate fix commands to prevent dangerous operations.
-    Returns (is_safe, reason).
+    """Validate fix commands to prevent dangerous operations.
+
+    Returns:
+        A ``(is_safe, reason)`` tuple.
     """
     dangerous_patterns = [
         (r"\btouch\s+.*\.go$", "Cannot create empty Go source files"),
@@ -1656,15 +2208,30 @@ def validate_fix_command(command: str) -> tuple[bool, str]:
         if re.search(pattern, command, re.IGNORECASE):
             return False, reason
 
-    # Reject `apk add go mod` style hallucinations where Go subcommands are used as package names
-    _go_subcommands = {"mod", "build", "get", "install", "run", "test", "tool", "generate", "fmt", "vet"}
-    if command.strip().startswith("apk add"):
-        parts = command.split()
+    # Reject `apk add go mod` / `apt-get install go build` style hallucinations
+    # where Go subcommands are used as package names
+    _go_subcommands = {
+        "mod",
+        "build",
+        "get",
+        "install",
+        "run",
+        "test",
+        "tool",
+        "generate",
+        "fmt",
+        "vet",
+    }
+    stripped = command.strip()
+    pkg_install_prefixes = ("apk add", "apt-get install", "apt install")
+    if any(stripped.startswith(pfx) for pfx in pkg_install_prefixes):
+        parts = stripped.split()
         pkg_names = [p for p in parts[2:] if not p.startswith("-")]
         for pkg in pkg_names:
             if pkg in _go_subcommands:
                 return False, (
-                    f"Hallucination: '{command}' — '{pkg}' is a Go subcommand, not an apk package. "
+                    f"Hallucination: '{command}' — '{pkg}' is a Go "
+                    f"subcommand, not a package. "
                     f"Use 'go {pkg}' as a separate command."
                 )
 
@@ -1672,13 +2239,18 @@ def validate_fix_command(command: str) -> tuple[bool, str]:
 
 
 def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
-    """
-    Validate FIXER response to ensure it makes logical sense.
-    Returns (is_valid, error_message).
+    """Validate a FIXER response to ensure it makes logical sense.
+
+    Returns:
+        A ``(is_valid, error_message)`` tuple.
     """
     try:
         if not isinstance(fix_data, dict):
-            return False, f"Expected JSON object from fixer, got {type(fix_data).__name__}"
+            return (
+                False,
+                f"Expected JSON object from fixer, got "
+                f"{type(fix_data).__name__}",
+            )
 
         if not fix_data.get("strategies"):
             return False, "No strategies provided"
@@ -1687,7 +2259,9 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
         strategies = fix_data.get("strategies", [])
 
         # Find recommended strategy
-        recommended = next((s for s in strategies if s["id"] == recommended_id), None)
+        recommended = next(
+            (s for s in strategies if s["id"] == recommended_id), None
+        )
         if not recommended:
             return False, f"Recommended strategy {recommended_id} not found"
 
@@ -1695,7 +2269,9 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
         actions = recommended.get("actions", [])
         if not actions:
             # Strategy has no actions - this is incomplete/hallucinatory
-            logger.warning("FIXER strategy has no actions (incomplete response)")
+            logger.warning(
+                "FIXER strategy has no actions (incomplete response)"
+            )
             return False, "Recommended strategy has no actions"
 
         # Validate actions in recommended strategy
@@ -1712,15 +2288,26 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
 
                 # Check for empty files
                 if not content:
-                    return False, f"create_file action has empty content for {path} - this won't help"
+                    return (
+                        False,
+                        f"create_file action has empty content for "
+                        f"{path} - this won't help",
+                    )
 
                 # Check for obviously hallucinated placeholders
                 if len(path) > 100:
-                    return False, f"Suspiciously long filepath: {path[:100]}..."
+                    return (
+                        False,
+                        f"Suspiciously long filepath: {path[:100]}...",
+                    )
 
                 # Check for absolute paths that look wrong
                 if path.startswith("/home/") or path.startswith("/root/"):
-                    return False, f"Suspicious absolute path (should be relative): {path}"
+                    return (
+                        False,
+                        f"Suspicious absolute path (should be "
+                        f"relative): {path}",
+                    )
 
             # Validate command actions
             elif action_type == "command":
@@ -1736,8 +2323,15 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
                     if len(parts) >= 4:
                         src = parts[2]  # source
                         dst = parts[3]  # destination
-                        if src == dst or src.split("/")[0] == dst.split("/")[0]:
-                            return False, f"Nonsensical command detected: {cmd} (copying to self)"
+                        if (
+                            src == dst
+                            or src.split("/")[0] == dst.split("/")[0]
+                        ):
+                            return (
+                                False,
+                                f"Nonsensical command detected: {cmd} "
+                                f"(copying to self)",
+                            )
 
                 is_safe, reason = validate_fix_command(cmd)
                 if not is_safe:
@@ -1749,7 +2343,11 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
             logger.warning("Fixer response has empty root_cause analysis")
 
         if not reflection.get("this_fix_will_work_because"):
-            logger.warning("Fixer response has empty 'this_fix_will_work_because' - self-critique may be shallow")
+            logger.warning(
+                "Fixer response has empty "
+                "'this_fix_will_work_because' - self-critique may be "
+                "shallow"
+            )
 
         return True, ""
 
@@ -1761,134 +2359,110 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
 # ============================================================================
 # NODE: FIXER (Error Resolution)
 # ============================================================================
- 
-FIXER_PROMPT = """You are a build engineer diagnosing and fixing a RISC-V compilation failure for **{repo_name}**.
 
-## Build Context
-- **Target:** {target_arch}
-- **Build System:** {build_system}
-- **Phase:** {current_phase}
-- **Attempt:** {attempt_count} / {max_attempts}
-
-## Failure Details
-
-**Failed Command:**
-```
-{failed_command}
-```
-
-**Error Output:**
-```
-{error_output}
-```
-
-**Exit Code:** {exit_code}
-
-### Previous Fix Attempts
-{previous_fixes}
-
-## Available Context
-
-### Repository Structure
-{repo_tree}
-
-### Known Architecture Issues
-{known_arch_issues}
-
-### Current Build Plan
-{build_plan}
-
-### RISC-V / Alpine Knowledge
-{system_knowledge}
-
-{few_shot_examples}
-
-## Diagnostic Process
-
-1. **Classify** the error: compilation, linking, configuration, dependency, or architecture incompatibility.
-2. **Identify root cause** — the actual problem, not the symptom. Check if it relates to known arch issues.
-3. **Check history** — have previous fixes attempted this? Don't repeat failed approaches.
-4. **Design minimal fix** — prefer (in order): configuration change > conditional compilation > portable replacement > feature disable.
-
-## Common RISC-V Fix Patterns
-
-| Error Pattern | Likely Cause | Fix |
-|---------------|-------------|-----|
-| `#error` with `x86_64` / `__x86_64__` check | Missing arch case | Add `#elif defined(__riscv)` branch |
-| `_mm_*`, `__m128`, SSE/AVX intrinsics | x86 SIMD | Disable SIMD via CMake option (`-DWITH_SIMD=OFF`, `-DENABLE_SSE=OFF`) or add `#ifdef __riscv` with scalar fallback |
-| `asm("mov ..."` or `__asm__` with x86 | Inline assembly | Use C equivalent or add RISC-V asm |
-| `__builtin_ia32_*` | GCC x86 builtins | Replace with portable `__builtin_*` or C code |
-| `undefined reference to __atomic_*` | Missing libatomic | Add `-latomic` to linker flags: `cmake .. -DCMAKE_EXE_LINKER_FLAGS=-latomic` or `LDFLAGS=-latomic` |
-| `execinfo.h` / `backtrace()` | glibc-only API | `apk add libexecinfo-dev` and add `-lexecinfo` to link flags, or guard with `#ifdef __GLIBC__` |
-| `config.guess: unknown architecture` | Stale autotools scripts | Run `apk add autoconf automake && cp /usr/share/automake-*/config.guess . && cp /usr/share/automake-*/config.sub .` |
-| `possibly undefined macro: AM_GNU_GETTEXT` OR `syntax error: unexpected word (expecting ")")` in `./configure` OR `No rule to make target '/config.status'` | Old `m4/gettext.m4` missing `AM_GNU_GETTEXT_VERSION`. **DO NOT run autoreconf** (autopoint reverts fixes). Exact fix sequence — run ALL three commands: `cp /usr/share/gettext/m4/*.m4 m4/ && aclocal -I m4 -I /usr/share/aclocal && autoconf`. The copy-first step is critical — without it autoconf produces a broken configure even if aclocal exits 0. |
-| `mallinfo` / `REG_RIP` / `REG_EIP` | glibc/Linux-specific | Guard with `#ifdef` or provide musl-compatible alternative |
-| `cannot find main module, but found .git/config` | Missing go.mod (GOPATH-style repo) | Run `go mod init <github.com/owner/repo>` then `go mod tidy` |
-| `requires go >= X.Y (running go 1.25.9)` | Package needs newer Go than installed | Try `apk add --no-cache go` to see if a newer version is available |
-| `Could NOT find <Package>` (CMake) | Missing dev library | Install the Alpine `-dev` package: `apk add <package>-dev` |
-| `Package '<pkg>' not found` (pkg-config) | Missing dev library | Install the Alpine `-dev` package: `apk add <pkg>-dev` |
-| `No such file or directory: nasm` | Missing assembler | `apk add nasm` |
-| `undefined reference to 'dlopen'` | Missing libdl | Add `-ldl` to linker flags (on musl, `dlopen` is in libc, so ensure `-ldl` is linked) |
-| `fatal error: linux/*.h` | Missing kernel headers | `apk add linux-headers` |
-| `cannot find -lm` / `cannot find -lpthread` | Missing C library dev | `apk add musl-dev` (usually already present with build-base) |
-| `cd: build: No such file or directory` | Build directory not created | Add `mkdir -p build` before any `cd build` command |
-| `Command blocked by safety validation` with `./Configure` | OpenSSL-style Configure script | Use `perl ./Configure` instead of `./Configure`, or set `LDFLAGS` env var instead of passing `-Wl,` flags directly |
-| `no such package` in apk add | Wrong Alpine package name | Check Alpine package names: e.g. `libatomic` is part of gcc (no separate -dev), `libiconv-dev` → `musl-dev` includes iconv on Alpine |
-| `./configure: No such file or directory` | Missing configure script | Run `autoreconf -fi` to generate it, or run `./autogen.sh -s -f` if autogen.sh exists (the `-s -f` flags enable dev setup + force regeneration). If autoreconf fails, try: `cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null; aclocal; autoconf; automake --add-missing 2>/dev/null; ./configure` |
-| `PATH_MAX` undeclared / `fortified realpath will not work` | musl/Alpine fortify-headers issue | Add `-DPATH_MAX=4096` to CFLAGS: for CMake use `-DCMAKE_C_FLAGS="-DPATH_MAX=4096"`, for Make use `CFLAGS="-DPATH_MAX=4096"`. If still failing, also add `-U_FORTIFY_SOURCE` |
-| `please do not run arbitrary` / autogen.sh exits without creating configure | autogen.sh requires flags | Run `./autogen.sh -s -f` (dev setup + force) instead of plain `./autogen.sh`. If that doesn't work, run `autoreconf -fi` directly |
-| `Unable to autodetect a usable HTTPS backend` | Missing SSL library for CMake | Install `openssl-dev` and pass `-DUSE_HTTPS=OpenSSL` to cmake |
-| `Could not find a package configuration file provided by` | Missing CMake dependency | Install the missing `-dev` package. Common mappings: `absl` → `abseil-cpp-dev`, `GTest` → `gtest-dev`, `Protobuf` → `protobuf-dev` |
-| `does not appear to contain CMakeLists.txt` | Wrong source directory or branch | Check if CMakeLists.txt is in a subdirectory (e.g., `expat/`, `src/`). Also check README — source may be on a different git branch. Run `git fetch origin <branch>:<branch> && git checkout <branch>` (the `:<branch>` creates a local tracking branch). Common branches: `c_master`, `main`, `develop`. Use `git branch -a` to list available branches |
-| `IMPORTED_LOCATION not set for imported target` | Missing dev package for cmake target | Install the missing `-dev` package. e.g., `PNG::PNG` → `libpng-dev`, `TIFF::TIFF` → `libtiff-dev`. If still failing, disable the feature via cmake option |
-| `Parse error. Expected a command name` in CMakeLists.txt | CMake build system broken | Switch to autotools: run `autoreconf -fi` or `./autogen.sh -s -f` to generate `./configure`, then `./configure && make -j$(nproc)` |
-| `undefined reference to` with cmake build (multiple linking errors) | CMake build incomplete | If the project also has `configure.ac` or `./configure`, switch to autotools: `./configure && make -j$(nproc)` (or `autoreconf -fi && ./configure && make -j$(nproc)` if configure doesn't exist). Autotools often handles codegen and linking better than cmake for complex projects |
-| `pathspec did not match any file(s) known to git` after fetch | Shallow clone branch issue | Use `git fetch origin <branch>:<branch>` to create a local branch, then `git checkout <branch>`. The `:<branch>` syntax creates the local tracking branch that shallow clones don't have |
-| `ModuleNotFoundError: No module named 'jinja2'` / `'jsonschema'` | Python build-time dep | `pip3 install jinja2 jsonschema` or `apk add py3-jinja2 py3-jsonschema` |
-
-**CRITICAL: Each command runs in a separate shell starting at the repo root. A `cd` in one command does NOT carry over. Always chain `cd` with subsequent commands using `&&` (e.g., `cd build && cmake ..`).**
-
-## Output Format
-
-Return ONLY a JSON object:
-{{
-  "strategies": [
-    {{
-      "id": 1,
-      "description": "Brief description of the fix",
-      "actions": [
-        {{
-          "type": "command",
-          "command": "shell command to run"
-        }}
-      ]
-    }}
-  ],
-  "recommended_strategy_id": 1,
-  "reflection": {{
-    "root_cause": "Why the error occurred",
-    "this_fix_will_work_because": "Why this fix addresses the root cause"
-  }}
-}}
-
-**Action types:**
-- `"command"` — Run a shell command. Fields: `type`, `command`
-- `"create_file"` — Create a new file. Fields: `type`, `path` (relative to repo root), `content`
-- `"patch"` — Apply a unified diff. Fields: `type`, `file` (relative path), `content` (MUST be a proper unified diff with `--- a/file` and `+++ b/file` headers and `@@ -line,count +line,count @@` hunks). **Prefer using `"command"` with `sed` for simple edits instead of patch.**
-
-**Rules:**
-- At least one strategy with at least one action.
-- No empty commands, empty files, or placeholder paths (`/path/to/`, `/home/`, `/root/`).
-- For missing packages: `apk add <package>`.
-- Provide exact, executable fixes — not analysis or pseudocode.
-- Do not repeat a fix that already failed (check previous fix attempts above)."""
+FIXER_PROMPT = (
+    "You are the build doctor for a RISC-V porting agent. Diagnose\n"
+    "the failure for **{repo_name}** and emit a minimal fix.\n"
+    "\n"
+    "## ACTIVE SANDBOX (use ONLY these package commands)\n"
+    "{platform_banner}\n"
+    "\n"
+    "## Build context\n"
+    "- Target: {target_arch} | Build system: {build_system}\n"
+    "- Attempt {attempt_count}/{max_attempts} | Phase: {current_phase}\n"
+    "\n"
+    "## Failure\n"
+    "**Failed command:**\n"
+    "```\n"
+    "{failed_command}\n"
+    "```\n"
+    "**Error (truncated):**\n"
+    "```\n"
+    "{error_output}\n"
+    "```\n"
+    "**Exit code:** {exit_code}\n"
+    "\n"
+    "### Previous fix attempts (most recent last — DO NOT repeat any of "
+    "these)\n"
+    "{previous_fixes}\n"
+    "\n"
+    "### Repo structure\n"
+    "{repo_tree}\n"
+    "\n"
+    "### Known arch concerns\n"
+    "{known_arch_issues}\n"
+    "\n"
+    "### Current build plan\n"
+    "{build_plan}\n"
+    "\n"
+    "## Platform knowledge (canonical — use these package names + comman"
+    "ds)\n"
+    "{system_knowledge}\n"
+    "\n"
+    "{few_shot_examples}\n"
+    "\n"
+    "## Diagnostic procedure\n"
+    "1. **Read the error.** What's the *root cause*, not the symptom?\n"
+    "2. **Classify**: missing dep / wrong package name / arch-specific c"
+    "ode / configure\n"
+    "   gone stale / build-system mismatch / glibc-only API / unrelated "
+    "env issue.\n"
+    "3. **Pick the cheapest fix** in this order: (a) install a missing `"
+    "-dev` package,\n"
+    "   (b) change a build flag, (c) regenerate configure / copy `config"
+    ".{{guess,sub}}`,\n"
+    "   (d) add a `#ifdef __riscv` guard, (e) patch source.\n"
+    "4. **Check the few-shot examples above** — if one matches the error"
+    " pattern, use it.\n"
+    "5. **Verify your fix does not duplicate a previous failed attempt.*"
+    "*\n"
+    "\n"
+    "## Critical rules\n"
+    "- Each command runs in a fresh shell at the repo root. Chain `cd` w"
+    "ith `&&`.\n"
+    "- Do NOT propose unrelated cleanups. Fix only what's broken.\n"
+    "- For Go: `-buildvcs=false` is required; never install Go via the p"
+    "ackage manager (it is preinstalled in the sandbox). Avoid `go build "
+    "./cmd` / `go build ./<dir>` unless you also set `-o` to a file path"
+    " (directory-name output collisions are common).\n"
+    "- For autotools failures involving gettext macros: copy macros BEFO"
+    "RE `aclocal`,\n"
+    "  do NOT run `autoreconf` (it reverts the fix via `autopoint`).\n"
+    "- If the error indicates an unfixable mismatch (e.g. project needs "
+    "newer Go\n"
+    "  than the sandbox provides), say so in `reflection.root_cause` and"
+    " propose\n"
+    "  ESCALATE rather than a hack.\n"
+    "\n"
+    "## Output schema (JSON only)\n"
+    "{{\n"
+    '  "strategies": [\n'
+    '    {{"id": 1, "description": "<one line>",\n'
+    '      "actions": [\n'
+    '        {{"type": "command", "command": "<shell>"}}\n'
+    '        // or {{"type": "create_file", "path": "<rel>", "c'
+    'ontent": "..."}}\n'
+    '        // or {{"type": "patch", "file": "<rel>", "content'
+    '": "<unified diff>"}}\n'
+    "      ]}}\n"
+    "  ],\n"
+    '  "recommended_strategy_id": 1,\n'
+    '  "reflection": {{\n'
+    '    "root_cause": "<why it broke>",\n'
+    '    "this_fix_will_work_because": "<why the chosen fix addresses'
+    ' the root cause>"\n'
+    "  }}\n"
+    "}}\n"
+    "\n"
+    "Rules: ≥1 strategy with ≥1 action; no placeholder paths (`/path/to/"
+    "`, `/home/`);\n"
+    "prefer `command` with `sed` over `patch` for simple edits."
+)
 
 
 @agent_node(AgentRole.FIXER)
 def fixer_node(state: AgentState) -> AgentState:
-    """
-    Intelligent error fixing with reflection pattern.
-    """
+    """Fix build errors using a reflection pattern."""
     logger.info("Fixer analyzing error...")
 
     state.build_status = BuildStatus.FIXING
@@ -1914,12 +2488,17 @@ def fixer_node(state: AgentState) -> AgentState:
     arch_issues = "None"
     if state.arch_specific_code:
         relevant = [
-            a for a in state.arch_specific_code if a.severity in ["high", "critical"]
+            a
+            for a in state.arch_specific_code
+            if a.severity in ["high", "critical"]
         ]
         relevant_subset = relevant[:5]
         if relevant_subset:
             arch_issues = "\n".join(
-                [f"- {a.file}:{a.line} - {a.arch_type}" for a in relevant_subset]
+                [
+                    f"- {a.file}:{a.line} - {a.arch_type}"
+                    for a in relevant_subset
+                ]
             )
 
     failed_command = "Unknown"
@@ -1928,9 +2507,9 @@ def fixer_node(state: AgentState) -> AgentState:
         failed_command = last.command or "Unknown"
 
     few_shot_context = {
-        "build_system": state.build_plan.build_system
-        if state.build_plan
-        else "unknown",
+        "build_system": (
+            state.build_plan.build_system if state.build_plan else "unknown"
+        ),
         "error_message": state.last_error,
     }
     few_shot_examples = format_few_shot_examples(
@@ -1940,66 +2519,87 @@ def fixer_node(state: AgentState) -> AgentState:
     # Get build plan details
     build_plan_str = "Unknown"
     if state.build_plan:
-        build_plan_str = f"Build System: {state.build_plan.build_system}\nCompleted Phases: {state.last_successful_phase}"
+        build_plan_str = (
+            f"Build System: {state.build_plan.build_system}\n"
+            f"Completed Phases: {state.last_successful_phase}"
+        )
 
     # Create prompt
     prompt = FIXER_PROMPT.format(
         repo_name=state.repo_name,
         target_arch="RISC-V (riscv64)",
-        build_system=state.build_plan.build_system if state.build_plan else "unknown",
+        platform_banner=_build_platform_banner(),
+        build_system=(
+            state.build_plan.build_system if state.build_plan else "unknown"
+        ),
         current_phase=state.current_phase,
         attempt_count=state.attempt_count,
         max_attempts=state.max_attempts,
         failed_phase=state.current_phase,
         exit_code="N/A",
-        error_output=state.last_error[:1000] if state.last_error else "No error details",
+        error_output=(
+            state.last_error[:1000] if state.last_error else "No error details"
+        ),
         failed_command=failed_command,
         previous_fixes=previous_fixes,
-        repo_tree=state.repo_tree[:500] if state.repo_tree else "(Not available)",
+        repo_tree=(
+            state.repo_tree[:500] if state.repo_tree else "(Not available)"
+        ),
         known_arch_issues=arch_issues,
         build_plan=build_plan_str,
         system_knowledge=get_system_knowledge_summary(),
         few_shot_examples=few_shot_examples,
     )
 
+    def _validate_fix(data: dict) -> ValidationResult:
+        ok, reason = validate_fixer_response(data)
+        if not ok:
+            return ValidationResult.bad(reason)
+        return ValidationResult.good()
+
+    _fixer_pool = get_model_pool_for_role(AgentRole.FIXER)
+    outcome = llm_call_with_validation(
+        invoke_fn=invoke_llm,
+        llm=_fixer_pool[0],
+        fallback_llms=_fixer_pool[1:],
+        prompt=prompt,
+        validator=_validate_fix,
+        # no deterministic fix — escalate via FAILED status
+        fallback_factory=lambda: None,
+        role=AgentRole.FIXER.value,
+        audit_metadata={
+            "repo": state.repo_name,
+            "error_category": (
+                state.last_error_category.value
+                if state.last_error_category
+                else "unknown"
+            ),
+            "attempt": state.attempt_count,
+        },
+        cost_estimate=0.01,
+        max_retries=2,
+    )
+    state.log_api_call(cost=0.01 * outcome.attempts)
+
     try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.FIXER)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.01)
-
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.FIXER.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
-            cost_usd=0.01,
-            metadata={
-                "repo": state.repo_name,
-                "error_category": state.last_error_category.value if state.last_error_category else 'unknown',
-                "attempt": state.attempt_count
-            }
-        )
-
-        # Parse JSON
-        json_match = extract_json_block(content)
-        fix_data = json.loads(json_match)
-
-        # Validate the FIXER response
-        is_valid, validation_error = validate_fixer_response(fix_data)
-        if not is_valid:
-            logger.error(f"FIXER response validation failed: {validation_error}")
+        if outcome.data is None:
+            logger.error(
+                f"FIXER produced no valid response after "
+                f"{outcome.attempts} attempts: "
+                f"{outcome.last_error}"
+            )
             state.add_error(
                 create_error_record(
-                    message=f"FIXER proposed invalid fix: {validation_error}",
+                    message=(
+                        f"FIXER proposed invalid fix: " f"{outcome.last_error}"
+                    ),
                     category=ErrorCategory.CONFIGURATION,
                 )
             )
             state.build_status = BuildStatus.FAILED
             return state
+
+        fix_data = outcome.data
 
         # Get recommended strategy
         recommended_id = fix_data.get("recommended_strategy_id", 1)
@@ -2033,15 +2633,20 @@ def fixer_node(state: AgentState) -> AgentState:
                 dir_path = os.path.dirname(full_file_path)
                 if dir_path:
                     mkdir_result = execute_command(
-                        f"mkdir -p {shlex.quote(dir_path)}", cwd=state.repo_path, use_docker=True
+                        f"mkdir -p {shlex.quote(dir_path)}",
+                        cwd=state.repo_path,
+                        use_docker=True,
                     )
                     if not mkdir_result.success:
-                        logger.warning(f"Failed to create directory: {dir_path}")
+                        logger.warning(
+                            f"Failed to create directory: {dir_path}"
+                        )
 
                 # Use base64 encoding to safely transfer LLM-generated content
                 encoded = base64.b64encode(file_content.encode()).decode()
                 write_result = execute_command(
-                    f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(full_file_path)}",
+                    f"echo {shlex.quote(encoded)} | base64 -d "
+                    f"> {shlex.quote(full_file_path)}",
                     cwd=state.repo_path,
                     use_docker=True,
                 )
@@ -2051,14 +2656,17 @@ def fixer_node(state: AgentState) -> AgentState:
                     logger.info(f"Created file: {file_path}")
                 else:
                     logger.error(
-                        f"Failed to create file {file_path}: {write_result.stderr}"
+                        f"Failed to create file {file_path}: "
+                        f"{write_result.stderr}"
                     )
 
             elif action["type"] == "patch":
                 patch_content = action["content"]
                 file_path = action.get("file")
                 full_file_path = (
-                    os.path.join(state.repo_path, file_path) if file_path else None
+                    os.path.join(state.repo_path, file_path)
+                    if file_path
+                    else None
                 )
 
                 if apply_patch(
@@ -2079,23 +2687,32 @@ def fixer_node(state: AgentState) -> AgentState:
 
                 is_safe, reason = validate_fix_command(command)
                 if not is_safe:
-                    logger.warning(f"Fix command blocked: {command} - {reason}")
+                    logger.warning(
+                        f"Fix command blocked: {command} - {reason}"
+                    )
                     continue
 
-                # Rewrite autoreconf to copy-first sequence when gettext macros are missing.
-                # autoreconf internally calls autopoint which reverts any gettext.m4 fix.
-                # The copy-first approach replaces the old m4/gettext.m4 with the system's
-                # modern one BEFORE running aclocal+autoconf, which is the only reliable fix.
+                # Rewrite autoreconf to copy-first sequence when
+                # gettext macros are missing. autoreconf internally
+                # calls autopoint which reverts any gettext.m4 fix.
+                # The copy-first approach replaces the old m4/gettext.m4
+                # with the system's modern one BEFORE running
+                # aclocal+autoconf, which is the only reliable fix.
                 if re.search(r"\bautoreconf\b", command):
-                    if os.path.isfile(os.path.join(_to_host_path(state.repo_path), "m4", "gettext.m4")):
+                    if os.path.isfile(
+                        os.path.join(
+                            _to_host_path(state.repo_path), "m4", "gettext.m4"
+                        )
+                    ):
                         rewritten = (
                             "cp /usr/share/gettext/m4/*.m4 m4/"
                             " && aclocal -I m4 -I /usr/share/aclocal"
                             " && autoconf"
                         )
                         logger.info(
-                            f"Rewrote autoreconf → copy-first gettext sequence "
-                            f"(autoreconf would revert gettext.m4 fix via autopoint)"
+                            "Rewrote autoreconf → copy-first gettext "
+                            "sequence (autoreconf would revert "
+                            "gettext.m4 fix via autopoint)"
                         )
                         command = rewritten
 
@@ -2135,15 +2752,18 @@ def fixer_node(state: AgentState) -> AgentState:
 
 @agent_node(AgentRole.SUPERVISOR)  # Escalation is a supervisor-level summary
 def escalate_node(state: AgentState) -> AgentState:
-    """
-    Escalate to human with comprehensive report.
-    """
+    """Escalate to a human with a comprehensive report."""
     logger.warning("Escalating to human intervention")
 
     state.build_status = BuildStatus.ESCALATED
     state.current_phase = "escalated"
 
     # Generate escalation report
+    err_cat = state.last_error_category
+    err_cat_val = err_cat.value if err_cat else "Unknown"
+    err_sev = state.last_error_severity
+    err_sev_val = err_sev.value if err_sev else "unknown"
+    err_msg = state.last_error[:500] if state.last_error else "N/A"
     report = f"""
 # ESCALATION REPORT
 
@@ -2155,16 +2775,18 @@ def escalate_node(state: AgentState) -> AgentState:
 - Duration: {state.get_execution_duration():.1f}s
 
 ## Last Error
-Category: {state.last_error_category.value if state.last_error_category else "Unknown"}
-Severity: {state.last_error_severity.value if state.last_error_severity else "unknown"}
-Message: {state.last_error[:500] if state.last_error else "N/A"}
+Category: {err_cat_val}
+Severity: {err_sev_val}
+Message: {err_msg}
 
 ## Fixes Attempted
 {len(state.fixes_attempted)} fix attempts made:
 """
 
     for fix in state.fixes_attempted[-5:]:
-        report += f"\n- {fix.strategy} ({'Success' if fix.success else 'Failed'})"
+        report += (
+            f"\n- {fix.strategy} ({'Success' if fix.success else 'Failed'})"
+        )
 
     report += f"""
 
@@ -2174,7 +2796,9 @@ Message: {state.last_error[:500] if state.last_error else "N/A"}
 
     if state.arch_specific_code:
         high_priority = [
-            a for a in state.arch_specific_code if a.severity in ["high", "critical"]
+            a
+            for a in state.arch_specific_code
+            if a.severity in ["high", "critical"]
         ]
         report_issues = high_priority[:5]
         for issue in report_issues:
@@ -2194,7 +2818,8 @@ Message: {state.last_error[:500] if state.last_error else "N/A"}
             msg = (err.message or "N/A").replace("\n", " ")
             report += (
                 f"- [{timestamp}] severity={err.severity.value}, "
-                f"category={err.category.value}, command={command}, message={msg[:260]}\n"
+                f"category={err.category.value}, command={command}, "
+                f"message={msg[:260]}\n"
             )
 
     logger.info(report)
@@ -2209,10 +2834,37 @@ Message: {state.last_error[:500] if state.last_error else "N/A"}
 
 
 def _save_learning_data(state: AgentState):
-    """Save successful build patterns back to examples and recipe cache (auto-learning)."""
+    """Save successful build patterns to examples and recipe cache.
+
+    Implements the auto-learning step after a successful build.
+    """
     try:
         repo = state.repo_name or "unknown"
         bs = state.build_plan.build_system if state.build_plan else "unknown"
+
+        # --- Curate artifacts so recipe + report show only
+        # user-facing deliverables ---
+        if state.build_artifacts and not state.curated_artifacts:
+            try:
+                from .artifact_curator import curate_artifacts
+
+                curator_llm = None
+                try:
+                    curator_llm = get_model_for_role(AgentRole.SUMMARIZER)
+                except Exception as e:
+                    logger.info(
+                        f"Curator LLM unavailable, using rule-based "
+                        f"fallback: {e}"
+                    )
+                state.curated_artifacts = curate_artifacts(
+                    raw_artifacts=state.build_artifacts,
+                    repo_name=repo,
+                    build_system=bs,
+                    llm=curator_llm,
+                )
+            except Exception as e:
+                logger.warning(f"Artifact curation failed (non-fatal): {e}")
+                state.curated_artifacts = []
 
         # --- Scout learning ---
         if state.build_plan and state.build_plan.phases:
@@ -2223,8 +2875,14 @@ def _save_learning_data(state: AgentState):
                 "repo_name": repo,
                 "trigger": {
                     "build_system": bs,
-                    "has_main": bool(getattr(state, 'go_main_info', {}).get("has_main", False)
-                                     if hasattr(state, 'go_main_info') and state.go_main_info else False),
+                    "has_main": bool(
+                        getattr(state, "go_main_info", {}).get(
+                            "has_main", False
+                        )
+                        if hasattr(state, "go_main_info")
+                        and state.go_main_info
+                        else False
+                    ),
                 },
                 "plan": {
                     "build_system": bs,
@@ -2238,17 +2896,24 @@ def _save_learning_data(state: AgentState):
             save_learned_example("scout", scout_data)
 
         # --- Fixer learning ---
-        for fix in (state.fixes_attempted or []):
+        for fix in state.fixes_attempted or []:
             if fix.success and fix.strategy:
                 fixer_data = {
                     "name": f"Auto: {repo} - {fix.strategy[:40]}",
                     "tags": [bs, "auto-fix"],
                     "build_system": bs,
                     "repo_name": repo,
-                    "error_pattern": re.escape((state.last_error or "")[:80]) if state.last_error else "",
+                    "error_pattern": (
+                        re.escape((state.last_error or "")[:80])
+                        if state.last_error
+                        else ""
+                    ),
                     "fix": {
                         "strategy": fix.strategy,
-                        "actions": [{"type": "command", "command": cmd} for cmd in (fix.commands_run or [])],
+                        "actions": [
+                            {"type": "command", "command": cmd}
+                            for cmd in (fix.commands_run or [])
+                        ],
                     },
                     "reasoning": f"Auto-learned fix from {repo}.",
                 }
@@ -2265,14 +2930,20 @@ def _save_learning_data(state: AgentState):
                     {"name": p.name, "commands": p.commands}
                     for p in state.build_plan.phases
                 ],
-                "timeout_recommendation": "600s" if len(state.build_plan.phases) > 2 else "120s",
+                "timeout_recommendation": (
+                    "600s" if len(state.build_plan.phases) > 2 else "120s"
+                ),
                 "reasoning": f"Auto-learned build execution from {repo}.",
             }
             save_learned_example("builder", builder_data)
 
         # --- Recipe cache ---
         if state.build_plan:
-            duration = state.get_execution_duration() if hasattr(state, 'get_execution_duration') else 0.0
+            duration = (
+                state.get_execution_duration()
+                if hasattr(state, "get_execution_duration")
+                else 0.0
+            )
             save_to_recipe_cache(
                 repo_name=repo,
                 repo_url=state.repo_url or "",
@@ -2284,8 +2955,14 @@ def _save_learning_data(state: AgentState):
                     ]
                 },
                 dependencies=[],
-                patches=[f.strategy for f in (state.fixes_attempted or []) if f.success],
-                artifacts=state.build_artifacts or [],
+                patches=[
+                    f.strategy
+                    for f in (state.fixes_attempted or [])
+                    if f.success
+                ],
+                artifacts=state.curated_artifacts
+                or state.build_artifacts
+                or [],
                 build_duration_seconds=duration,
             )
 
@@ -2296,9 +2973,7 @@ def _save_learning_data(state: AgentState):
 
 @agent_node(AgentRole.SUMMARIZER)
 def finish_node(state: AgentState) -> AgentState:
-    """
-    Finalize successful porting with comprehensive guide generation.
-    """
+    """Finalize successful porting and generate the guide."""
     logger.info("Generating comprehensive porting guide...")
 
     state.build_status = BuildStatus.SUCCESS
@@ -2335,12 +3010,34 @@ def finish_node(state: AgentState) -> AgentState:
                 build_steps += f"{cmd}\n"
             build_steps += "```\n"
 
-    # Prepare artifacts information
+    # Prepare artifacts information (prefer curated list — primary
+    # first, no noise)
     artifacts_info = ""
-    if state.build_artifacts:
+    artifacts_to_show = state.curated_artifacts or state.build_artifacts
+    if artifacts_to_show:
+        primary = [a for a in artifacts_to_show if a.get("role") == "primary"]
+        secondary = [
+            a for a in artifacts_to_show if a.get("role") == "secondary"
+        ]
+        rest = [a for a in artifacts_to_show if not a.get("role")]
+
         artifacts_info = "\n### Build Artifacts Generated\n\n"
-        for artifact in state.build_artifacts:
-            artifacts_info += f"- **{artifact['type']}** ({artifact['architecture']}): `{artifact['filepath']}`\n"
+        for label, group in (
+            ("Primary", primary),
+            ("Secondary (tests / examples)", secondary),
+            ("Other", rest),
+        ):
+            if not group:
+                continue
+            if label != "Other" or (not primary and not secondary):
+                artifacts_info += f"**{label}:**\n" if label != "Other" else ""
+            for art in group:
+                arch = art.get("architecture", "?")
+                path = art.get("filepath") or art.get("path", "")
+                artifacts_info += (
+                    f"- **{art.get('type', 'binary')}** ({arch}): `{path}`\n"
+                )
+            artifacts_info += "\n"
 
     build_steps += artifacts_info
 
@@ -2348,7 +3045,9 @@ def finish_node(state: AgentState) -> AgentState:
     prompt = SUMMARIZER_PROMPT.format(
         repo_name=state.repo_name,
         repo_url=state.repo_url,
-        build_system=state.build_plan.build_system if state.build_plan else "unknown",
+        build_system=(
+            state.build_plan.build_system if state.build_plan else "unknown"
+        ),
         build_steps=build_steps,
         arch_issues=arch_issues,
         fixes=fixes,
@@ -2370,9 +3069,9 @@ def finish_node(state: AgentState) -> AgentState:
             agent_role=AgentRole.SUMMARIZER.value,
             prompt=prompt,
             response=recipe,
-            model=llm.model_name if hasattr(llm, 'model_name') else 'unknown',
+            model=llm.model_name if hasattr(llm, "model_name") else "unknown",
             cost_usd=0.005,
-            metadata={"repo": state.repo_name, "phase": "finish"}
+            metadata={"repo": state.repo_name, "phase": "finish"},
         )
 
         state.porting_recipe = recipe
@@ -2381,7 +3080,10 @@ def finish_node(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error(f"Summarizer failed: {e}")
         # Fallback recipe
-        state.porting_recipe = f"# RISC-V Porting Recipe: {state.repo_name}\n\nBuild succeeded.\n\n{build_steps}"
+        state.porting_recipe = (
+            f"# RISC-V Porting Recipe: {state.repo_name}\n\n"
+            f"Build succeeded.\n\n{build_steps}"
+        )
 
     # Auto-learning: save successful patterns
     _save_learning_data(state)
@@ -2395,18 +3097,21 @@ def finish_node(state: AgentState) -> AgentState:
 
 
 def route_next(state: AgentState) -> str:
-    """
-    Determine next node based on current phase.
+    """Determine the next node based on the current phase.
+
     Enhanced with smart routing and cost optimization.
     """
     phase = state.current_phase.lower()
 
-    # Failed initialization is a hard blocker and must not continue to planning.
+    # Failed initialization is a hard blocker and must not continue
+    # to planning.
     if (
         phase in {"initialization", "initialized"}
         and state.build_status == BuildStatus.FAILED
     ):
-        logger.warning("Initialization failed; forcing escalation instead of planning")
+        logger.warning(
+            "Initialization failed; forcing escalation instead of planning"
+        )
         return "escalate_node"
 
     routing_map = {
@@ -2433,9 +3138,10 @@ def route_next(state: AgentState) -> str:
 
 
 def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
-    """
-    Proactively predict potential build issues before execution.
-    Returns a list of predicted issues with mitigation strategies.
+    """Predict potential build issues before execution.
+
+    Returns:
+        A list of predicted issues with mitigation strategies.
     """
     predictions = []
 
@@ -2463,14 +3169,25 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
                     predictions.append(
                         {
                             "phase": phase.name,
-                            "issue": "Architecture-specific code may cause build failure",
+                            "issue": (
+                                "Architecture-specific code may cause "
+                                "build failure"
+                            ),
                             "pattern": "arch_specific",
                             "mitigation": "Add RISC-V compatibility patches",
                             "confidence": 0.8,
                         }
                     )
 
-            if "apk add" in cmd or "apt-get" in cmd:
+            if any(
+                tok in cmd
+                for tok in (
+                    "apk add",
+                    "apt-get install",
+                    "apt install",
+                    "dpkg ",
+                )
+            ):
                 missing = state.context_cache.get("missing_tools", [])
                 if missing:
                     predictions.append(
@@ -2492,9 +3209,7 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
 
 
 def create_workflow() -> StateGraph:
-    """
-    Create the enhanced LangGraph workflow.
-    """
+    """Create the enhanced LangGraph workflow."""
     logger.info("Creating enhanced workflow...")
 
     # Create graph

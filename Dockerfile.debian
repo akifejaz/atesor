@@ -1,0 +1,118 @@
+# Atesor AI - RISC-V Porting Sandbox (Debian / Ubuntu variant)
+# IMPORTANT: pin --platform so a host-arch (amd64) base image isn't picked up
+# during `docker build` on an x86_64 host — that produces a mixed-arch image
+# where apt installs x86_64 gcc/as while the curl'd Go tarball is riscv64,
+# breaking CGO assembly with "no such instruction: sd".
+FROM --platform=linux/riscv64 ubuntu:jammy
+
+LABEL maintainer="Atesor AI"
+LABEL description="RISC-V 64-bit Debian sandbox for automated software porting"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Core build essentials only. Project-specific libs (libpng-dev, golang, gfortran,
+# libprotobuf-dev, etc.) are installed on-demand by the agent. Keeping this layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    ca-certificates \
+    file \
+    tar \
+    xz-utils \
+    pkg-config \
+    meson \
+    ninja-build \
+    autoconf \
+    automake \
+    libtool \
+    patch \
+    diffutils \
+    ccache \
+    zlib1g-dev \
+    libssl-dev \
+    python3 \
+    python3-pip \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go from the official riscv64 tarball. Ubuntu jammy ships 1.18,
+# which is below what most modern go.mod files (1.22+) require. Pinning a recent
+# toolchain in the image avoids slow GOTOOLCHAIN downloads during agent runs.
+ARG GO_VERSION=1.26.3
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-riscv64.tar.gz" \
+    | tar -xz -C /usr/local \
+    && /usr/local/go/bin/go version
+
+# Install a modern Rust/Cargo toolchain via rustup. Ubuntu jammy's cargo 1.75
+# cannot build crates using Edition 2024 (seen in dalfox and similar repos).
+ARG RUST_TOOLCHAIN=1.85.0
+RUN curl -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y \
+        --profile minimal \
+        --default-toolchain ${RUST_TOOLCHAIN} \
+    && /root/.cargo/bin/rustc --version \
+    && /root/.cargo/bin/cargo --version \
+    && rm -f /tmp/rustup-init.sh
+
+# Hard guard: refuse any apt-install of the distro Go toolchain. Even with our
+# in-agent `_strip_bundled_toolchain_packages` cleaning, an LLM-suggested
+# command in an unusual form can occasionally slip through (e.g. options
+# placed before `install`, deeply-chained commands, transitive deps). This
+# Pin-Priority -1 file makes `apt install golang…` exit non-zero at the OS
+# level, so the failure is loud and immediate instead of a silent Go-1.18
+# overlay that breaks every modern build. Observed root cause for ~21
+# Debian batch failures in run 2026-05-23T01:47.
+RUN printf 'Package: golang* golang-go gccgo* go-1.* golang-1.*\nPin: release o=Ubuntu\nPin-Priority: -1\n' \
+    > /etc/apt/preferences.d/99-no-distro-go
+
+# Ubuntu jammy ships autoconf 2.71. A handful of upstream autotools projects
+# (e.g. axel, recent gnutls) declare `AC_PREREQ([2.72])` and will fail
+# autoreconf with "Autoconf version 2.72 or higher is required". Pre-installing
+# from source avoids forcing the agent to debug this every run.
+ARG AUTOCONF_VERSION=2.72
+RUN curl -fsSL "https://ftp.gnu.org/gnu/autoconf/autoconf-${AUTOCONF_VERSION}.tar.gz" \
+    | tar -xz -C /tmp \
+    && cd /tmp/autoconf-${AUTOCONF_VERSION} \
+    && ./configure --prefix=/usr/local >/dev/null \
+    && make -j"$(nproc)" >/dev/null \
+    && make install >/dev/null \
+    && cd / && rm -rf /tmp/autoconf-${AUTOCONF_VERSION} \
+    && autoconf --version | head -n1
+
+# Set up environment variables for native compilation inside the sandbox.
+# Do NOT set CC="ccache gcc" globally — Go's CGO toolchain treats CC as both
+# the C compiler AND the assembler driver, and the space-split breaks
+# `runtime/cgo/gcc_riscv64.S` ("no such instruction: sd"). Instead, prepend
+# /usr/lib/ccache to PATH so direct `gcc`/`g++` invocations transparently
+# resolve to the ccache shim while CGO still calls a plain `gcc`.
+ENV CC=gcc
+ENV CXX=g++
+ENV CCACHE_DIR=/workspace/.ccache
+# Go environment: use direct proxy to avoid network issues in isolated containers
+ENV GOPATH=/root/go
+ENV CARGO_HOME=/root/.cargo
+ENV RUSTUP_HOME=/root/.rustup
+ENV PATH="${CARGO_HOME}/bin:${GOPATH}/bin:/usr/local/go/bin:/usr/lib/ccache:${PATH}"
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GONOSUMCHECK=*
+ENV GOFLAGS=-buildvcs=false
+# Pin toolchain to the version baked into the image. Without this, Go honours
+# any `toolchain goX.Y.Z` directive in go.mod and downloads it mid-build; under
+# QEMU riscv64 emulation that download regularly OOM-kills (exit 137) or
+# exceeds the agent's per-command timeout, masking the real build error. With
+# `local`, the agent gets a clean "go.mod requires go >= X" message which
+# classify_error() maps to MISSING_TOOLS for fast escalation.
+ENV GOTOOLCHAIN=local
+
+# Workspace structure matches the Alpine sandbox so the agent code is identical
+WORKDIR /workspace
+RUN mkdir -p /workspace/repos /workspace/output /workspace/logs /workspace/patches
+
+VOLUME /workspace/output
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD gcc --version || exit 1
+
+CMD ["tail", "-f", "/dev/null"]

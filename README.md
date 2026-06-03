@@ -82,6 +82,7 @@ By offloading deterministic tasks (like dependency tree parsing and build system
 - **Cross-Platform Support**: If you are on an x86 host, you must enable RISC-V emulation via `binfmt`:
   ```bash
   docker run --privileged --rm tonistiigi/binfmt --install all
+  docker build --platform linux/riscv64 -t atesor-ai-sandbox:latest 
   ```
 - API key for an LLM provider (OpenAI, Gemini, or OpenRouter).
 

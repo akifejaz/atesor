@@ -1,14 +1,17 @@
-"""
-Global state definitions, data structures, and status tracking for the porting process.
-Manages the AgentState dataclass and system-wide constants.
+"""Global state definitions, data structures, and status tracking.
+
+Manages the ``AgentState`` dataclass, the enums that describe the
+porting process, and the system-wide helper functions that operate on
+that state.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Any
 from datetime import datetime
-from langchain_core.messages import BaseMessage
+from enum import Enum
+import re
+from typing import Any, Dict, List, Optional
 
+from langchain_core.messages import BaseMessage
 
 # ============================================================================
 # ENUMS
@@ -97,10 +100,12 @@ class CommandResult:
 
     @property
     def success(self) -> bool:
+        """Return True if the command exited with status 0."""
         return self.exit_code == 0
 
     @property
     def failed(self) -> bool:
+        """Return True if the command exited with a non-zero status."""
         return self.exit_code != 0
 
 
@@ -219,26 +224,10 @@ class BuildSystemInfo:
 
 
 @dataclass
-class CommunityPortStatus:
-    """Status of RISC-V port in the community."""
-
-    existing_port: bool = False
-    patches_available: bool = False
-    patch_urls: List[str] = field(default_factory=list)
-    community_discussion_urls: List[str] = field(default_factory=list)
-    last_checked: datetime = field(default_factory=datetime.now)
-
-
-# ============================================================================
-# MAIN STATE CLASS
-# ============================================================================
-
-
-@dataclass
 class AgentState:
-    """
-    Comprehensive state for the RISC-V porting agent.
-    All agents read from and write to this shared state.
+    """Comprehensive state for the RISC-V porting agent.
+
+    All agents read from and write to this shared state object.
     """
 
     # ========== Repository Information ==========
@@ -256,16 +245,12 @@ class AgentState:
     build_plan: Optional[BuildPlan] = None
     build_status: BuildStatus = BuildStatus.PENDING
     tests_run: bool = False
-    tests_passed: bool = False
 
     # ========== Dependencies ==========
     dependencies: Optional[DependencyInfo] = None
-    missing_dependencies: List[str] = field(default_factory=list)
 
     # ========== Architecture Analysis ==========
     arch_specific_code: List[ArchSpecificCode] = field(default_factory=list)
-    risc_v_blockers: List[str] = field(default_factory=list)
-    community_port_status: Optional[CommunityPortStatus] = None
 
     # ========== Execution Tracking ==========
     attempt_count: int = 0
@@ -288,7 +273,9 @@ class AgentState:
     # ========== Caching & Memory ==========
     context_cache: Dict[str, Any] = field(default_factory=dict)
     file_content_cache: Dict[str, str] = field(default_factory=dict)
-    command_results_cache: Dict[str, CommandResult] = field(default_factory=dict)
+    command_results_cache: Dict[str, CommandResult] = field(
+        default_factory=dict
+    )
 
     # ========== Agent Communication ==========
     messages: List[BaseMessage] = field(default_factory=list)
@@ -296,7 +283,12 @@ class AgentState:
     # ========== Output Artifacts ==========
     patches_generated: List[str] = field(default_factory=list)
     porting_recipe: Optional[str] = None
-    build_artifacts: List[Dict[str, Any]] = field(default_factory=list)  # Track built binaries/libraries
+    build_artifacts: List[Dict[str, Any]] = field(
+        default_factory=list
+    )  # Raw scan results
+    curated_artifacts: List[Dict[str, Any]] = field(
+        default_factory=list
+    )  # User-facing subset
 
     # ========== Debugging & Audit ==========
     audit_trail: List[Dict[str, Any]] = field(default_factory=list)
@@ -342,7 +334,9 @@ class AgentState:
             {
                 "timestamp": datetime.now().isoformat(),
                 "event": event_type,
-                "agent": self.current_agent.value if self.current_agent else None,
+                "agent": (
+                    self.current_agent.value if self.current_agent else None
+                ),
                 "data": data,
             }
         )
@@ -351,7 +345,8 @@ class AgentState:
     def log_agent_decision(self, agent: AgentRole, action: str, reason: str):
         """Log a decision made by an agent."""
         self.log_event(
-            "decision", {"agent": agent.value, "action": action, "reason": reason}
+            "decision",
+            {"agent": agent.value, "action": action, "reason": reason},
         )
 
     def cache_command_result(self, command: str, result: CommandResult):
@@ -360,7 +355,9 @@ class AgentState:
         self.command_results_cache[cache_key] = result
         self.update_timestamp()
 
-    def get_cached_command_result(self, command: str) -> Optional[CommandResult]:
+    def get_cached_command_result(
+        self, command: str
+    ) -> Optional[CommandResult]:
         """Retrieve cached command result if available."""
         cache_key = self._generate_cache_key(command)
         return self.command_results_cache.get(cache_key)
@@ -391,12 +388,18 @@ class AgentState:
 
         return len(set(categories)) == 1  # All same category
 
-    def add_build_artifact(self, filepath: str, artifact_type: str, architecture: Optional[str] = None):
+    def add_build_artifact(
+        self,
+        filepath: str,
+        artifact_type: str,
+        architecture: Optional[str] = None,
+    ):
         """Record a build artifact that was successfully created."""
         artifact = {
             "filepath": filepath,
-            "type": artifact_type,  # e.g., "library", "binary", "test", "header"
-            "architecture": architecture,  # e.g., "RISC-V", "x86_64"
+            # e.g. "library", "binary", "test", "header".
+            "type": artifact_type,
+            "architecture": architecture,  # e.g. "RISC-V", "x86_64".
             "timestamp": datetime.now().isoformat(),
         }
         self.build_artifacts.append(artifact)
@@ -450,16 +453,27 @@ def create_initial_state(repo_url: str, max_attempts: int = 5) -> AgentState:
 
 
 def classify_error(error_message: str) -> ErrorCategory:
-    """
-    Classify an error message into a category.
-    This uses pattern matching on common error patterns.
+    """Classify an error message into a category.
+
+    Uses pattern matching on common error substrings.
+
+    Args:
+        error_message: The raw error text to classify.
+
+    Returns:
+        The matching ``ErrorCategory``.
     """
     error_lower = error_message.lower()
 
-    # Rate limiting (check before network since "timeout" is in network patterns)
+    # Check rate limiting before network ("timeout" appears in both).
     if any(
         term in error_lower
-        for term in ["rate limit", "too many requests", "429", "quota exceeded"]
+        for term in [
+            "rate limit",
+            "too many requests",
+            "429",
+            "quota exceeded",
+        ]
     ):
         return ErrorCategory.RATE_LIMIT
 
@@ -484,7 +498,8 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.LINKING
 
-    # Autotools/configure script issues (check before COMPILATION to catch configure syntax errors)
+    # Autotools/configure script issues (check before COMPILATION to
+    # catch configure syntax errors).
     if any(
         term in error_lower
         for term in [
@@ -517,12 +532,12 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.COMPILATION
 
-    # Architecture-specific errors
+    # Architecture-specific errors. Keep this strict: broad substring
+    # checks (e.g. plain "arch") misclassify unrelated messages.
     if any(
         term in error_lower
         for term in [
             "architecture",
-            "arch",
             "sse",
             "avx",
             "neon",
@@ -532,7 +547,7 @@ def classify_error(error_message: str) -> ErrorCategory:
             "x86_64",
             "amd64",
         ]
-    ):
+    ) or re.search(r"\barch\b", error_lower):
         return ErrorCategory.ARCHITECTURE
 
     # Configuration errors
@@ -553,6 +568,10 @@ def classify_error(error_message: str) -> ErrorCategory:
             "cannot find main module",
             "no required module provides",
             "directory prefix . does not contain main module",
+            "build output",
+            "already exists and is a directory",
+            "inconsistent vendoring",
+            "does not appear to contain cmakelists.txt",
         ]
     ):
         return ErrorCategory.CONFIGURATION
@@ -594,7 +613,8 @@ def classify_error(error_message: str) -> ErrorCategory:
 
     # Disk space
     if any(
-        term in error_lower for term in ["no space left", "disk full", "out of space"]
+        term in error_lower
+        for term in ["no space left", "disk full", "out of space"]
     ):
         return ErrorCategory.DISK_SPACE
 
@@ -618,6 +638,7 @@ def classify_error(error_message: str) -> ErrorCategory:
         for term in [
             "unable to select packages",
             "no such package",
+            "unable to locate package",
             "unable to lock database",
             "broken packages",
         ]
@@ -631,6 +652,11 @@ def classify_error(error_message: str) -> ErrorCategory:
             "go.mod requires go >=",
             "requires go >=",
             "running go ",
+            "feature `edition2024` is required",
+            "not stabilized in this version of cargo",
+            "requires rustc ",
+            "requires rust version",
+            "this package requires rustc",
         ]
     ):
         return ErrorCategory.MISSING_TOOLS
@@ -649,7 +675,9 @@ def create_error_record(
     if category is None:
         category = classify_error(message)
     if severity is None:
-        severity = infer_failure_severity(category, command=command, message=message)
+        severity = infer_failure_severity(
+            category, command=command, message=message
+        )
 
     return ErrorRecord(
         category=category,
@@ -665,11 +693,20 @@ def infer_failure_severity(
     command: Optional[str] = None,
     message: str = "",
 ) -> FailureSeverity:
-    """
-    Infer failure severity from category + command context.
-    Low: non-blocking probe failures.
-    Medium: standard build/config failures that should be fixed before continuing.
-    High: critical initialization/infrastructure blockers.
+    """Infer failure severity from the category and command context.
+
+    Severity levels:
+        Low: non-blocking probe failures.
+        Medium: standard build/config failures to fix before continuing.
+        High: critical initialization/infrastructure blockers.
+
+    Args:
+        category: The classified error category.
+        command: The command that failed, if known.
+        message: The raw error message, if available.
+
+    Returns:
+        The inferred ``FailureSeverity``.
     """
     cmd = (command or "").strip().lower()
     msg = (message or "").lower()
@@ -719,9 +756,13 @@ def infer_failure_severity(
 
 
 def should_escalate(state: AgentState) -> tuple[bool, str]:
-    """
-    Determine if the task should be escalated to human intervention.
-    Returns (should_escalate, reason).
+    """Determine whether the task should be escalated to a human.
+
+    Args:
+        state: The current agent state.
+
+    Returns:
+        A ``(should_escalate, reason)`` tuple.
     """
     # Max attempts reached
     if state.attempt_count >= state.max_attempts:
@@ -750,9 +791,15 @@ def should_escalate(state: AgentState) -> tuple[bool, str]:
 
 
 def get_next_action_recommendation(state: AgentState) -> Action:
-    """
-    Recommend the next action based on current state.
+    """Recommend the next action based on the current state.
+
     This is a helper for the Supervisor agent.
+
+    Args:
+        state: The current agent state.
+
+    Returns:
+        The recommended ``Action``.
     """
     # Check for escalation first
     should_esc, _ = should_escalate(state)
@@ -773,17 +820,41 @@ def get_next_action_recommendation(state: AgentState) -> Action:
 
     # Error recovery
     if state.build_status == BuildStatus.FAILED:
-        if state.last_error_category == ErrorCategory.DEPENDENCY:
+        if state.last_error_category in {
+            ErrorCategory.DEPENDENCY,
+            ErrorCategory.MISSING_TOOLS,
+            ErrorCategory.UNKNOWN,
+        }:
             return Action.SCOUT  # Need more info
+        if _looks_like_replan_failure(state.last_error or ""):
+            return Action.SCOUT
         else:
             return Action.FIXER  # Try to fix
 
-    # Success
+    # Success — always go to FINISH. The builder_node does not actually run
+    # tests today: it just re-verifies artifacts. Returning BUILDER here while
+    # the supervisor is on its cost-optimized (LLM-bypassed) path creates an
+    # infinite supervisor↔builder loop after a successful build, which silently
+    # burns the 1h batch timeout (observed root cause for chisel, gum, ghorg,
+    # gickup, csvtk and ~20 other "TIMEOUT" failures on 2026-05-23).
     if state.build_status == BuildStatus.SUCCESS:
-        if not state.tests_run:
-            return Action.BUILDER  # Run tests
-        else:
-            return Action.FINISH
+        return Action.FINISH
 
     # Default to builder
     return Action.BUILDER
+
+
+def _looks_like_replan_failure(error_message: str) -> bool:
+    """Return True when rebuilding the plan is usually better than patching."""
+    msg = (error_message or "").lower()
+    return any(
+        pat in msg
+        for pat in [
+            "no required module provides",
+            "already exists and is a directory",
+            "does not appear to contain cmakelists.txt",
+            "unable to locate package",
+            "inconsistent vendoring",
+            "./configure: no such file or directory",
+        ]
+    )

@@ -1,24 +1,30 @@
-"""
-Agent Memory System - Few-shot Learning & Self-Learning for Multi-Agent RISC-V Porting.
+"""Agent memory system for few-shot and self-learning.
+
+Provides few-shot learning and self-learning for the multi-agent
+RISC-V porting pipeline.
 
 Features:
-1. Compact example format per agent (scout, fixer, builder)
-2. Keyword + regex-based relevance matching
-3. Auto-learning: agents save novel successful patterns back to examples
-4. Recipe cache: incremental registry of successfully-built packages
-5. Deduplication and pruning (max 100 per agent, oldest auto-learned first)
+    1. Compact example format per agent (scout, fixer, builder).
+    2. Keyword + regex-based relevance matching.
+    3. Auto-learning: agents save novel successful patterns back to
+       examples.
+    4. Recipe cache: incremental registry of successfully-built
+       packages.
+    5. Deduplication and pruning (max 100 per agent, oldest
+       auto-learned first).
 """
 
-import json
-import os
-import logging
-import re
 import hashlib
-import filelock
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+import json
+import logging
+import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import filelock
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,7 @@ class AgentExample:
     build_system: str = ""
     source: str = "manual"
     repo_name: str = ""
+    sandbox: str = ""
     timestamp: str = ""
 
     # Scout-specific
@@ -76,17 +83,23 @@ class AgentExample:
 
         phases_json = []
         for p in phases:
-            phases_json.append({
-                "name": p.get("name", "unknown"),
-                "commands": p.get("commands", [])
-            })
+            phases_json.append(
+                {
+                    "name": p.get("name", "unknown"),
+                    "commands": p.get("commands", []),
+                }
+            )
 
+        build = self.build_system or trigger.get("build_system", "?")
+        main = trigger.get("main_path", trigger.get("has_main", "?"))
+        module_dir = trigger.get("module_dir", "root")
+        phases_blob = json.dumps({"phases": phases_json}, indent=2)
         return (
             f"## {self.name}\n"
-            f"Build: {self.build_system or trigger.get('build_system', '?')} | "
-            f"Main: {trigger.get('main_path', trigger.get('has_main', '?'))} | "
-            f"ModuleDir: {trigger.get('module_dir', 'root')}\n"
-            f"```json\n{json.dumps({'phases': phases_json}, indent=2)}\n```\n"
+            f"Build: {build} | "
+            f"Main: {main} | "
+            f"ModuleDir: {module_dir}\n"
+            f"```json\n{phases_blob}\n```\n"
             f"Why: {self.reasoning}\n"
         )
 
@@ -105,10 +118,13 @@ class AgentExample:
             elif atype == "patch":
                 actions_text += f"\n  - patch: {action.get('file', 'repo')}"
 
+        strategy = fix_data.get(
+            "strategy", fix_data.get("analysis", "N/A")
+        )
         return (
             f"## {self.name}\n"
             f"Error: {error_msg}\n"
-            f"Strategy: {fix_data.get('strategy', fix_data.get('analysis', 'N/A'))}\n"
+            f"Strategy: {strategy}\n"
             f"Actions:{actions_text}\n"
             f"Why: {self.reasoning}\n"
         )
@@ -167,22 +183,34 @@ class AgentExample:
 
 
 class AgentMemory:
-    """Lightweight memory system for few-shot learning with auto-learning support."""
+    """Lightweight few-shot memory with auto-learning support.
 
-    def __init__(self, agent_type: str, examples_dir: Path = EXAMPLES_DIR):
+    Attributes:
+        agent_type: The agent role this memory serves.
+        examples_dir: Directory holding the example JSON files.
+        examples: The loaded ``AgentExample`` instances.
+    """
+
+    def __init__(
+        self,
+        agent_type: str,
+        examples_dir: Path = EXAMPLES_DIR,
+    ) -> None:
         self.agent_type = agent_type
         self.examples_dir = examples_dir
         self.examples: List[AgentExample] = []
-        self._filepath = self.examples_dir / f"{self.agent_type}_examples.json"
+        self._filepath = (
+            self.examples_dir / f"{self.agent_type}_examples.json"
+        )
         self._load_examples()
 
-    def reload(self):
+    def reload(self) -> None:
         """Reload examples from disk (call after auto-learning writes)."""
         self.examples = []
         self._load_examples()
 
     def _load_examples(self):
-        """Load examples from JSON file, supporting both new and legacy formats."""
+        """Load examples, supporting both new and legacy formats."""
         if not self._filepath.exists():
             logger.warning(f"No examples file found: {self._filepath}")
             return
@@ -195,22 +223,31 @@ class AgentMemory:
                 example = self._parse_example(ex_data)
                 self.examples.append(example)
 
-            logger.info(f"Loaded {len(self.examples)} examples for {self.agent_type}")
+            logger.info(
+                f"Loaded {len(self.examples)} examples for "
+                f"{self.agent_type}"
+            )
         except Exception as e:
-            logger.error(f"Failed to load examples for {self.agent_type}: {e}")
+            logger.error(
+                f"Failed to load examples for {self.agent_type}: {e}"
+            )
 
     def _parse_example(self, ex_data: Dict[str, Any]) -> AgentExample:
-        """Parse a single example dict into AgentExample, handling both formats."""
+        """Parse one example dict, handling both formats."""
         return AgentExample(
             id=ex_data.get("id", ""),
             name=ex_data.get("name", ""),
             tags=ex_data.get("tags", []),
-            build_system=ex_data.get("build_system",
-                                     ex_data.get("context", {}).get("build_system", "")),
+            build_system=ex_data.get(
+                "build_system",
+                ex_data.get("context", {}).get("build_system", ""),
+            ),
             source=ex_data.get("source", "manual"),
-            repo_name=ex_data.get("repo_name",
-                                  ex_data.get("context", {}).get("repo_name", "")),
+            repo_name=ex_data.get(
+                "repo_name", ex_data.get("context", {}).get("repo_name", "")
+            ),
             timestamp=ex_data.get("timestamp", ""),
+            sandbox=ex_data.get("sandbox", ""),
             trigger=ex_data.get("trigger"),
             plan=ex_data.get("plan"),
             error_pattern=ex_data.get("error_pattern", ""),
@@ -234,12 +271,44 @@ class AgentMemory:
         if not self.examples:
             return []
 
+        # Hard-filter wrong-sandbox examples BEFORE scoring. Otherwise a stock
+        # cmake/go example using apk could still surface under Debian because
+        # the build_system match boost (+0.5) outweighs the sandbox penalty.
+        ctx_sandbox = context.get("sandbox")
+        if not ctx_sandbox:
+            try:
+                from .platforms import get_active_profile
+
+                ctx_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                ctx_sandbox = ""
+
+        def _sandbox_ok(ex: AgentExample) -> bool:
+            if not ctx_sandbox:
+                return True
+            ex_sandbox = (
+                ex.sandbox or ex.raw.get("sandbox", "") or "alpine-riscv64"
+            )
+            return ex_sandbox == ctx_sandbox
+
+        candidates = [ex for ex in self.examples if _sandbox_ok(ex)]
+        if not candidates:
+            # Nothing matches the active distro — better to inject zero
+            # examples (forces the LLM to follow Platform knowledge) than
+            # to bias it with wrong-distro commands. The first build on a
+            # new distro will be example-free; subsequent successful
+            # builds will populate the cache.
+            logger.info(
+                f"No {self.agent_type} examples for sandbox '{ctx_sandbox}'; "
+                "returning empty (will rely on Platform knowledge in prompt)."
+            )
+            return []
+
         scored = [
-            (self._calculate_relevance(ex, context), ex)
-            for ex in self.examples
+            (self._calculate_relevance(ex, context), ex) for ex in candidates
         ]
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [ex for _, ex in scored[:max_examples]]
+        return [ex for score, ex in scored[:max_examples] if score > 0]
 
     def _calculate_relevance(
         self, example: AgentExample, context: Dict[str, Any]
@@ -257,8 +326,11 @@ class AgentMemory:
         # Error pattern regex match (fixer-specific, very strong)
         if context.get("error_message") and example.error_pattern:
             try:
-                if re.search(example.error_pattern, context["error_message"],
-                             re.IGNORECASE):
+                if re.search(
+                    example.error_pattern,
+                    context["error_message"],
+                    re.IGNORECASE,
+                ):
                     score += 0.4
             except re.error:
                 pass
@@ -272,15 +344,17 @@ class AgentMemory:
 
         # has_main match
         if context.get("has_main") is not None:
-            ex_has_main = ex_trigger.get("has_main",
-                                         example.context.get("has_main"))
+            ex_has_main = ex_trigger.get(
+                "has_main", example.context.get("has_main")
+            )
             if context["has_main"] == ex_has_main:
                 score += 0.1
 
         # module_dir match
         ctx_md = context.get("module_dir", "")
-        ex_md = ex_trigger.get("module_dir",
-                               example.context.get("module_dir", ""))
+        ex_md = ex_trigger.get(
+            "module_dir", example.context.get("module_dir", "")
+        )
         if ctx_md and ex_md and ctx_md == ex_md:
             score += 0.15
         elif ctx_md and ex_md:
@@ -289,6 +363,29 @@ class AgentMemory:
         # CGO tag
         if context.get("has_cgo") and "cgo" in ex_tags:
             score += 0.2
+
+        # Sandbox / distro match (apk commands won't run on Debian and
+        # vice-versa). Same-sandbox is a strong positive; cross-sandbox
+        # is a hard penalty so a generic build-system match alone doesn't
+        # surface the wrong-distro recipe.
+        ctx_sandbox = context.get("sandbox")
+        if not ctx_sandbox:
+            try:
+                from .platforms import get_active_profile
+
+                ctx_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                ctx_sandbox = ""
+        ex_sandbox = (
+            example.sandbox
+            or example.raw.get("sandbox", "")
+            or "alpine-riscv64"
+        )
+        if ctx_sandbox and ex_sandbox:
+            if ctx_sandbox == ex_sandbox:
+                score += 0.25
+            else:
+                score -= 0.35
 
         return min(score, 1.0)
 
@@ -312,26 +409,41 @@ class AgentMemory:
         return "\n".join(sections)
 
     def save_learned_example(self, example_data: Dict[str, Any]) -> bool:
+        """Save an auto-learned example to the JSON file.
+
+        Args:
+            example_data: The example payload to persist.
+
+        Returns:
+            True if saved, False if a duplicate or invalid.
         """
-        Save an auto-learned example to the JSON file.
-        Returns True if saved, False if duplicate or invalid.
-        """
-        if not example_data.get("name") or not example_data.get("build_system"):
-            logger.warning("Cannot save example: missing name or build_system")
+        if not example_data.get("name") or not example_data.get(
+            "build_system"
+        ):
+            logger.warning(
+                "Cannot save example: missing name or build_system"
+            )
             return False
 
         if self._is_duplicate(example_data):
-            logger.info(f"Skipping duplicate example: {example_data.get('name')}")
+            logger.info(
+                f"Skipping duplicate example: {example_data.get('name')}"
+            )
             return False
 
         auto_ids = [
-            ex.id for ex in self.examples
+            ex.id
+            for ex in self.examples
             if ex.id.startswith(f"{self.agent_type}-auto-")
         ]
         next_num = len(auto_ids) + 1
         example_data["id"] = f"{self.agent_type}-auto-{next_num:03d}"
         example_data["source"] = "auto"
         example_data["timestamp"] = datetime.now().strftime("%Y-%m-%d")
+        if not example_data.get("sandbox"):
+            from .platforms import get_active_profile
+
+            example_data["sandbox"] = f"{get_active_profile().name}-riscv64"
 
         lock_path = str(self._filepath) + ".lock"
         try:
@@ -346,34 +458,65 @@ class AgentMemory:
                 self._write_json_file(data)
 
             self.reload()
-            logger.info(f"Saved learned example: {example_data['id']} - {example_data['name']}")
+            logger.info(
+                f"Saved learned example: {example_data['id']} - "
+                f"{example_data['name']}"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to save learned example: {e}")
             return False
 
     def _is_duplicate(self, new_data: Dict[str, Any]) -> bool:
-        """Check if an example is a duplicate of existing ones."""
+        """Check if an example duplicates an existing one (sandbox-aware)."""
         new_bs = new_data.get("build_system", "")
         new_repo = new_data.get("repo_name", "")
+        # Auto-stamp sandbox here too so callers that haven't set it
+        # still get accurate dedup.
+        new_sandbox = new_data.get("sandbox", "")
+        if not new_sandbox:
+            try:
+                from .platforms import get_active_profile
+
+                new_sandbox = f"{get_active_profile().name}-riscv64"
+            except Exception:
+                new_sandbox = ""
 
         for ex in self.examples:
             ex_bs = ex.build_system or ex.context.get("build_system", "")
             ex_repo = ex.repo_name or ex.context.get("repo_name", "")
+            # Treat an unset legacy sandbox as alpine-riscv64 (the
+            # original default).
+            ex_sandbox = (
+                ex.sandbox or ex.raw.get("sandbox", "") or "alpine-riscv64"
+            )
 
-            if ex_repo and new_repo and ex_repo == new_repo and ex_bs == new_bs:
+            # Different sandbox → never a duplicate (apk vs apt differ).
+            if new_sandbox and ex_sandbox and new_sandbox != ex_sandbox:
+                continue
+
+            if (
+                ex_repo
+                and new_repo
+                and ex_repo == new_repo
+                and ex_bs == new_bs
+            ):
                 return True
 
-            if (self.agent_type == "fixer"
+            if (
+                self.agent_type == "fixer"
                 and new_data.get("error_pattern")
                 and ex.error_pattern
                 and new_data["error_pattern"] == ex.error_pattern
-                and ex_bs == new_bs):
+                and ex_bs == new_bs
+            ):
                 return True
 
             if self.agent_type in ("scout", "builder"):
                 new_cmds = self._extract_commands(new_data)
-                ex_cmds = self._extract_commands(ex.raw if ex.raw else ex.to_dict())
+                ex_cmds = self._extract_commands(
+                    ex.raw if ex.raw else ex.to_dict()
+                )
                 if new_cmds and ex_cmds and new_cmds == ex_cmds:
                     return True
 
@@ -398,7 +541,7 @@ class AgentMemory:
         return hashlib.md5(normalized.encode()).hexdigest()
 
     def _prune_examples_list(self, examples: List[Dict]) -> List[Dict]:
-        """Prune to MAX_EXAMPLES_PER_AGENT. Remove oldest auto-learned first."""
+        """Prune to MAX_EXAMPLES_PER_AGENT, oldest auto-learned first."""
         if len(examples) <= MAX_EXAMPLES_PER_AGENT:
             return examples
 
@@ -419,7 +562,7 @@ class AgentMemory:
             return {
                 "version": "2.0",
                 "description": f"Examples for {self.agent_type} agent",
-                "examples": []
+                "examples": [],
             }
         with open(self._filepath, "r") as f:
             return json.load(f)
@@ -434,24 +577,88 @@ class AgentMemory:
 # RECIPE CACHE
 # ============================================================================
 
+
+def _migrate_legacy_cache(cache: Dict[str, Any]) -> Dict[str, Any]:
+    """Migrate a legacy flat recipe cache to the nested format.
+
+    The old recipe cache stored one recipe per repo as a flat dict::
+
+        packages[repo_name] = {build_plan: ..., sandbox: "...", ...}
+
+    The new format nests by sandbox so multiple distros can coexist::
+
+        packages[repo_name][sandbox] = {build_plan: ..., ...}
+
+    Migration happens transparently on load.
+
+    Args:
+        cache: The loaded cache object.
+
+    Returns:
+        The same cache object, possibly mutated in place.
+    """
+    packages = cache.get("packages", {})
+    for repo_name, entry in list(packages.items()):
+        if not isinstance(entry, dict):
+            continue
+        # A nested entry has dict values keyed by sandbox; a flat
+        # (legacy) entry has build_plan at the top level.
+        if "build_plan" in entry:
+            legacy_sandbox = entry.get("sandbox") or "alpine-riscv64"
+            packages[repo_name] = {legacy_sandbox: entry}
+    cache["packages"] = packages
+    return cache
+
+
 def load_recipe_cache() -> Dict[str, Any]:
-    """Load the recipe cache from disk."""
+    """Load the recipe cache from disk (auto-migrating legacy flat entries)."""
     if not RECIPE_CACHE_PATH.exists():
-        return {"version": "1.0", "packages": {}}
+        return {"version": "2.0", "packages": {}}
     try:
         with open(RECIPE_CACHE_PATH, "r") as f:
-            return json.load(f)
+            cache = json.load(f)
+        return _migrate_legacy_cache(cache)
     except Exception as e:
         logger.error(f"Failed to load recipe cache: {e}")
-        return {"version": "1.0", "packages": {}}
+        return {"version": "2.0", "packages": {}}
 
 
-def get_cached_recipe(repo_name: str, architecture: str = "riscv64") -> Optional[Dict[str, Any]]:
-    """Look up a cached recipe for a package + architecture."""
+def _default_sandbox() -> str:
+    """Return the active platform's sandbox key.
+
+    Returns:
+        The sandbox key, e.g. ``"alpine-riscv64"`` or
+        ``"debian-riscv64"``.
+    """
+    try:
+        from .platforms import get_active_profile
+
+        return f"{get_active_profile().name}-riscv64"
+    except Exception:
+        return "alpine-riscv64"
+
+
+def get_cached_recipe(
+    repo_name: str,
+    architecture: str = "riscv64",
+    sandbox: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Look up a cached recipe for a package, scoped to a sandbox (distro+arch).
+
+    Falls back to the active platform's sandbox when `sandbox` is None. Returns
+    None if no recipe exists for that combination — even if a recipe exists for
+    a different sandbox (apk vs apt commands are not interchangeable).
+    """
+    if sandbox is None:
+        sandbox = _default_sandbox()
     cache = load_recipe_cache()
-    entry = cache.get("packages", {}).get(repo_name)
-    if entry and entry.get("architecture") == architecture:
-        return entry
+    pkg_entry = cache.get("packages", {}).get(repo_name)
+    if not isinstance(pkg_entry, dict):
+        return None
+    recipe = pkg_entry.get(sandbox)
+    if recipe and recipe.get("architecture", "riscv64") == architecture:
+        return recipe
     return None
 
 
@@ -465,9 +672,31 @@ def save_to_recipe_cache(
     artifacts: List[Dict[str, Any]],
     build_duration_seconds: float,
     architecture: str = "riscv64",
-    sandbox: str = "alpine-riscv64",
+    sandbox: Optional[str] = None,
 ) -> bool:
-    """Upsert a package entry in the recipe cache."""
+    """Upsert a package recipe in the cache, scoped per sandbox.
+
+    Recipes for different sandboxes (e.g. ``alpine-riscv64`` vs
+    ``debian-riscv64``) coexist under the same ``repo_name`` so an
+    Alpine zlib build does not overwrite a Debian zlib build.
+
+    Args:
+        repo_name: The repository name key.
+        repo_url: The source repository URL.
+        build_system: The detected build system.
+        build_plan: The successful build plan to persist.
+        dependencies: Resolved dependency names.
+        patches: Patch identifiers applied during the build.
+        artifacts: Build artifacts produced.
+        build_duration_seconds: Wall-clock build duration.
+        architecture: Target architecture. Defaults to ``"riscv64"``.
+        sandbox: Sandbox key; defaults to the active platform.
+
+    Returns:
+        True if the cache was written successfully, else False.
+    """
+    if sandbox is None:
+        sandbox = _default_sandbox()
     lock_path = str(RECIPE_CACHE_PATH) + ".lock"
     try:
         lock = filelock.FileLock(lock_path, timeout=5)
@@ -477,12 +706,14 @@ def save_to_recipe_cache(
 
             compact_phases = []
             for phase in build_plan.get("phases", []):
-                compact_phases.append({
-                    "name": phase.get("name", "unknown"),
-                    "commands": phase.get("commands", []),
-                })
+                compact_phases.append(
+                    {
+                        "name": phase.get("name", "unknown"),
+                        "commands": phase.get("commands", []),
+                    }
+                )
 
-            packages[repo_name] = {
+            recipe = {
                 "repo_url": repo_url,
                 "build_system": build_system,
                 "architecture": architecture,
@@ -492,18 +723,41 @@ def save_to_recipe_cache(
                 "dependencies": dependencies,
                 "patches": patches[:10],
                 "artifacts": [
-                    {"type": a.get("type", "binary"), "path": a.get("filepath", "")}
+                    {
+                        "type": a.get("type", "binary"),
+                        "path": a.get("filepath") or a.get("path", ""),
+                        **({"role": a["role"]} if a.get("role") else {}),
+                    }
                     for a in artifacts[:20]
                 ],
                 "build_duration_seconds": round(build_duration_seconds, 1),
                 "recipe_file": f"output/{repo_name}_recipe.md",
             }
 
+            # Ensure nested layout (entry is a dict keyed by sandbox)
+            pkg_entry = packages.get(repo_name)
+            if not isinstance(pkg_entry, dict) or "build_plan" in (
+                pkg_entry or {}
+            ):
+                # Either missing or legacy-flat; (re-)init as nested
+                pkg_entry = {}
+                if (
+                    isinstance(packages.get(repo_name), dict)
+                    and "build_plan" in packages[repo_name]
+                ):
+                    # Preserve the legacy flat entry under its own sandbox key
+                    legacy = packages[repo_name]
+                    legacy_sb = legacy.get("sandbox") or "alpine-riscv64"
+                    pkg_entry[legacy_sb] = legacy
+            pkg_entry[sandbox] = recipe
+            packages[repo_name] = pkg_entry
+
+            cache.setdefault("version", "2.0")
             os.makedirs(RECIPE_CACHE_PATH.parent, exist_ok=True)
             with open(RECIPE_CACHE_PATH, "w") as f:
                 json.dump(cache, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Recipe cache updated for {repo_name}")
+        logger.info(f"Recipe cache updated for {repo_name} [{sandbox}]")
         return True
     except Exception as e:
         logger.error(f"Failed to save recipe cache for {repo_name}: {e}")
@@ -538,24 +792,25 @@ def format_few_shot_examples(
     max_examples: int = 2,
     max_chars: int = 2500,
 ) -> str:
-    """
-    Convenience function to get formatted few-shot examples.
+    """Build formatted few-shot examples for prompt inclusion.
 
     Args:
-        agent_type: 'scout', 'fixer', 'builder', or 'supervisor'
-        context: Current context for relevance matching
-        max_examples: Maximum examples to include
-        max_chars: Maximum characters for examples section
+        agent_type: 'scout', 'fixer', 'builder', or 'supervisor'.
+        context: Current context for relevance matching.
+        max_examples: Maximum examples to include.
+        max_chars: Maximum characters for the examples section.
 
     Returns:
-        Formatted string for prompt inclusion
+        A formatted string for prompt inclusion.
     """
     memory = get_agent_memory(agent_type)
     examples = memory.get_relevant_examples(context, max_examples)
     return memory.format_examples_for_prompt(examples, max_chars)
 
 
-def save_learned_example(agent_type: str, example_data: Dict[str, Any]) -> bool:
-    """Convenience function to save a learned example."""
+def save_learned_example(
+    agent_type: str, example_data: Dict[str, Any]
+) -> bool:
+    """Save a learned example for the given agent type."""
     memory = get_agent_memory(agent_type)
     return memory.save_learned_example(example_data)

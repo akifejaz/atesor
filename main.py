@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
-"""
-Main entry point for Atesor AI.
-Handles CLI, Docker setup, and starts the multi-agent porting workflow.
+"""Main entry point for Atesor AI.
+
+Handles CLI, Docker setup, and starts the multi-agent porting
+workflow.
 """
 
+import argparse
+import fcntl
+import logging
 import os
 import sys
 import time
-import argparse
-import logging
-from typing import Optional
 from datetime import datetime
 
 import docker
-from termcolor import colored
 from dotenv import load_dotenv
+from termcolor import colored
 
-# Load environment variables
+# Load environment variables before importing project modules so that
+# provider configuration is available at import time.
 load_dotenv()
 
-from src.models import check_api_keys, print_model_info, ModelProvider
-from src.state import AgentState, AgentRole, BuildStatus
+from src.config import LOGS_DIR, OUTPUT_DIR  # noqa: E402
+from src.models import check_api_keys, print_model_info  # noqa: E402
+from src.state import AgentState  # noqa: E402
 
-from src.config import CONTAINER_NAME, IMAGE_NAME, OUTPUT_DIR, LOGS_DIR
-from src.tools import execute_command
 
 # Configure logging
-def configure_logging(verbose: bool):
+def configure_logging(verbose: bool, repo_name: str = "") -> None:
+    """Configure root logging handlers for console and file output.
+
+    Args:
+        verbose: If True, raise the console handler level to DEBUG.
+        repo_name: Optional repository name used to derive a per-repo
+            log file path.
+    """
     # Capture everything at root level
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    
+
     # Create a custom formatter for better readability
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"
@@ -41,7 +49,9 @@ def configure_logging(verbose: bool):
         root_logger.removeHandler(handler)
 
     # 1. File Handler (Always Capture Everything)
-    log_file = os.path.join(LOGS_DIR, "agent.log")
+    # Use per-repo log files to avoid cross-process corruption in batch mode
+    log_filename = f"agent_{repo_name}.log" if repo_name else "agent.log"
+    log_file = os.path.join(LOGS_DIR, log_filename)
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
@@ -50,15 +60,15 @@ def configure_logging(verbose: bool):
     # 2. Console Handler (Respect Verbose Flag)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    
+
     if verbose:
         console_handler.setLevel(logging.DEBUG)
     else:
         # User requested no in-depth logs in terminal unless verbose is set
         console_handler.setLevel(logging.ERROR)
-        
+
     root_logger.addHandler(console_handler)
-    
+
     # Reduce noise from sensitive/chatty packages
     logging.getLogger("docker").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -68,7 +78,7 @@ def configure_logging(verbose: bool):
     logging.getLogger("langchain").setLevel(logging.INFO)
     logging.getLogger("langsmith").setLevel(logging.ERROR)
     logging.getLogger("google.ai").setLevel(logging.WARNING)
-    
+
     # Ensure stdout is flushed
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
@@ -89,120 +99,354 @@ def check_keys() -> bool:
     return True
 
 
+def _ensure_riscv64_binfmt() -> bool:
+    """Verify the host's binfmt_misc handler for riscv64.
+
+    Auto-registers the handler if possible. Without it, every riscv64
+    container exits immediately with
+    ``exec /bin/<cmd>: exec format error`` and the agent silently loops
+    recreating containers — observed in the 2026-05-23 batch run, where
+    all 172 packages failed within seconds for this single reason.
+
+    Returns:
+        True if the handler is present after this call, False
+        otherwise. Auto-registration is attempted exactly once via the
+        standard ``tonistiigi/binfmt`` installer image (the canonical
+        fix documented in Docker's multi-arch guides). If that fails,
+        the caller prints the manual command.
+    """
+    import subprocess
+
+    binfmt_path = "/proc/sys/fs/binfmt_misc/qemu-riscv64"
+    if os.path.exists(binfmt_path):
+        try:
+            with open(binfmt_path) as f:
+                if "enabled" in f.read():
+                    return True
+        except OSError:
+            pass
+
+    print(
+        colored(
+            "qemu-riscv64 binfmt handler not detected; attempting to register "
+            "(one-time, requires --privileged docker access)...",
+            "yellow",
+        )
+    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--privileged",
+                "--rm",
+                "tonistiigi/binfmt",
+                "--install",
+                "riscv64",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                f"binfmt install exit={result.returncode}: "
+                f"{result.stderr[:300]}"
+            )
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning(f"binfmt install failed: {e}")
+        return False
+
+    # Re-check
+    if os.path.exists(binfmt_path):
+        print(colored("qemu-riscv64 binfmt handler registered", "green"))
+        return True
+    return False
+
+
 def setup_docker_environment() -> bool:
     """
     Set up the Docker environment for RISC-V development.
 
-    This creates the sandbox container where all builds will happen.
+    Image / container / Dockerfile are selected based on the active platform
+    profile (Alpine or Debian). A self-check confirms the running container's
+    `/etc/os-release` matches the selected profile, refusing to proceed on
+    mismatch (the most common cause: user passes --platform debian but is
+    still pointing at the legacy Alpine container).
     """
+    from src.platforms import get_active_profile, get_container_name
+
+    profile = get_active_profile()
+    image_name = profile.image_name
+    container_name = get_container_name()
+    dockerfile = profile.dockerfile
+
     try:
         client = docker.from_env()
     except docker.errors.DockerException as e:
-        print(colored(f"ERROR: Docker is not running or not accessible", "red"))
+        print(colored("ERROR: Docker is not running or not accessible", "red"))
         print(colored(f"Details: {e}", "yellow"))
         return False
 
-    # Step 1: Check/Build Docker Image
-    print(colored("\nSetting up RISC-V development environment...", "cyan"))
+    # Preflight: the host must have qemu-riscv64 registered in
+    # binfmt_misc, otherwise every riscv64 container exits immediately
+    # with "exec format error" before the agent can run anything. The
+    # Debian image is riscv64-native so this is mandatory; the Alpine
+    # image is too, just historically less likely to hit this because
+    # docker-desktop ships binfmt by default. Auto-register if we can,
+    # otherwise emit a clear instruction and exit.
+    if not _ensure_riscv64_binfmt():
+        print(
+            colored(
+                "ERROR: qemu-riscv64 is not registered in "
+                "/proc/sys/fs/binfmt_misc. "
+                "Without it, every riscv64 container exits with "
+                "'exec format error'.",
+                "red",
+            )
+        )
+        print(
+            colored(
+                "Fix: docker run --privileged --rm tonistiigi/binfmt "
+                "--install riscv64",
+                "yellow",
+            )
+        )
+        return False
+
+    # Check/Build Docker Image
+    print(
+        colored(
+            f"\nSetting up RISC-V development environment "
+            f"({profile.display_name})...",
+            "cyan",
+        )
+    )
 
     force_rebuild = os.environ.get("REBUILD_IMAGE") == "true"
 
     try:
         if force_rebuild:
-            print(colored(f"Forcing rebuild of image '{IMAGE_NAME}'...", "yellow"))
+            print(
+                colored(
+                    f"Forcing rebuild of image '{image_name}'...", "yellow"
+                )
+            )
             raise docker.errors.ImageNotFound("Triggering rebuild")
 
-        client.images.get(IMAGE_NAME)
-        print(colored(f"Image '{IMAGE_NAME}' found", "green"))
+        client.images.get(image_name)
+        print(colored(f"Image '{image_name}' found", "green"))
     except docker.errors.ImageNotFound:
-        print(colored(f"   Building image '{IMAGE_NAME}'...", "yellow"))
+        print(
+            colored(
+                f"   Building image '{image_name}' from {dockerfile}...",
+                "yellow",
+            )
+        )
+        print(
+            colored(
+                "   Note: RISC-V images build under QEMU emulation. "
+                "Expect 15-45 minutes "
+                "on first build (subsequent runs reuse the cached image).",
+                "yellow",
+            )
+        )
         try:
-            # Build the image
-            image, logs = client.images.build(
+            # Use low-level API to stream build progress so the user
+            # sees activity
+            build_stream = client.api.build(
                 path=".",
-                tag=IMAGE_NAME,
+                dockerfile=dockerfile,
+                tag=image_name,
                 rm=True,
                 forcerm=True,
-                pull=True,  # Ensure base image is up to date
+                pull=True,
                 platform="linux/riscv64",
+                decode=True,
             )
-            print(colored(f"Image built successfully", "green"))
+            for chunk in build_stream:
+                if "stream" in chunk:
+                    line = chunk["stream"].rstrip()
+                    if not line:
+                        continue
+                    # Show step headers prominently; condense noisy lines
+                    if line.startswith("Step "):
+                        print(colored(f"   {line}", "cyan"))
+                    else:
+                        # Keep the user feeling alive: print a dot per
+                        # log line, full text every 50
+                        print(f"   {line}")
+                elif "errorDetail" in chunk:
+                    raise docker.errors.BuildError(
+                        chunk["errorDetail"].get("message", "build failed"),
+                        build_stream,
+                    )
+                elif "error" in chunk:
+                    raise docker.errors.BuildError(
+                        chunk["error"], build_stream
+                    )
+            print(colored("Image built successfully", "green"))
         except docker.errors.BuildError as e:
-            print(colored(f"ERROR: Failed to build Docker image", "red"))
+            print(colored("ERROR: Failed to build Docker image", "red"))
             print(colored(f"{e}", "yellow"))
             return False
+        except Exception as e:
+            print(colored(f"ERROR: Build stream error: {e}", "red"))
+            return False
 
-    # Step 2: Create/Start Container
+    # Create/Start Container (file-locked for multi-process safety)
+    lock_path = os.path.join(LOGS_DIR, ".container_setup.lock")
+    os.makedirs(LOGS_DIR, exist_ok=True)
     container = None
-    for attempt in range(2):
-        try:
+    lock_fd = None
+    try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+        for attempt in range(2):
             try:
-                container = client.containers.get(CONTAINER_NAME)
-                if container.status != "running":
+                try:
+                    container = client.containers.get(container_name)
+                    if container.status != "running":
+                        print(
+                            colored(
+                                f"   Starting existing container "
+                                f"'{container_name}'...",
+                                "yellow",
+                            )
+                        )
+                        container.start()
+                        time.sleep(2)
                     print(
                         colored(
-                            f"   Starting existing container '{CONTAINER_NAME}'...",
+                            f"Container '{container_name}' is running", "green"
+                        )
+                    )
+                except docker.errors.NotFound:
+                    print(
+                        colored(
+                            f"   Creating container '{container_name}'...",
                             "yellow",
                         )
                     )
-                    container.start()
-                    time.sleep(2)
-                print(colored(f"Container '{CONTAINER_NAME}' is running", "green"))
-            except docker.errors.NotFound:
-                print(colored(f"   Creating container '{CONTAINER_NAME}'...", "yellow"))
 
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-                container = client.containers.run(
-                    IMAGE_NAME,
-                    name=CONTAINER_NAME,
-                    detach=True,
-                    tty=True,
-                    platform="linux/riscv64",
-                    network_mode="bridge",
-                    dns=["8.8.8.8", "8.8.4.4"],
-                    volumes={
-                        os.path.abspath("./workspace"): {
-                            "bind": "/workspace",
-                            "mode": "rw",
-                        }
-                    },
-                    mem_limit="8g",
-                    cpu_quota=-1,
-                )
-                print(colored(f"Container created and started", "green"))
-                time.sleep(5)
-
-            container.reload()
-            time.sleep(1)
-            if container.status != "running":
-                print(
-                    colored(
-                        f"   Container status: {container.status}, recreating...",
-                        "yellow",
+                    container = client.containers.run(
+                        image_name,
+                        name=container_name,
+                        detach=True,
+                        tty=True,
+                        platform="linux/riscv64",
+                        network_mode="bridge",
+                        dns=["8.8.8.8", "8.8.4.4"],
+                        volumes={
+                            os.path.abspath("./workspace"): {
+                                "bind": "/workspace",
+                                "mode": "rw",
+                            }
+                        },
+                        mem_limit="8g",
+                        cpu_quota=-1,
                     )
-                )
-                try:
-                    container.stop()
-                    container.remove()
-                except Exception as e:
-                    logger.warning(f"Cleanup failed: {e}")
-                continue
+                    print(colored("Container created and started", "green"))
+                    time.sleep(5)
 
-            break
-        except docker.errors.NotFound:
-            continue
+                container.reload()
+                time.sleep(1)
+                if container.status != "running":
+                    print(
+                        colored(
+                            f"   Container status: {container.status}, "
+                            f"recreating...",
+                            "yellow",
+                        )
+                    )
+                    try:
+                        container.stop()
+                        container.remove()
+                    except Exception as e:
+                        logger.warning(f"Cleanup failed: {e}")
+                    continue
+
+                break
+            except docker.errors.NotFound:
+                continue
+    finally:
+        if lock_fd is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
     if container is None or container.status != "running":
-        print(colored(f"ERROR: Failed to start container after 2 attempts", "red"))
+        print(
+            colored("ERROR: Failed to start container after 2 attempts", "red")
+        )
         return False
 
     print(colored(f"   Container ID: {container.short_id}", "cyan"))
 
-    logger.info(f"Container '{CONTAINER_NAME}' is running with ID: {container.short_id}")
-    logger.info(f"Workspace mounted at /workspace in container")
+    logger.info(
+        f"Container '{container_name}' is running with ID: "
+        f"{container.short_id}"
+    )
+    logger.info("Workspace mounted at /workspace in container")
 
-    # Step 3: Verify container is working and architecture is correct
+    # ---- Self-check: container's actual distro must match the
+    # selected profile ----
+    try:
+        osr = container.exec_run("cat /etc/os-release")
+        if osr.exit_code == 0:
+            text = osr.output.decode("utf-8", errors="ignore")
+            container_id = ""
+            for line in text.splitlines():
+                if line.startswith("ID="):
+                    container_id = (
+                        line.split("=", 1)[1].strip().strip('"').lower()
+                    )
+                    break
+            # ubuntu profile is satisfied by either "ubuntu" or
+            # "debian" (same package map)
+            expected = {
+                "alpine": {"alpine"},
+                "debian": {"debian", "ubuntu"},
+                "ubuntu": {"debian", "ubuntu"},
+            }
+            allowed = expected.get(profile.name, {profile.name})
+            if container_id and container_id not in allowed:
+                print(
+                    colored(
+                        f"ERROR: Platform mismatch — container "
+                        f"'{container_name}' is "
+                        f"'{container_id}' but --platform "
+                        f"'{profile.name}' was selected.",
+                        "red",
+                    )
+                )
+                print(
+                    colored(
+                        f"  Fix: stop & remove the stale container, "
+                        f"then re-run.\n"
+                        f"    docker rm -f {container_name}\n"
+                        f"  Or pick a profile that matches the "
+                        f"container's distro.",
+                        "yellow",
+                    )
+                )
+                return False
+            logger.info(
+                f"Container distro check OK: {container_id} ∈ "
+                f"{sorted(allowed)}"
+            )
+        else:
+            logger.warning(
+                f"Could not read /etc/os-release from container "
+                f"(exit {osr.exit_code})"
+            )
+    except Exception as e:
+        logger.warning(f"Distro self-check skipped: {e}")
+
+    # Verify container is working and architecture is correct
     try:
         # Check architecture
         arch_result = container.exec_run("uname -m")
@@ -211,25 +455,30 @@ def setup_docker_environment() -> bool:
             if "riscv64" in arch:
                 print(
                     colored(
-                        f"Container architecture verified: {arch} (Correctly Emulated)",
+                        f"Container architecture verified: {arch} "
+                        f"(Correctly Emulated)",
                         "green",
                     )
                 )
             else:
                 print(
                     colored(
-                        f"WARNING: Container architecture is {arch} (Expected riscv64!)",
+                        f"WARNING: Container architecture is {arch} "
+                        f"(Expected riscv64!)",
                         "yellow",
                     )
                 )
                 print(
                     colored(
-                        "Try running: docker run --privileged --rm tonistiigi/binfmt --install all",
+                        "Try running: docker run --privileged --rm "
+                        "tonistiigi/binfmt --install all",
                         "yellow",
                     )
                 )
         else:
-            print(colored("ERROR: Container is not responding correctly", "red"))
+            print(
+                colored("ERROR: Container is not responding correctly", "red")
+            )
             return False
 
         # Simple health check
@@ -237,7 +486,9 @@ def setup_docker_environment() -> bool:
         if exec_result.exit_code == 0:
             print(colored("Container is responsive", "green"))
         else:
-            print(colored("ERROR: Container is not responding correctly", "red"))
+            print(
+                colored("ERROR: Container is not responding correctly", "red")
+            )
             return False
     except Exception as e:
         print(colored(f"ERROR: Container health check failed: {e}", "red"))
@@ -256,15 +507,16 @@ def setup_docker_environment() -> bool:
             try:
                 print(
                     colored(
-                        f"   Creating container '{CONTAINER_NAME}' (attempt {attempt + 1})...",
+                        f"   Creating container '{container_name}' "
+                        f"(attempt {attempt + 1})...",
                         "yellow",
                     )
                 )
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
                 container = client.containers.run(
-                    IMAGE_NAME,
-                    name=CONTAINER_NAME,
+                    image_name,
+                    name=container_name,
                     detach=True,
                     tty=True,
                     platform="linux/riscv64",
@@ -279,7 +531,7 @@ def setup_docker_environment() -> bool:
                     mem_limit="8g",
                     cpu_quota=-1,
                 )
-                print(colored(f"Container created and started", "green"))
+                print(colored("Container created and started", "green"))
                 time.sleep(5)
 
                 container.reload()
@@ -289,11 +541,18 @@ def setup_docker_environment() -> bool:
 
                 exec_result = container.exec_run("echo 'Container ready!'")
                 if exec_result.exit_code == 0:
-                    print(colored("Container is responsive after recreation", "green"))
+                    print(
+                        colored(
+                            "Container is responsive after recreation", "green"
+                        )
+                    )
                     return True
             except Exception as recreate_error:
                 print(
-                    colored(f"   Recreation attempt failed: {recreate_error}", "yellow")
+                    colored(
+                        f"   Recreation attempt failed: {recreate_error}",
+                        "yellow",
+                    )
                 )
                 if container:
                     try:
@@ -308,9 +567,7 @@ def setup_docker_environment() -> bool:
 
 
 def save_porting_outputs(state: AgentState, output_dir: str) -> None:
-    """
-    Save all porting outputs to files.
-    """
+    """Save all porting outputs to files."""
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
@@ -318,7 +575,9 @@ def save_porting_outputs(state: AgentState, output_dir: str) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # 0. Save complete state (JSON)
-    state_path = os.path.join(output_dir, f"{repo_name}_state_{timestamp}.json")
+    state_path = os.path.join(
+        output_dir, f"{repo_name}_state_{timestamp}.json"
+    )
     try:
         state.save_to_json(state_path)
         print(colored(f"Full state saved: {state_path}", "green"))
@@ -334,14 +593,18 @@ def save_porting_outputs(state: AgentState, output_dir: str) -> None:
 
     # 2. Save detailed build report
     report = generate_detailed_report(state.to_dict())
-    report_path = os.path.join(output_dir, f"{repo_name}_report_{timestamp}.md")
+    report_path = os.path.join(
+        output_dir, f"{repo_name}_report_{timestamp}.md"
+    )
     with open(report_path, "w") as f:
         f.write(report)
     print(colored(f"Detailed report saved: {report_path}", "green"))
 
     # 3. Save patches
     if state.patches_generated:
-        patches_dir = os.path.join(output_dir, f"{repo_name}_patches_{timestamp}")
+        patches_dir = os.path.join(
+            output_dir, f"{repo_name}_patches_{timestamp}"
+        )
         os.makedirs(patches_dir, exist_ok=True)
         for i, patch in enumerate(state.patches_generated):
             patch_path = os.path.join(patches_dir, f"patch_{i + 1}.patch")
@@ -349,7 +612,8 @@ def save_porting_outputs(state: AgentState, output_dir: str) -> None:
                 f.write(patch)
         print(
             colored(
-                f"{len(state.patches_generated)} patch(es) saved: {patches_dir}/",
+                f"{len(state.patches_generated)} patch(es) saved: "
+                f"{patches_dir}/",
                 "green",
             )
         )
@@ -361,8 +625,8 @@ def generate_detailed_report(state: dict) -> str:
 
 ## Executive Summary
 
-**Status**: {state.get("build_status", "UNKNOWN")}  
-**Repository**: {state.get("repo_url", "N/A")}  
+**Status**: {state.get("build_status", "UNKNOWN")}\u0020\u0020
+**Repository**: {state.get("repo_url", "N/A")}\u0020\u0020
 **Generated**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 ---
@@ -386,7 +650,10 @@ def generate_detailed_report(state: dict) -> str:
 
     build_plan = state.get("build_plan")
     if build_plan:
-        report += f"**Build System**: {build_plan.get('build_system', 'Unknown')}\n\n"
+        report += (
+            f"**Build System**: "
+            f"{build_plan.get('build_system', 'Unknown')}\n\n"
+        )
 
         phases = build_plan.get("phases", [])
         if phases:
@@ -420,8 +687,11 @@ def generate_detailed_report(state: dict) -> str:
     # Architecture-specific code
     arch_code = state.get("arch_specific_code", [])
     if arch_code:
-        report += f"---\n\n## Architecture-Specific Code\n\n"
-        report += f"Found {len(arch_code)} instances of architecture-specific code:\n\n"
+        report += "---\n\n## Architecture-Specific Code\n\n"
+        report += (
+            f"Found {len(arch_code)} instances of "
+            f"architecture-specific code:\n\n"
+        )
 
         for i, code in enumerate(arch_code[:5], 1):  # Show first 5
             filepath = code.get("file", "Unknown")
@@ -437,19 +707,24 @@ def generate_detailed_report(state: dict) -> str:
     # Patches
     patches = state.get("patches_generated", [])
     if patches:
-        report += f"---\n\n## Patches Applied\n\n"
-        report += f"{len(patches)} patch(es) were needed for RISC-V compatibility:\n\n"
+        report += "---\n\n## Patches Applied\n\n"
+        report += (
+            f"{len(patches)} patch(es) were needed for RISC-V "
+            f"compatibility:\n\n"
+        )
 
         for i, patch in enumerate(patches, 1):
             report += f"### Patch {i}\n\n"
             report += f"```diff\n{patch[:500]}\n```\n\n"
             if len(patch) > 500:
-                report += f"*Truncated (full patch available in separate file)*\n\n"
+                report += (
+                    "*Truncated (full patch available in separate file)*\n\n"
+                )
 
     # Error history
     error_log = state.get("error_log", [])
     if error_log:
-        report += f"---\n\n## Error Resolution History\n\n"
+        report += "---\n\n## Error Resolution History\n\n"
 
         for i, error in enumerate(error_log, 1):
             category = getattr(error, "category", "Unknown")
@@ -486,12 +761,14 @@ def generate_detailed_report(state: dict) -> str:
 """
 
     report += "\n---\n\n"
-    report += f"*Report generated by RISC-V Porting Foundry v1.0*\n"
+    report += "*Report generated by RISC-V Porting Foundry v1.0*\n"
 
     return report
 
 
-def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> int:
+def run_agent(
+    repo_url: str, max_attempts: int = 5, verbose: bool = False
+) -> int:
     """
     Run the RISC-V porting agent on a repository.
 
@@ -503,24 +780,34 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    from src.graph import app
-    from src.state import create_initial_state, BuildStatus
     from langchain_core.messages import HumanMessage
+
+    from src.graph import app
+    from src.platforms import get_active_profile
+    from src.state import BuildStatus, create_initial_state
+
+    profile = get_active_profile()
 
     logger.info("Starting RISC-V Porting Agent")
     logger.info(f"Repository: {repo_url}")
     logger.info(f"Max attempts: {max_attempts}")
+    logger.info(f"Platform profile: {profile.display_name}")
     logger.info("-" * 60)
 
     print(colored("\nStarting RISC-V Porting Agent", "cyan", attrs=["bold"]))
     print(colored(f"   Repository: {repo_url}", "white"))
     print(colored(f"   Max attempts: {max_attempts}", "white"))
+    print(colored(f"   Platform:    {profile.display_name}", "white"))
     print(colored("-" * 60, "cyan"))
 
     initial_state = create_initial_state(repo_url, max_attempts=max_attempts)
     initial_state.messages = [
         HumanMessage(
-            content=f"Port this repository to RISC-V: {repo_url}. The repository is cloned at {initial_state.repo_path}"
+            content=(
+                f"Port this repository to RISC-V: {repo_url}. "
+                f"The repository is cloned at "
+                f"{initial_state.repo_path}"
+            )
         )
     ]
 
@@ -544,7 +831,9 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
                 # Print progress
                 status = getattr(
-                    final_state.build_status, "value", str(final_state.build_status)
+                    final_state.build_status,
+                    "value",
+                    str(final_state.build_status),
                 )
                 status_color = {
                     "PENDING": "white",
@@ -557,15 +846,21 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                     "ESCALATED": "red",
                 }.get(status, "white")
 
-                logger.info(f"[Step {step_count}] {node_name} - Status: {status}")
+                logger.info(
+                    f"[Step {step_count}] {node_name} - Status: {status}"
+                )
 
                 print(
                     colored(
-                        f"\n[Step {step_count}] {node_name}", "cyan", attrs=["bold"]
+                        f"\n[Step {step_count}] {node_name}",
+                        "cyan",
+                        attrs=["bold"],
                     ),
                     flush=True,
                 )
-                print(colored(f"   Status: {status}", status_color), flush=True)
+                print(
+                    colored(f"   Status: {status}", status_color), flush=True
+                )
 
                 # Print messages if verbose
                 if (
@@ -580,7 +875,9 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                         logger.debug(f"[{role}] {content}")
 
                         # Style the roles
-                        role_color = "magenta" if role == "Supervisor" else "cyan"
+                        role_color = (
+                            "magenta" if role == "Supervisor" else "cyan"
+                        )
                         if role == "Scout":
                             role_color = "blue"
                         if role == "Builder":
@@ -589,7 +886,10 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                             role_color = "green"
 
                         print(
-                            colored(f"   [{role}]", role_color, attrs=["bold"]), end=" "
+                            colored(
+                                f"   [{role}]", role_color, attrs=["bold"]
+                            ),
+                            end=" ",
                         )
 
                         # Handle long content
@@ -623,12 +923,16 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
         if final_status == BuildStatus.SUCCESS:
             logger.info("PORTING SUCCESSFUL!")
-            logger.info(f"Recipe generated at: {OUTPUT_DIR}/{final_state.repo_name}_recipe.md")
+            logger.info(
+                f"Recipe generated at: "
+                f"{OUTPUT_DIR}/{final_state.repo_name}_recipe.md"
+            )
 
             print(colored("\nPORTING SUCCESSFUL!", "green", attrs=["bold"]))
             print(
                 colored(
-                    f"   Recipe generated at: {OUTPUT_DIR}/{final_state.repo_name}_recipe.md",
+                    f"   Recipe generated at: "
+                    f"{OUTPUT_DIR}/{final_state.repo_name}_recipe.md",
                     "white",
                 )
             )
@@ -642,20 +946,24 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
             if final_state.last_error:
                 logger.info("Last Error Capture:")
-                logger.info(f"Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}")
-                logger.info(f"Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}")
+                err_cat = final_state.last_error_category
+                err_cat_val = err_cat.value if err_cat else "Unknown"
+                err_sev = final_state.last_error_severity
+                err_sev_val = err_sev.value if err_sev else "unknown"
+                logger.info(f"Category: {err_cat_val}")
+                logger.info(f"Severity: {err_sev_val}")
                 logger.info(f"{final_state.last_error[:500]}")
 
                 print(colored("\nLast Error Capture:", "red", attrs=["bold"]))
                 print(
                     colored(
-                        f"   Category: {final_state.last_error_category.value if final_state.last_error_category else 'Unknown'}",
+                        f"   Category: {err_cat_val}",
                         "yellow",
                     )
                 )
                 print(
                     colored(
-                        f"   Severity: {final_state.last_error_severity.value if final_state.last_error_severity else 'unknown'}",
+                        f"   Severity: {err_sev_val}",
                         "yellow",
                     )
                 )
@@ -664,7 +972,9 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
             # Print audit trail for transparency
             if final_state.audit_trail:
                 logger.info("Agent Decision Audit:")
-                print(colored("\nAgent Decision Audit:", "cyan", attrs=["bold"]))
+                print(
+                    colored("\nAgent Decision Audit:", "cyan", attrs=["bold"])
+                )
                 for event in final_state.get_last_audit_events(10):
                     ts = event["timestamp"].split("T")[-1][:8]
                     agent = event.get("agent", "system")
@@ -673,7 +983,10 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
                     msg = ""
                     if etype == "decision":
-                        msg = f"Decided to {data.get('action')} - {data.get('reason')}"
+                        msg = (
+                            f"Decided to {data.get('action')} - "
+                            f"{data.get('reason')}"
+                        )
                     elif etype == "scripted_op":
                         msg = f"Ran scripted op: {data.get('operation')}"
                     elif etype == "error":
@@ -682,7 +995,10 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
                     logger.info(f"[{ts}] {agent:12} | {etype:10} | {msg}")
 
                     print(
-                        colored(f"   [{ts}] {agent:12} | {etype:10} | {msg}", "white")
+                        colored(
+                            f"   [{ts}] {agent:12} | {etype:10} | {msg}",
+                            "white",
+                        )
                     )
 
             return 1
@@ -704,11 +1020,11 @@ def run_agent(repo_url: str, max_attempts: int = 5, verbose: bool = False) -> in
 
 
 def cleanup_workspace(dry_run: bool = False) -> None:
-    """
-    Clean up workspace directory to manage size.
+    """Clean up workspace directory to manage size.
 
     Args:
-        dry_run: If True, only show what would be deleted without actually deleting
+        dry_run: If True, only show what would be deleted without
+            actually deleting.
     """
     import shutil
     from pathlib import Path
@@ -730,13 +1046,15 @@ def cleanup_workspace(dry_run: bool = False) -> None:
     size_mb = total_size / (1024 * 1024)
     size_gb = size_mb / 1024
 
-    print(colored(f"\nWorkspace Statistics:", "cyan", attrs=["bold"]))
+    print(colored("\nWorkspace Statistics:", "cyan", attrs=["bold"]))
     print(colored(f"   Location: {workspace_path.absolute()}", "white"))
-    print(colored(f"   Total Size: {size_gb:.2f} GB ({size_mb:.2f} MB)", "white"))
+    print(
+        colored(f"   Total Size: {size_gb:.2f} GB ({size_mb:.2f} MB)", "white")
+    )
     print(colored(f"   Total Files: {file_count}", "white"))
 
     # List subdirectories with sizes
-    print(colored(f"\nDirectory Breakdown:", "cyan"))
+    print(colored("\nDirectory Breakdown:", "cyan"))
     subdirs = {}
     for subdir in ["repos", "output", "logs", ".cache", "patches"]:
         subdir_path = workspace_path / subdir
@@ -746,11 +1064,14 @@ def cleanup_workspace(dry_run: bool = False) -> None:
             )
             subdirs[subdir] = subdir_size
             print(
-                colored(f"   {subdir}: {subdir_size / (1024 * 1024):.2f} MB", "white")
+                colored(
+                    f"   {subdir}: {subdir_size / (1024 * 1024):.2f} MB",
+                    "white",
+                )
             )
 
     # Offer cleanup options
-    print(colored(f"\nCleanup Options:", "cyan"))
+    print(colored("\nCleanup Options:", "cyan"))
     print(colored("   1. Clean repos/ (cloned repositories)", "white"))
     print(colored("   2. Clean output/ (generated reports)", "white"))
     print(colored("   3. Clean logs/ (execution logs)", "white"))
@@ -799,36 +1120,55 @@ def cleanup_workspace(dry_run: bool = False) -> None:
     new_size_mb = new_total_size / (1024 * 1024)
     freed_mb = size_mb - new_size_mb
 
-    print(colored(f"\nCleanup Complete!", "green", attrs=["bold"]))
+    print(colored("\nCleanup Complete!", "green", attrs=["bold"]))
     print(colored(f"   Freed: {freed_mb:.2f} MB", "green"))
     print(colored(f"   New Size: {new_size_mb:.2f} MB", "white"))
 
 
-def cleanup_container(remove_image: bool = False):
-    """Stop and remove the sandbox container and optionally the image."""
+def cleanup_container(remove_image: bool = False) -> None:
+    """Stop and remove the active profile's sandbox container.
+
+    Also removes the image when requested. Respects the
+    ATESOR_CONTAINER override so per-worker containers are cleaned up
+    correctly during batch runs.
+
+    Args:
+        remove_image: If True, also remove the sandbox image.
+    """
+    from src.platforms import get_active_profile, get_container_name
+
+    profile = get_active_profile()
+    container_name = get_container_name()
+    image_name = profile.image_name
     try:
         client = docker.from_env()
 
         # Remove container
         try:
-            container = client.containers.get(CONTAINER_NAME)
+            container = client.containers.get(container_name)
             if container.status == "running":
-                print(colored(f"Stopping container '{CONTAINER_NAME}'...", "yellow"))
+                print(
+                    colored(
+                        f"Stopping container '{container_name}'...", "yellow"
+                    )
+                )
                 container.stop(timeout=10)
-            print(colored(f"Removing container '{CONTAINER_NAME}'...", "yellow"))
+            print(
+                colored(f"Removing container '{container_name}'...", "yellow")
+            )
             container.remove()
             print(colored("Container cleaned up", "green"))
         except docker.errors.NotFound:
-            print(colored(f"Container '{CONTAINER_NAME}' not found", "yellow"))
+            print(colored(f"Container '{container_name}' not found", "yellow"))
 
         # Remove image if requested
         if remove_image:
             try:
-                print(colored(f"Removing image '{IMAGE_NAME}'...", "yellow"))
-                client.images.remove(IMAGE_NAME)
-                print(colored(f"Image '{IMAGE_NAME}' removed", "green"))
+                print(colored(f"Removing image '{image_name}'...", "yellow"))
+                client.images.remove(image_name)
+                print(colored(f"Image '{image_name}' removed", "green"))
             except docker.errors.ImageNotFound:
-                print(colored(f"Image '{IMAGE_NAME}' not found", "yellow"))
+                print(colored(f"Image '{image_name}' not found", "yellow"))
             except Exception as e:
                 print(colored(f"Error removing image: {e}", "red"))
 
@@ -836,17 +1176,61 @@ def cleanup_container(remove_image: bool = False):
         print(colored(f"Error during cleanup: {e}", "red"))
 
 
-def main():
-    """Main entry point with CLI argument parsing."""
+def rebuild_all_sandboxes() -> bool:
+    """Rebuild Alpine and Debian sandbox images/containers.
+
+    Returns:
+        True if both sandbox environments are rebuilt successfully.
+    """
+    from src.platforms import set_active_profile
+
+    original_platform = os.environ.get("ATESOR_PLATFORM")
+    original_container = os.environ.get("ATESOR_CONTAINER")
+    os.environ["REBUILD_IMAGE"] = "true"
+
+    try:
+        for platform_name in ("alpine", "debian"):
+            os.environ["ATESOR_PLATFORM"] = platform_name
+            os.environ.pop("ATESOR_CONTAINER", None)
+            set_active_profile(platform_name)
+            print(
+                colored(
+                    f"\nRebuilding sandbox: {platform_name}",
+                    "cyan",
+                    attrs=["bold"],
+                )
+            )
+            if not setup_docker_environment():
+                return False
+    finally:
+        if original_platform is None:
+            os.environ.pop("ATESOR_PLATFORM", None)
+        else:
+            os.environ["ATESOR_PLATFORM"] = original_platform
+
+        if original_container is None:
+            os.environ.pop("ATESOR_CONTAINER", None)
+        else:
+            os.environ["ATESOR_CONTAINER"] = original_container
+
+    return True
+
+
+def main() -> None:
+    """Run the CLI entry point and start the porting workflow."""
     parser = argparse.ArgumentParser(
         description="ATESOR AI - Automated software porting agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --repo https://github.com/madler/zlib
-  python main.py --repo https://github.com/sqlite/sqlite --max-attempts 10 --verbose
-  python main.py --cleanup
-        """,
+        epilog=(
+            "\n"
+            "Examples:\n"
+            "  python main.py --repo https://github.com/madler/zlib\n"
+            "  python main.py --repo "
+            "https://github.com/sqlite/sqlite "
+            "--max-attempts 10 --verbose\n"
+            "  python main.py --cleanup\n"
+            "        "
+        ),
     )
 
     parser.add_argument(
@@ -866,7 +1250,9 @@ Examples:
     )
 
     parser.add_argument(
-        "--cleanup", action="store_true", help="Clean up Docker container and exit"
+        "--cleanup",
+        action="store_true",
+        help="Clean up Docker container and exit",
     )
 
     parser.add_argument(
@@ -888,41 +1274,106 @@ Examples:
     )
 
     parser.add_argument(
-        "--rebuild", action="store_true", help="Force rebuild of the Docker image"
+        "--rebuild",
+        action="store_true",
+        help=(
+            "Force rebuild of sandbox image(s). In infra-only mode, "
+            "without --platform/--container, rebuilds both Alpine and Debian."
+        ),
     )
     parser.add_argument(
-        "--force", action="store_true", help="Skip recipe cache and re-run full pipeline"
+        "--force",
+        action="store_true",
+        help="Skip recipe cache and re-run full pipeline",
+    )
+    parser.add_argument(
+        "--platform",
+        choices=["alpine", "debian", "ubuntu", "auto"],
+        default="auto",
+        help=(
+            "Sandbox platform profile (default: auto-detect from "
+            "container's /etc/os-release)"
+        ),
+    )
+    parser.add_argument(
+        "--container",
+        default=None,
+        help=(
+            "Override the sandbox container name (defaults to the "
+            "platform profile's "
+            "name, e.g. 'atesor-ai-sandbox' or "
+            "'atesor-ai-sandbox-debian'). Used by "
+            "batch_test.py to assign each worker its own container so "
+            "apt/apk locks "
+            "do not serialize across parallel runs."
+        ),
     )
 
     args = parser.parse_args()
 
-    # Configure logging early
-    configure_logging(args.verbose)
+    # Apply platform override BEFORE any module reads get_active_profile()
+    if args.platform != "auto":
+        os.environ["ATESOR_PLATFORM"] = args.platform
+
+    # Apply container override BEFORE any module reads get_container_name()
+    if args.container:
+        os.environ["ATESOR_CONTAINER"] = args.container
+
+    # Extract repo name early for per-repo logging
+    repo_name = ""
+    if args.repo:
+        repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
+
+    # Configure logging (per-repo log files avoid corruption in batch mode)
+    configure_logging(args.verbose, repo_name=repo_name)
+
+    # Switch LLM call log to per-repo file for batch safety
+    if repo_name:
+        from src.llm_logger import set_llm_log_repo
+
+        set_llm_log_repo(repo_name)
 
     # Handle cleanup
     if args.cleanup:
         cleanup_container(remove_image=args.clean_image)
-        return 0
+        if not args.rebuild:
+            return 0
 
     if args.clean_image and not args.cleanup:
         # If only --clean-image is provided, still perform cleanup
         cleanup_container(remove_image=True)
-        return 0
+        if not args.rebuild:
+            return 0
 
     # Handle workspace cleanup
     if args.clean_workspace:
         cleanup_workspace()
         return 0
 
+    infra_only = args.setup_only or (args.rebuild and not args.repo)
+    dual_rebuild = (
+        infra_only
+        and args.rebuild
+        and args.platform == "auto"
+        and not args.container
+    )
+
     # Require repo URL before starting long-running setup or API checks
-    if not args.repo and not args.setup_only:
+    if not args.repo and not infra_only:
         print(colored("ERROR: --repo argument is required", "red"))
         parser.print_help()
         return 1
 
-    # Check API keys
-    if not check_keys():
-        return 1
+    if dual_rebuild:
+        if not rebuild_all_sandboxes():
+            return 1
+        print(colored("\nRebuild complete!", "green"))
+        return 0
+
+    # API keys are only required when we are actually running the agent.
+    if args.repo and not args.setup_only:
+        if not check_keys():
+            return 1
 
     # Set up Docker environment
     if args.rebuild:
@@ -931,27 +1382,54 @@ Examples:
     if not setup_docker_environment():
         return 1
 
-    # Setup only mode
-    if args.setup_only:
-        print(colored("\nSetup complete!", "green"))
+    # Setup/Rebuild only mode (no repository run)
+    if infra_only:
+        message = "\nSetup complete!"
+        if args.rebuild and not args.setup_only:
+            message = "\nRebuild complete!"
+        print(colored(message, "green"))
         return 0
 
     # Check recipe cache (skip with --force)
     if not args.force:
         from src.memory import get_cached_recipe
+
         repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
         cached = get_cached_recipe(repo_name)
         if cached:
-            print(colored(f"\n✓ Found cached recipe for '{repo_name}'", "green", attrs=["bold"]))
-            print(colored(f"  Build system: {cached.get('build_system', '?')}", "white"))
-            print(colored(f"  Last built: {cached.get('last_built', '?')}", "white"))
-            print(colored(f"  Recipe file: {cached.get('recipe_file', '?')}", "white"))
-            print(colored(f"  Use --force to re-run the full pipeline.", "yellow"))
+            print(
+                colored(
+                    f"\n✓ Found cached recipe for '{repo_name}'",
+                    "green",
+                    attrs=["bold"],
+                )
+            )
+            print(
+                colored(
+                    f"  Build system: {cached.get('build_system', '?')}",
+                    "white",
+                )
+            )
+            print(
+                colored(
+                    f"  Last built: {cached.get('last_built', '?')}", "white"
+                )
+            )
+            print(
+                colored(
+                    f"  Recipe file: {cached.get('recipe_file', '?')}", "white"
+                )
+            )
+            print(
+                colored("  Use --force to re-run the full pipeline.", "yellow")
+            )
             return 0
 
     # Run the agent
     exit_code = run_agent(
-        repo_url=args.repo, max_attempts=args.max_attempts, verbose=args.verbose
+        repo_url=args.repo,
+        max_attempts=args.max_attempts,
+        verbose=args.verbose,
     )
 
     return exit_code
