@@ -1,274 +1,249 @@
-# Atesor AI: Smart Multi-stage Agentic System for RISC-V Software Porting 🚀
+# Atesor AI
+
+**A multi-agent system that autonomously ports x86/ARM packages to RISC-V (riscv64).**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-green.svg)](https://github.com/langchain-ai/langgraph)
+[![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-green.svg)](https://github.com/langchain-ai/langgraph)
+
+Atesor AI takes a source code url (i.e GitHub repo link), builds the package natively inside a RISC-V Docker sandbox, fixes whatever breaks, and emits a reproducible porting recipe. Supported build systems cover the **C, C++, and Go** ecosystems (Make, CMake, Meson, autotools, Cargo, Go modules), more are coming.. It runs across both **Alpine (musl)** and **Debian/Ubuntu (glibc)** sandboxes (and native/real RISC-V hardware support is coming too..), so a package is verified on the two libc families that matter in practice.
+
+**NOTE**: Native builds (on real RISC-V hardware) is in process and will be added in a future release. For now, QEMU/binfmt emulation is used for all builds. (see TODO)
 
 ---
 
-## Overview
+## Table of Contents
 
-Atesor AI is a state-of-the-art **multi-agent AI system** designed to automate the complex process of porting software packages from x86/ARM to RISC-V architecture. Built on modern agentic design patterns and powered by LangGraph, it intelligently handles analysis, compilation, and error correction in a secure sandbox.
+- [Why](#why)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Configuration](#configuration)
+- [Outputs](#outputs)
+- [Key features](#key-features)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Contributing](#contributing)
 
 ---
 
-## Architecture & Workflow
+## Why
 
-Atesor AI follows a hierarchical design where high-level agents plan and supervise, while specialized agents execute and fix.
+The RISC-V software ecosystem still has gaps that x86 and ARM solved years ago. Porting work is repetitive: clone, detect the build system, install the right packages, hit the same handful of issues (stale `config.guess`, x86-only SIMD, Go's `-buildvcs` trap, musl vs glibc headers and many more), patch, retry. Atesor AI automates that loop with a small team of specialized LLM agents and a deterministic scripted-ops layer that handles the boring up to 70% for free.
 
-### Agent Workflow Diagram
+Output is a reproducible Markdown recipe a human or CI can replay, plus the ready-to-use RISC-V build artifacts.
+
+---
+
+## How it works
+
+1. **Scripted analysis** clones the repo inside the sandbox and detects the build system, dependencies, and architecture-specific code — zero LLM cost.
+2. **Planner** drafts a high-level `TaskPlan` from that analysis.
+3. **Supervisor** routes work between Scout, Builder, and Fixer, watches for error loops, and decides when to escalate.
+4. **Builder** runs the build natively on RISC-V via QEMU/binfmt. **Fixer** patches whatever breaks. **Scout** answers targeted questions about the source tree.
+5. **Artifact scanner** verifies the produced binaries are real `riscv64` ELF files — not silent x86 fallthroughs.
+6. **Recipe** is written to disk and cached, keyed by `(package, sandbox)`.
+
+The supervisor → executor loop is built on [LangGraph](https://github.com/langchain-ai/langgraph), with a single `AgentState` carried between nodes.
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- Docker, with RISC-V emulation enabled on x86/ARM hosts:
+  ```bash
+  docker run --privileged --rm tonistiigi/binfmt --install all
+  ```
+- Python 3.10+
+- An API key for one of: Gemini, OpenAI, or OpenRouter.
+
+### Install
+
+```bash
+git clone https://github.com/akifejaz/atesor-ai
+cd atesor-ai
+pip install -r requirements.txt
+cp .env-example .env   # then add your API key
+```
+
+### Build the sandbox
+
+```bash
+python3 main.py --setup-only                       # Alpine (default)
+python3 main.py --setup-only --platform debian     # Debian/Ubuntu
+```
+
+### Port a package
+
+```bash
+python3 main.py --repo https://github.com/madler/zlib --verbose
+```
+
+---
+
+## Usage
+
+```bash
+# Single repo, default sandbox (Alpine)
+python3 main.py --repo <github_url>
+
+# Force a clean run, ignore the recipe cache
+python3 main.py --repo <github_url> --force --max-attempts 8
+
+# Target the Debian sandbox
+python3 main.py --repo <github_url> --platform debian
+
+# Pin a specific container (used by the batch runner)
+python3 main.py --repo <github_url> --container atesor-ai-sandbox-w0
+
+# Batch — parallel across N worker containers
+python3 batch_test.py                              # uses list-packages.txt
+python3 batch_test.py --workers 2 pkg1 pkg2
+
+# Maintenance
+python3 main.py --cleanup --clean-image            # tear down sandbox
+python3 main.py --clean-workspace                  # prune workspace/
+```
+
+
+
+---
+
+## Architecture (high-level)
 
 ```mermaid
 graph TD
-    Start((Start)) --> Init[Initialization]
-    Init --> Planner[Strategic Planner]
+    Start((Start)) --> Init[Init + Scripted Analysis]
+    Init --> Planner[Planner]
     Planner --> Supervisor{Supervisor}
-    
-    Supervisor -->|Plan Next| Scout[Scout Agent]
+
+    Supervisor -->|investigate| Scout[Scout]
     Scout --> Supervisor
-    
-    Supervisor -->|Execute Build| Builder[Builder Agent]
-    Builder -->|Failure| Fixer[Fixer Agent]
-    Fixer -->|Retry Build| Builder
-    
-    Builder -->|Success| Summarizer[Summarizer Agent]
-    Summarizer --> End((End))
-    
-    Supervisor -->|Escalate| Escalation[Human Interv.]
-    Escalation --> End
 
+    Supervisor -->|execute| Builder[Builder]
+    Builder -->|failure| Fixer[Fixer]
+    Fixer --> Builder
+    Builder -->|success| Finish[Finish + Recipe]
 
-    subgraph OpsLayer ["Scripted Operations Layer (Zero-Cost)"]
-        Init
-    end
+    Supervisor -->|terminal failure| Escalate[Escalate]
+    Finish --> End((End))
+    Escalate --> End
 
-    subgraph Sandbox ["Secure Sandbox"]
-        direction TB
+    subgraph Sandbox ["RISC-V Sandbox (Alpine or Debian)"]
         Scout
         Builder
         Fixer
     end
-
-    %% Styling
-    style Sandbox fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
-    style OpsLayer fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
-    style Supervisor fill:#1a1a1a,stroke:#555,stroke-dasharray: 5 5
 ```
 
+**Three pillars:**
 
-## Technical Deep Dive
+- **Scripted Operations Layer** (`src/scripted_ops.py`) — deterministic, zero-LLM repo inspection. Handles ~70% of analysis at zero cost.
+- **Multi-agent core** (`src/graph.py`) — Planner, Supervisor, Scout, Builder, Fixer, Finish, Escalate. Every node is wrapped with `@agent_node` for uniform error handling, audit logging, and rate-limit retry.
+- **Platform abstraction** (`src/platforms.py`) — one `PlatformProfile` per distro. Adding a new sandbox is a single PROFILES entry; the rest of the code is distro-agnostic.
 
-### 1. State-Driven Orchestration (LangGraph)
-Atesor AI leverages **LangGraph** to implement a cyclic, state-driven workflow. Unlike linear pipelines, our architecture allows the system to:
-- **Loop back** from failure to specialized fixing nodes.
-- **Refine plans** dynamically as more information is gathered by the Scout.
-- **Maintain a persistent audit trail** of every command executed and decision made.
-
-### 2. The Multi-Agent Intelligence
-- **The Planner** acts as the architect, creating a high-level roadmap (`TaskPlan`) that guides the entire process.
-- **The Supervisor** acts as the quality controller, verifying agent outputs for hallucinations and routing the state to the most appropriate node.
-- **The Sandbox Agents** (Scout, Builder, Fixer) operate exclusively within the Docker environment, ensuring host safety and environmental consistency.
-
-### 3. Cost-Effective Intelligence
-By offloading deterministic tasks (like dependency tree parsing and build system detection) to the **Scripted Operations Layer**, we reduce the context window requirements and the total number of LLM invocations. This specialized layer handles ~70% of the non-critical decision path, allowing the LLMs to focus purely on complex problem-solving and patch generation.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Docker installed and running.
-- **Cross-Platform Support**: If you are on an x86 host, you must enable RISC-V emulation via `binfmt`:
-  ```bash
-  docker run --privileged --rm tonistiigi/binfmt --install all
-  docker build --platform linux/riscv64 -t atesor-ai-sandbox:latest 
-  ```
-- API key for an LLM provider (OpenAI, Gemini, or OpenRouter).
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/akifejaz/atesor-ai
-cd atesor-ai
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment variables
-cp .env-example .env
-# Edit .env and add your API keys
-```
-
-### Basic Usage
-
-```bash
-# 1. Prepare the RISC-V Sandbox
-python3 main.py --setup-only
-
-# 2. Start Porting a Package
-python3 main.py --repo https://github.com/madler/zlib --verbose
-
-# 3. Force a clean rebuild with custom attempt limit
-python3 main.py --repo https://github.com/madler/zlib --force --max-attempts 8
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--repo URL` | *required* | GitHub repository URL to port |
-| `--verbose` | `false` | Enable DEBUG logging to console |
-| `--setup-only` | `false` | Initialize sandbox without porting |
-| `--max-attempts` | `5` | Maximum fix attempts before escalation |
-| `--force` | `false` | Force fresh clone and rebuild |
-
----
-
-## Few-Shot Learning System
-
-Atesor AI includes a **lightweight memory system** that provides few-shot examples to agents, improving their accuracy without increasing API costs significantly.
-
-### How It Works
-
-1. **Example Dataset**: Curated examples stored in `data/examples/` for each agent type:
-   - `scout_examples.json` - Build plan generation patterns
-   - `fixer_examples.json` - Error resolution strategies
-   - `builder_examples.json` - Build execution examples
-
-2. **Smart Retrieval**: The system uses keyword-based matching to find relevant examples:
-   - Matches build system (go, cmake, make)
-   - Matches error patterns
-   - Considers project structure (main path, module directory)
-
-3. **Prompt Integration**: Selected examples are formatted and included in agent prompts, providing context without requiring full vector database infrastructure.
-
-### Adding New Examples
-
-To add examples from your successful porting sessions:
-
-```bash
-# Edit the appropriate examples file
-vim data/examples/scout_examples.json
-
-# Test the examples
-python -c "from src.memory import format_few_shot_examples; print(format_few_shot_examples('scout', {'build_system': 'go'}))"
-```
-
-See `data/examples/README.md` for detailed instructions on formatting examples.
-
-### Benefits
-
-- **Up to 100 examples per agent** with automatic pruning of oldest entries
-- **No vector DB required** - lightweight keyword matching
-- **~2000 chars per prompt** - minimal token overhead
-- **Easy to extend** - JSON format, no code changes needed
-- **Auto-learning** - successful porting runs save novel patterns back to examples automatically
-
----
-
-## Artifact Scanning & Verification
-
-After each build, the `ArtifactScanner` (`src/artifact_scanner.py`) automatically:
-- Discovers executables, static libraries (`.a`), and shared libraries (`.so`) in the build directory
-- Runs `file` on each artifact to verify it is a genuine **RISC-V ELF** binary
-- For static archives, extracts object files and checks their architecture
-- Reports a pass/fail summary used by the supervisor to decide next steps
-
----
-
-## LLM Call Audit Logging
-
-Every LLM invocation is logged to `workspace/logs/agent-call.log` via the `LLMCallLogger` singleton (`src/llm_logger.py`). Each entry includes:
-- Call ID, timestamp, agent role, model name
-- Cost estimate and prompt/response lengths
-- First 10k characters of prompt and response
-
-This provides a full audit trail for debugging and cost analysis.
-
----
-
-## Error Classification & Severity
-
-The system categorizes build errors into structured types (`ErrorCategory` in `src/state.py`):
-
-`DEPENDENCY` · `COMPILATION` · `LINKING` · `ARCHITECTURE` · `NETWORK` · `CONFIGURATION` · `MISSING_TOOLS` · `PERMISSION` · `ARCHITECTURE_IMPOSSIBLE` · and more
-
-Each error is assigned a `FailureSeverity` (LOW / MEDIUM / HIGH). The supervisor uses error history and loop detection (3+ same-category errors) to decide whether to retry, fix, or escalate.
-
----
-
-## Development & Testing
-
-Run the automated unit tests to ensure system integrity:
-
-```bash
-# Run all tests
-PYTHONPATH=. pytest
-
-# Run a single test file
-PYTHONPATH=. pytest tests/test_graph_routing.py
-
-# Run a single test case
-PYTHONPATH=. pytest tests/test_state.py::TestState::test_add_error
-```
+State flows through a single `AgentState` object (`src/state.py`) that carries plan, build status, error history, fix attempts, cost counters, and the audit trail.
 
 ---
 
 ## Configuration
 
-The system is environment-aware and supports multiple LLM providers:
+Edit `.env` (template in `.env-example`):
 
-- **Config**: `src/config.py` automatically handles workspace paths between Docker and Host.
-- **Models**: `src/models.py` manages model selection and cost tracking.
-- **Security**: Commands are validated against a whitelist in `src/tools.py` before execution.
+| Variable | Required when | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | always | `gemini` (default), `openai`, `openrouter` |
+| `GOOGLE_API_KEY` | provider = `gemini` | |
+| `OPENAI_API_KEY` | provider = `openai` | |
+| `OPENROUTER_API_KEY` | provider = `openrouter` | |
+| `LANGCHAIN_API_KEY` + `LANGCHAIN_TRACING_V2` | optional | LangSmith tracing |
+| `ATESOR_PLATFORM` | optional | `alpine` / `debian` (overridden by `--platform`) |
+| `ATESOR_CONTAINER` | optional | Override container name (overridden by `--container`) |
 
-### Environment Variables
+Models are selected per agent role in `src/models.py` (`MODEL_CONFIG`). Each role has its own temperature — deterministic for Builder/Supervisor, slightly hotter for Fixer.
 
-| Variable | Purpose |
-|----------|---------|  
-| `LLM_PROVIDER` | `gemini` (default), `openai`, or `openrouter` |
-| `GOOGLE_API_KEY` | Required for Gemini |
-| `OPENAI_API_KEY` | Required for OpenAI |
-| `OPENROUTER_API_KEY` | Required for OpenRouter |
-| `LANGCHAIN_API_KEY` | Optional — LangSmith tracing |
-| `LANGCHAIN_TRACING_V2` | Set to `true` to activate tracing |
+---
 
-### Output Locations
+## Outputs
 
 | Path | Content |
-|------|---------|  
-| `workspace/output/{repo}_report_*.md` | Markdown porting guide |
-| `workspace/output/{repo}_state_*.json` | Full state snapshot |
-| `workspace/logs/agent.log` | DEBUG-level agent log |
-| `workspace/logs/agent-call.log` | LLM call audit trail |
+|---|---|
+| `workspace/output/{repo}_report_*.md` | Final Markdown porting recipe |
+| `workspace/output/{repo}_state_*.json` | Full `AgentState` snapshot |
+| `workspace/logs/agent_{repo}.log` | Per-repo DEBUG log |
+| `workspace/logs/agent-call_{repo}.log` | Full LLM call audit trail (prompt + response + cost) |
+| `data/recipe_cache.json` | Successful builds, keyed by `{package: {sandbox: recipe}}` |
+| `data/examples/*.json` | Few-shot examples per agent (auto-learning enabled) |
+
+A cache hit short-circuits the pipeline — no LLM calls, no Docker work — unless `--force` is set. Cache entries are per-sandbox; Alpine and Debian builds populate separate keys.
 
 ---
 
-## Project Structure
+## Key features
 
-- `main.py`: Entry point for CLI and Docker management.
-- `src/graph.py`: The core LangGraph state machine (all agent nodes + routing).
-- `src/scripted_ops.py`: Zero-cost analysis and repo management.
-- `src/state.py`: Global process tracking, error classification, and data structures.
-- `src/tools.py`: Safe command execution and file utilities.
-- `src/memory.py`: Few-shot learning system with auto-learning.
-- `src/config.py`: Environment-aware workspace path resolution.
-- `src/models.py`: LLM provider factory and per-role model configuration.
-- `src/knowledge.py`: Static RISC-V / Alpine knowledge base.
-- `src/artifact_scanner.py`: Post-build artifact detection and RISC-V verification.
-- `src/llm_logger.py`: LLM call audit trail logging.
-- `data/examples/`: Curated few-shot examples per agent type.
-- `data/recipe_cache.json`: Cache of successfully ported package recipes.
-- `tests/`: Automated unit tests for engine logic.
+- **Native RISC-V builds** — no cross-compilation, no surprises at deploy time.
+- **Multiple Build Systems** — Make, CMake, Meson, autotools, Cargo, Go modules. More are coming.
+- **Parallel batch runs** — `batch_test.py` allocates one container per worker (`atesor-ai-sandbox-w0..wN`) to avoid `apk`/`apt` lock contention.
+- **Few-shot memory** — agents learn from past successes; up to 100 examples per agent, retrieved by keyword/regex.
+- **Recipe cache** — successful builds are replayable and skip the LLM entirely.
+- **ELF verification** — every produced binary is checked with `file` to confirm `RISC-V ELF`.
+- **Cost-aware** — every LLM call is logged with token estimate and cost; hard cap at $1.00 per package.
+- **Safe execution** — every shell command goes through a regex whitelist and runs inside the sandbox.
 
 ---
 
-## Contributing & Support
+## Development
 
-We welcome contributions to the RISC-V ecosystem! 
-- [Open an Issue](https://github.com/akifejaz/atesor-ai/issues)
-- [Project License](LICENSE)
+```bash
+# Run the full test suite (PYTHONPATH=. is required)
+PYTHONPATH=. pytest
 
-**Built with ❤️ for the RISC-V community**
+# Single file or test case
+PYTHONPATH=. pytest tests/test_graph_routing.py
+PYTHONPATH=. pytest tests/test_state.py::TestState::test_add_error
+```
 
-*Making RISC-V software ecosystem as rich as x86/ARM, one package at a time.*
+Style: PEP 8, 79-char lines, Google-style docstrings, type hints on public APIs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide.
+
+---
+
+## Project layout
+
+```
+main.py                  start, setup, CLI, config, recipe cache management
+
+src/
+  graph.py               LangGraph workflow: nodes, prompts, routing
+  state.py               AgentState + enums + error classification
+  scripted_ops.py        Zero-LLM repo analysis
+  tools.py               Sandboxed shell execution + patch application
+  platforms.py           PlatformProfile (Alpine, Debian, Ubuntu)
+  models.py              LLM provider factory, per-role config
+  memory.py              Few-shot retrieval, auto-learning, recipe cache
+  knowledge.py           Static RISC-V / distro porting knowledge
+  artifact_scanner.py    ELF inspection (verify riscv64 binaries)
+  artifact_curator.py    Rank artifacts into primary/secondary/noise
+  llm_logger.py          LLM call audit log (singleton)
+  llm_helpers.py         Timeout wrapper, JSON extraction, validation
+  config.py              Env-aware workspace paths; Docker auto-detect
+
+data/
+  recipe_cache.json      Successful-build registry (per-sandbox)
+  examples/*.json        Few-shot examples per agent
+
+tests/                   unittest-style suite, one file per module
+```
+
+---
+
+## Contributing
+
+Contributions are welcome — especially new platform profiles, additional few-shot examples from real porting runs, and bug reports for packages that fail in interesting ways. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding standards, and how to extend the system.
+
+- [Open an issue](https://github.com/akifejaz/atesor-ai/issues)
+- [License: MIT](LICENSE)
+
+Built for the RISC-V community. Making the ecosystem catch up, one package at a time.
