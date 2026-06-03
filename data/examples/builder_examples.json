@@ -218,615 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: gojq build execution",
-      "tags": [
-        "go",
-        "gojq"
-      ],
-      "build_system": "go",
-      "repo_name": "gojq",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build ./cmd/gojq"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gojq.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: gofireprox build execution",
-      "tags": [
-        "go",
-        "gofireprox"
-      ],
-      "build_system": "go",
-      "repo_name": "gofireprox",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd /workspace/repos/gofireprox && go mod tidy && go build -buildvcs=false -o gofireprox ./cmd/gofireprox"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gofireprox.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: gronx build execution",
-      "tags": [
-        "go",
-        "gronx"
-      ],
-      "build_system": "go",
-      "repo_name": "gronx",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build -buildvcs=false ./cmd/tasker"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gronx.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: lz4 build execution",
-      "tags": [
-        "make",
-        "lz4"
-      ],
-      "build_system": "make",
-      "repo_name": "lz4",
-      "phases": [
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from lz4.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: gungnir build execution",
-      "tags": [
-        "go",
-        "gungnir"
-      ],
-      "build_system": "go",
-      "repo_name": "gungnir",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "go mod tidy",
-            "go build ./cmd/gungnir"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gungnir.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: zopfli build execution",
-      "tags": [
-        "make",
-        "zopfli"
-      ],
-      "build_system": "make",
-      "repo_name": "zopfli",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from zopfli.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: snappy build execution",
-      "tags": [
-        "cmake",
-        "snappy"
-      ],
-      "build_system": "cmake",
-      "repo_name": "snappy",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential cmake"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DSNAPPY_BUILD_TESTS=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from snappy.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: zlib-ng build execution",
-      "tags": [
-        "cmake",
-        "zlib-ng"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zlib-ng",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build",
-            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from zlib-ng.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: brotli build execution",
-      "tags": [
-        "cmake",
-        "brotli"
-      ],
-      "build_system": "cmake",
-      "repo_name": "brotli",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential cmake"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from brotli.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libavif build execution",
-      "tags": [
-        "cmake",
-        "libavif"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libavif",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libpng-dev libjpeg-turbo8-dev libdav1d-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF -DAVIF_BUILD_MAN_PAGES=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libavif.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libpng build execution",
-      "tags": [
-        "autotools",
-        "libpng"
-      ],
-      "build_system": "autotools",
-      "repo_name": "libpng",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure --disable-static --enable-shared --disable-dependency-tracking"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libpng.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libtiff build execution",
-      "tags": [
-        "autotools",
-        "libtiff"
-      ],
-      "build_system": "autotools",
-      "repo_name": "libtiff",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config zlib1g-dev libjpeg-dev libjpeg-turbo8-dev libpng-dev libwebp-dev liblzma-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure --disable-static --disable-tests --disable-docs --disable-dependency-tracking --prefix=/usr/local"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)",
-            "make install"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libtiff.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: zstd build execution",
-      "tags": [
-        "cmake",
-        "zstd"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zstd",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential cmake"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from zstd.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: Little-CMS build execution",
-      "tags": [
-        "cmake",
-        "Little-CMS"
-      ],
-      "build_system": "cmake",
-      "repo_name": "Little-CMS",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from Little-CMS.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: dav1d build execution",
-      "tags": [
-        "meson",
-        "dav1d"
-      ],
-      "build_system": "meson",
-      "repo_name": "dav1d",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "meson setup build --buildtype=release -Db_ndebug=true -Dtests=disabled -Dexamples=disabled"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "ninja -C build"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from dav1d.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: flac build execution",
-      "tags": [
-        "cmake",
-        "flac"
-      ],
-      "build_system": "cmake",
-      "repo_name": "flac",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential cmake libogg-dev libvorbis-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from flac.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libwebp build execution",
-      "tags": [
-        "cmake",
-        "libwebp"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libwebp",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libpng-dev libjpeg-dev libtiff-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DWEBP_BUILD_EXTRAS=OFF -DWEBP_BUILD_ANIM_UTILS=OFF -DWEBP_BUILD_CWEBP=ON -DWEBP_BUILD_DWEBP=ON -DWEBP_BUILD_GIF2WEBP=OFF -DWEBP_BUILD_IMG2WEBP=OFF -DWEBP_BUILD_VWEBP=OFF -DWEBP_BUILD_WEBP_JS=OFF -DWEBP_BUILD_LIBWEBPMUX=ON -DWEBP_BUILD_LIBWEBPDEMUX=ON -DWEBP_BUILD_LIBWEBPANIM=ON -DWEBP_BUILD_TESTS=OFF"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from libwebp.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: ogg build execution",
-      "tags": [
-        "autotools",
-        "ogg"
-      ],
-      "build_system": "autotools",
-      "repo_name": "ogg",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update",
-            "apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./autogen.sh && ./configure"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from ogg.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: vorbis build execution",
-      "tags": [
-        "cmake",
-        "vorbis"
-      ],
-      "build_system": "cmake",
-      "repo_name": "vorbis",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libogg-dev"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON",
-            "cd build && make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from vorbis.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: speex build execution",
       "tags": [
         "autotools",
@@ -3097,6 +2488,595 @@
       ],
       "timeout_recommendation": "120s",
       "reasoning": "Auto-learned build execution from dnstake.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dyff build execution",
+      "tags": [
+        "go",
+        "dyff"
+      ],
+      "build_system": "go",
+      "repo_name": "dyff",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/dyff"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from dyff.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: epoch build execution",
+      "tags": [
+        "go",
+        "epoch"
+      ],
+      "build_system": "go",
+      "repo_name": "epoch",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/epoch"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from epoch.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: elvish build execution",
+      "tags": [
+        "go",
+        "elvish"
+      ],
+      "build_system": "go",
+      "repo_name": "elvish",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/elvish"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from elvish.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: enola build execution",
+      "tags": [
+        "go",
+        "enola"
+      ],
+      "build_system": "go",
+      "repo_name": "enola",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/enola"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from enola.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: FFUF-Workflow-Tool build execution",
+      "tags": [
+        "go",
+        "FFUF-Workflow-Tool"
+      ],
+      "build_system": "go",
+      "repo_name": "FFUF-Workflow-Tool",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/ffuf-workflow"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from FFUF-Workflow-Tool.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: esbuild build execution",
+      "tags": [
+        "go",
+        "esbuild"
+      ],
+      "build_system": "go",
+      "repo_name": "esbuild",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/esbuild"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from esbuild.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: fico build execution",
+      "tags": [
+        "go",
+        "fico"
+      ],
+      "build_system": "go",
+      "repo_name": "fico",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/cmd -buildvcs=false ./cmd"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fico.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: f2 build execution",
+      "tags": [
+        "go",
+        "f2"
+      ],
+      "build_system": "go",
+      "repo_name": "f2",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/f2"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from f2.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: fwanalyzer build execution",
+      "tags": [
+        "go",
+        "fwanalyzer"
+      ],
+      "build_system": "go",
+      "repo_name": "fwanalyzer",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/fwanalyzer"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fwanalyzer.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gojq build execution",
+      "tags": [
+        "go",
+        "gojq"
+      ],
+      "build_system": "go",
+      "repo_name": "gojq",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gojq"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gojq.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gofireprox build execution",
+      "tags": [
+        "go",
+        "gofireprox"
+      ],
+      "build_system": "go",
+      "repo_name": "gofireprox",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gofireprox"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gofireprox.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gosmee build execution",
+      "tags": [
+        "go",
+        "gosmee"
+      ],
+      "build_system": "go",
+      "repo_name": "gosmee",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build -mod=mod -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gosmee.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gronx build execution",
+      "tags": [
+        "go",
+        "gronx"
+      ],
+      "build_system": "go",
+      "repo_name": "gronx",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/tasker"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gronx.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gosec build execution",
+      "tags": [
+        "go",
+        "gosec"
+      ],
+      "build_system": "go",
+      "repo_name": "gosec",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gosec"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gosec.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: zstd build execution",
+      "tags": [
+        "cmake",
+        "zstd"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zstd",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "mkdir -p build",
+            "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "cd build && make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from zstd.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gungnir build execution",
+      "tags": [
+        "go",
+        "gungnir"
+      ],
+      "build_system": "go",
+      "repo_name": "gungnir",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "go build ./cmd/gungnir"
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from gungnir.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: dav1d build execution",
+      "tags": [
+        "meson",
+        "dav1d"
+      ],
+      "build_system": "meson",
+      "repo_name": "dav1d",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential meson ninja-build"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "meson setup builddir"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "ninja -C builddir"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from dav1d.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libsodium build execution",
+      "tags": [
+        "autotools",
+        "libsodium"
+      ],
+      "build_system": "autotools",
+      "repo_name": "libsodium",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config",
+            "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+          ]
+        },
+        {
+          "name": "configure",
+          "commands": [
+            "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
+            "autoreconf -fi",
+            "./configure"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "make -j$(nproc)"
+          ]
+        }
+      ],
+      "timeout_recommendation": "600s",
+      "reasoning": "Auto-learned build execution from libsodium.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: fscan build execution",
+      "tags": [
+        "go",
+        "fscan"
+      ],
+      "build_system": "go",
+      "repo_name": "fscan",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy",
+            "env GOMAXPROCS=1 go build -p 1 -buildvcs=false ./..."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from fscan.",
       "id": "builder-auto-095",
       "source": "auto",
       "timestamp": "2026-06-03",

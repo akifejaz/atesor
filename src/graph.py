@@ -300,11 +300,13 @@ def agent_node(role: AgentRole):
                         ]
                     )
                     if is_rate_limit and attempt < max_retries - 1:
-                        wait_time = 30 * (attempt + 1)
+                        import random
+
+                        wait_time = 30 * (2**attempt) + random.uniform(0, 15)
                         logger.warning(
                             f"Rate limit hit in {role.value} "
                             f"(attempt {attempt + 1}/{max_retries}), "
-                            f"waiting {wait_time}s before retry..."
+                            f"waiting {wait_time:.0f}s before retry..."
                         )
                         time.sleep(wait_time)
                         continue
@@ -1795,10 +1797,181 @@ def _inject_go_output(command: str, output_path: str) -> str:
     return _inject_go_flag(command, f"-o {output_path}")
 
 
+# Map a header file's leading path component or basename to a *canonical*
+# library name. A candidate is only ever installed if that canonical name
+# resolves through the active platform profile's package_map, so unknown or
+# project-local headers are never guessed-installed.
+_HEADER_CANONICAL_HINTS = {
+    "png": "libpng",
+    "jpeglib": "libjpeg",
+    "jpeg": "libjpeg",
+    "jpeglib-turbo": "libjpeg-turbo",
+    "webp": "libwebp",
+    "tiff": "libtiff",
+    "tiffio": "libtiff",
+    "ogg": "ogg",
+    "vorbis": "vorbis",
+    "vorbisenc": "vorbis",
+    "vorbisfile": "vorbis",
+    "flac": "flac",
+    "opus": "opus",
+    "opusfile": "opus",
+    "lcms2": "lcms2",
+    "zlib": "zlib",
+    "zstd": "zstd",
+    "lz4": "lz4",
+    "brotli": "brotli",
+    "snappy": "snappy",
+    "freetype": "freetype",
+    "ft2build": "freetype",
+    "curl": "curl",
+    "heif": "libheif",
+    "openjpeg": "openjpeg",
+}
+
+
+def _resolve_header_to_packages(stderr: str, profile) -> List[str]:
+    """Map missing-header compile errors to installable distro packages.
+
+    Only headers whose derived canonical name is present in the active
+    profile's ``package_map`` are returned, so unknown/project-local headers
+    are never guessed. Returns distro package names (deduplicated).
+    """
+    if not stderr:
+        return []
+    headers = re.findall(r"fatal error:\s*([\w./+-]+\.h)\b", stderr)
+    headers += re.findall(r"'([\w./+-]+\.h)' file not found", stderr)
+    packages: List[str] = []
+    seen = set()
+    for hdr in headers:
+        parts = hdr.split("/")
+        top = parts[0].lower()
+        if top.endswith(".h"):
+            top = top[:-2]
+        stem = parts[-1].lower()
+        if stem.endswith(".h"):
+            stem = stem[:-2]
+        raws = [r for r in (top, stem) if r]
+        candidates: List[str] = []
+        for raw in raws:
+            hint = _HEADER_CANONICAL_HINTS.get(raw)
+            if hint:
+                candidates.append(hint)
+            candidates.extend([raw, f"lib{raw}"])
+        for cand in candidates:
+            if cand in profile.package_map:
+                distro = profile.resolve(cand)
+                if distro not in seen:
+                    seen.add(distro)
+                    packages.append(distro)
+                break
+    return packages
+
+
+def _is_suspected_oom(result, command: str) -> bool:
+    """Detect a likely QEMU OOM-kill on a parallel build command.
+
+    Restricted to known parallel build commands to avoid misclassifying
+    other silent failures. Triggers on exit 137 (SIGKILL) or a non-zero
+    exit with no captured output at all.
+    """
+    if not re.search(
+        r"\b(go\s+(build|install|test)|make|ninja"
+        r"|cargo\s+(build|install|test))\b",
+        command,
+    ):
+        return False
+    if result.exit_code == 137:
+        return True
+    no_output = not (result.stdout or "").strip() and not (
+        result.stderr or ""
+    ).strip()
+    return (not result.success) and no_output
+
+
+def _serialize_build_command(command: str) -> str:
+    """Rewrite a parallel build command to run single-threaded.
+
+    Preserves any leading ``cd ... &&`` prefix so the parallelism limit is
+    applied inside the effective build directory. Used to recover from QEMU
+    OOM-kills where high build concurrency exhausts emulated memory.
+    """
+    prefix = _extract_cd_prefix(command)
+    body = command[len(prefix):]
+    if re.search(r"\bgo\s+(build|install|test)\b", body):
+        body = _inject_go_flag(body, "-p 1")
+        if "gomaxprocs" not in body.lower():
+            body = "env GOMAXPROCS=1 " + body
+        return prefix + body
+    if re.search(r"\bmake\b", body):
+        body = re.sub(r"-j\s*\$\(nproc\)", "-j1", body)
+        body = re.sub(r"-j\s*\d+", "-j1", body)
+        body = re.sub(r"--jobs[= ]\s*\S+", "-j1", body)
+        if "-j1" not in body:
+            body = re.sub(r"\bmake\b", "make -j1", body, count=1)
+        if "makeflags" not in body.lower():
+            body = "env MAKEFLAGS=-j1 " + body
+        return prefix + body
+    if re.search(r"\bninja\b", body) and "-j" not in body:
+        body = re.sub(r"\bninja\b", "ninja -j1", body, count=1)
+        return prefix + body
+    if re.search(r"\bcargo\s+(build|install|test)\b", body) and (
+        "-j" not in body
+    ):
+        body = re.sub(
+            r"\bcargo\s+(build|install|test)\b",
+            r"cargo \1 -j 1",
+            body,
+            count=1,
+        )
+        return prefix + body
+    return command
+
+
+def _builder_retry_allowed(state: AgentState, key: str) -> bool:
+    """Allow a deterministic builder retry at most once per signature key."""
+    tried = state.context_cache.setdefault("builder_retry_keys", [])
+    if key in tried:
+        return False
+    tried.append(key)
+    return True
+
+
+# Common import-name -> pip-distribution-name mismatches. Anything not listed
+# is installed under its import name, which is correct for most packages.
+_PY_MODULE_PIP_NAMES = {
+    "yaml": "pyyaml",
+    "jinja2": "jinja2",
+    "google": "protobuf",
+    "google.protobuf": "protobuf",
+    "serial": "pyserial",
+    "cffi": "cffi",
+    "cryptography": "cryptography",
+    "setuptools": "setuptools",
+}
+
+
+def _resolve_missing_python_modules(stderr: str) -> List[str]:
+    """Extract pip package names from ModuleNotFoundError build failures."""
+    if not stderr:
+        return []
+    modules = re.findall(r"No module named ['\"]([\w.]+)['\"]", stderr)
+    pkgs: List[str] = []
+    seen = set()
+    for mod in modules:
+        pip_name = _PY_MODULE_PIP_NAMES.get(mod, mod.split(".")[0])
+        if pip_name and pip_name not in seen:
+            seen.add(pip_name)
+            pkgs.append(pip_name)
+    return pkgs
+
+
 @agent_node(AgentRole.BUILDER)
 def builder_node(state: AgentState) -> AgentState:
     """Execute the build plan with smart error detection."""
     logger.info("Builder executing build plan...")
+
+    from .platforms import get_active_profile
 
     state.build_status = BuildStatus.BUILDING
     state.current_phase = "building"
@@ -2034,6 +2207,172 @@ def builder_node(state: AgentState) -> AgentState:
                         )
                         continue
                     result = retry_result
+
+                # Missing C/C++ dev header -> resolve to a distro package via
+                # the active profile and install it, then retry. LLM-free, so
+                # it works even when the scout/fixer are rate-limited.
+                if not result.success:
+                    _profile = get_active_profile()
+                    header_pkgs = _resolve_header_to_packages(
+                        result.stderr, _profile
+                    )
+                    if header_pkgs and _builder_retry_allowed(
+                        state, f"header:{command}:{','.join(header_pkgs)}"
+                    ):
+                        install_cmd = _profile.install_cmd(header_pkgs)
+                        logger.warning(
+                            "Missing header detected; installing "
+                            f"{header_pkgs} then retrying build"
+                        )
+                        inst_result = execute_command(
+                            install_cmd, cwd=state.repo_path
+                        )
+                        state.log_scripted_op("install_missing_header_pkg")
+                        if inst_result.success:
+                            retry_result = execute_command(
+                                optimized_cmd, cwd=state.repo_path
+                            )
+                            state.cache_command_result(
+                                optimized_cmd, retry_result
+                            )
+                            state.log_scripted_op("retry_build_command")
+                            if retry_result.success:
+                                logger.info(
+                                    "Resolved missing header by installing "
+                                    f"{header_pkgs}"
+                                )
+                                continue
+                            result = retry_result
+
+                # CMake project invoked with bare `make` -> configure first.
+                _cmake_no_make = (
+                    "no targets specified and no makefile found"
+                    in (result.stderr or "").lower()
+                )
+                if _cmake_no_make and _builder_retry_allowed(
+                    state, f"cmake-config:{command}"
+                ):
+                    prefix = _extract_cd_prefix(optimized_cmd)
+                    eff_dir = _to_host_path(state.repo_path)
+                    cd_match = re.match(r"^\s*cd\s+([^&;]+?)\s*&&", prefix)
+                    if cd_match:
+                        sub = cd_match.group(1).strip()
+                        if not os.path.isabs(sub):
+                            eff_dir = os.path.join(eff_dir, sub)
+                    if os.path.isfile(os.path.join(eff_dir, "CMakeLists.txt")):
+                        retry_command = (
+                            f"{prefix}cmake -S . -B build "
+                            "-DCMAKE_BUILD_TYPE=Release "
+                            "&& cmake --build build -j1"
+                        )
+                        retry_result = execute_command(
+                            retry_command, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_command, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Reconfigured CMake project that was built "
+                                "with bare make"
+                            )
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_command
+                            )
+                            continue
+                        result = retry_result
+
+                # go.mod lives in a subdirectory -> cd into it and retry.
+                if (
+                    "go.mod file not found"
+                    in (result.stderr or "").lower()
+                    and _builder_retry_allowed(state, f"gomod-dir:{command}")
+                ):
+                    host_root = _to_host_path(state.repo_path)
+                    found = None
+                    for root, _dirs, files in os.walk(host_root):
+                        if "go.mod" in files:
+                            rel = os.path.relpath(root, host_root)
+                            if rel != ".":
+                                found = rel
+                            break
+                    if found:
+                        prefix = _extract_cd_prefix(optimized_cmd)
+                        body = optimized_cmd[len(prefix):]
+                        retry_command = f"cd {found} && {body}"
+                        retry_result = execute_command(
+                            retry_command, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_command, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                f"Located go.mod in subdir '{found}'; "
+                                "retried build there"
+                            )
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_command
+                            )
+                            continue
+                        result = retry_result
+
+                # Build-time Python module missing (codegen scripts) -> pip
+                # install it and retry. General, LLM-free recovery.
+                if not result.success:
+                    py_pkgs = _resolve_missing_python_modules(result.stderr)
+                    if py_pkgs and _builder_retry_allowed(
+                        state, f"pymod:{command}:{','.join(py_pkgs)}"
+                    ):
+                        pip_cmd = "pip install " + " ".join(py_pkgs)
+                        logger.warning(
+                            f"Missing Python module(s) {py_pkgs}; "
+                            "installing then retrying build"
+                        )
+                        pip_result = execute_command(
+                            pip_cmd, cwd=state.repo_path
+                        )
+                        state.log_scripted_op("install_missing_python_module")
+                        if pip_result.success:
+                            retry_result = execute_command(
+                                optimized_cmd, cwd=state.repo_path
+                            )
+                            state.cache_command_result(
+                                optimized_cmd, retry_result
+                            )
+                            state.log_scripted_op("retry_build_command")
+                            if retry_result.success:
+                                logger.info(
+                                    "Resolved missing Python module by "
+                                    f"installing {py_pkgs}"
+                                )
+                                continue
+                            result = retry_result
+
+                # Suspected QEMU OOM-kill (exit 137 / empty output) on a
+                # parallel build -> retry single-threaded. Generic fallback,
+                # checked last so specific signatures win first.
+                if _is_suspected_oom(result, optimized_cmd):
+                    serial_cmd = _serialize_build_command(optimized_cmd)
+                    if serial_cmd != optimized_cmd and _builder_retry_allowed(
+                        state, f"oom:{command}"
+                    ):
+                        logger.warning(
+                            "Suspected QEMU OOM-kill; retrying serialized: "
+                            f"{serial_cmd[:120]}"
+                        )
+                        retry_result = execute_command(
+                            serial_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(serial_cmd, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Serialized build recovered from suspected OOM"
+                            )
+                            phase.commands[phase.commands.index(command)] = (
+                                serial_cmd
+                            )
+                            continue
+                        result = retry_result
 
                 error_message = _build_command_error_message(
                     result, f"Build command failed: {command}"
