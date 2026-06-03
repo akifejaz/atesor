@@ -1,0 +1,192 @@
+name: batch-port
+
+# Runs the Atesor AI agent across a curated list of packages, building each
+# one inside the riscv64 sandbox container. Two independent jobs:
+#
+#   smoke -> .github/packages/smoke.json (~9 pkgs, ~10 min target)
+#   full  -> .github/packages/full.json  (~170 pkgs, hours; nightly)
+#
+# Both jobs are fully independent — failure of one does not affect the other.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 02:00 UTC nightly -> full sweep
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which list(s) to run"
+        type: choice
+        default: smoke
+        options: [smoke, full, both]
+      platform:
+        description: "Sandbox distro"
+        type: choice
+        default: debian
+        options: [debian, alpine]
+      workers:
+        description: "Parallel worker containers"
+        type: string
+        default: "2"
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  DEFAULT_PLATFORM: debian
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  # SMOKE — runs on every push/PR + manual + when "both" is dispatched
+  # ------------------------------------------------------------------------- #
+  smoke:
+    name: smoke (${{ github.event.inputs.platform || 'debian' }})
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.target == 'smoke' ||
+         github.event.inputs.target == 'both'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: batch-port-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ATESOR_PLATFORM: ${{ github.event.inputs.platform || 'debian' }}
+      WORKERS: ${{ github.event.inputs.workers || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable riscv64 emulation (binfmt_misc + QEMU)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Provision sandbox (build image + container)
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Run smoke batch
+        run: |
+          python3 .github/scripts/batch_test.py \
+            --list smoke \
+            --workers "$WORKERS"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # FULL — nightly schedule + manual ("full" or "both")
+  # ------------------------------------------------------------------------- #
+  full:
+    name: full (${{ github.event.inputs.platform || 'debian' }})
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.target == 'full' ||
+         github.event.inputs.target == 'both'))
+    # NOTE: riscv64-under-QEMU is slow; the full sweep can exceed the 6h
+    # hosted-runner cap. Swap to a self-hosted runner for production:
+    #   runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: batch-port-full
+      cancel-in-progress: false
+    env:
+      ATESOR_PLATFORM: ${{ github.event.inputs.platform || 'debian' }}
+      WORKERS: ${{ github.event.inputs.workers || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable riscv64 emulation (binfmt_misc + QEMU)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Provision sandbox (build image + container)
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Run full batch
+        run: |
+          python3 .github/scripts/batch_test.py \
+            --list full \
+            --workers "$WORKERS"
+
+      - name: Upload full artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 30
