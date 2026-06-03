@@ -108,28 +108,29 @@
     "zlib": {
       "debian-riscv64": {
         "repo_url": "https://github.com/madler/zlib",
-        "build_system": "autotools",
+        "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:32:36.811509",
+        "last_built": "2026-06-03T14:51:50.825449",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "./configure --static"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "make -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
@@ -137,11 +138,6 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
-          {
-            "type": "library_static",
-            "path": "/workspace/repos/zlib/libz.a",
-            "role": "primary"
-          },
           {
             "type": "library_static",
             "path": "/workspace/repos/zlib/build/libz.a",
@@ -161,26 +157,6 @@
             "type": "library_shared",
             "path": "/workspace/repos/zlib/build/libz.so.1.3.2.1",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zlib/example64",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zlib/minigzip",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zlib/example",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zlib/minigzip64",
-            "role": "secondary"
           },
           {
             "type": "binary",
@@ -218,7 +194,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 403.3,
+        "build_duration_seconds": 270.1,
         "recipe_file": "output/zlib_recipe.md"
       },
       "alpine-riscv64": {
@@ -2552,7 +2528,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-02T16:30:33.924599",
+        "last_built": "2026-06-03T20:01:17.338319",
         "build_plan": {
           "phases": [
             {
@@ -2565,7 +2541,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "env GOMAXPROCS=1 go build -p 1 -buildvcs=false ./..."
               ]
             }
           ]
@@ -2580,16 +2556,16 @@
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/assh/contrib/generate-loggers.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/assh/pkg/hooks/testdata/posix.shell",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/assh/pkg/hooks/testdata/posix.shell",
+            "path": "/workspace/repos/assh/contrib/generate-loggers.sh",
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1269.4,
+        "build_duration_seconds": 3499.6,
         "recipe_file": "output/assh_recipe.md"
       }
     },
@@ -2926,7 +2902,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:26:12.945186",
+        "last_built": "2026-06-03T15:28:27.290332",
         "build_plan": {
           "phases": [
             {
@@ -2936,9 +2912,15 @@
               ]
             },
             {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -2947,6 +2929,16 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/cJSON/build/fuzzing/fuzz_main",
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/cJSON/build/tests/libunity.a",
+            "role": "primary"
+          },
           {
             "type": "library_shared",
             "path": "/workspace/repos/cJSON/build/libcjson.so",
@@ -3036,19 +3028,9 @@
             "type": "binary",
             "path": "/workspace/repos/cJSON/build/tests/compare_tests",
             "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/cJSON/build/tests/print_string",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/cJSON/build/tests/minify_tests",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 709.6,
+        "build_duration_seconds": 296.1,
         "recipe_file": "output/cJSON_recipe.md"
       }
     },
@@ -3159,7 +3141,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:53:04.837800",
+        "last_built": "2026-06-03T14:51:50.120317",
         "build_plan": {
           "phases": [
             {
@@ -3169,9 +3151,15 @@
               ]
             },
             {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -3183,6 +3171,41 @@
           {
             "type": "binary",
             "path": "/workspace/repos/zstd/build/build/cmake/programs/zstd",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/build/cmake/programs/zstd-frugal",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/build_decoder_test.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/combine.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/create_single_file_decoder.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/build_library_test.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/combine.py",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/zstd/build/single_file_libs/create_single_file_library.sh",
             "role": "primary"
           },
           {
@@ -3207,46 +3230,11 @@
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/zstd/build/build/cmake/programs/zstd-frugal",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/build_decoder_test.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/combine.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/create_single_file_decoder.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/build_library_test.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/combine.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/zstd/build/single_file_libs/examples/testcard.png",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zstd/build/single_file_libs/create_single_file_library.sh",
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1587.1,
+        "build_duration_seconds": 239.0,
         "recipe_file": "output/zstd_recipe.md"
       }
     },
@@ -3385,14 +3373,13 @@
         "build_system": "make",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:50:21.338953",
+        "last_built": "2026-06-03T14:51:57.299342",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential"
               ]
             },
             {
@@ -3408,12 +3395,22 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/lz4/ossfuzz/ossfuzz.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/lz4/programs/cachedObjs/3a297cdcdda21e64139b4c81136d85cf/lz4",
             "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/lz4/lib/liblz4.a",
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/lz4/lib/cachedObjs/194a61908e3f838b963268dc8040c006/liblz4.a",
             "role": "primary"
           },
           {
@@ -3432,9 +3429,9 @@
             "role": "primary"
           },
           {
-            "type": "binary",
-            "path": "/workspace/repos/lz4/ossfuzz/ossfuzz.sh",
-            "role": "secondary"
+            "type": "library_shared",
+            "path": "/workspace/repos/lz4/lib/cachedObjs/c325c18bd8879e9a60f926c1c986eb23/liblz4.so.1.10.0",
+            "role": "primary"
           },
           {
             "type": "binary",
@@ -3495,19 +3492,9 @@
             "type": "binary",
             "path": "/workspace/repos/lz4/tests/check_stdvars.sh",
             "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/lz4/tests/test-lz4-frame-concatenation.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/lz4/tests/test-lz4-fast-hugefile.sh",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1226.9,
+        "build_duration_seconds": 240.7,
         "recipe_file": "output/lz4_recipe.md"
       }
     },
@@ -3603,7 +3590,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:52:40.666947",
+        "last_built": "2026-06-03T14:52:13.380930",
         "build_plan": {
           "phases": [
             {
@@ -3613,9 +3600,15 @@
               ]
             },
             {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBROTLI_DISABLE_TESTS=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -3675,7 +3668,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1318.7,
+        "build_duration_seconds": 220.0,
         "recipe_file": "output/brotli_recipe.md"
       }
     },
@@ -3778,7 +3771,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:23:14.380982",
+        "last_built": "2026-06-03T15:04:54.353715",
         "build_plan": {
           "phases": [
             {
@@ -3788,9 +3781,15 @@
               ]
             },
             {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -3805,7 +3804,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 285.7,
+        "build_duration_seconds": 196.7,
         "recipe_file": "output/ogg_recipe.md"
       }
     },
@@ -3851,7 +3850,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:34:52.049509",
+        "last_built": "2026-06-03T15:32:11.015487",
         "build_plan": {
           "phases": [
             {
@@ -3861,9 +3860,15 @@
               ]
             },
             {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -3872,7 +3877,7 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [],
-        "build_duration_seconds": 664.2,
+        "build_duration_seconds": 275.2,
         "recipe_file": "output/jansson_recipe.md"
       }
     },
@@ -3983,22 +3988,29 @@
       },
       "debian-riscv64": {
         "repo_url": "https://github.com/yaml/libyaml",
-        "build_system": "autotools",
+        "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:34:03.998875",
+        "last_built": "2026-06-03T15:34:44.123456",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "./bootstrap && ./configure --disable-static --enable-shared && make -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
@@ -4008,51 +4020,81 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-all-tests.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/test-nesting",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-emitter-test-suite",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/run-emitter-test-suite",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-dumper",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/run-dumper",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/example-reformatter",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/test-reader",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-emitter",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/example-reformatter",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/example-deconstructor",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/run-emitter",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-parser",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/example-deconstructor",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/run-scanner",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/run-parser",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libyaml/tests/example-deconstructor-alt",
-            "role": "secondary"
+            "path": "/workspace/repos/libyaml/build/run-scanner",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libyaml/build/example-deconstructor-alt",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libyaml/build/run-parser-test-suite",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libyaml/build/example-reformatter-alt",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libyaml/build/run-loader",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libyaml/build/test-version",
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libyaml/build/libyaml.a",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 465.1,
+        "build_duration_seconds": 370.3,
         "recipe_file": "output/libyaml_recipe.md"
       }
     },
@@ -4118,7 +4160,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:33:46.657984",
+        "last_built": "2026-06-03T15:32:20.451989",
         "build_plan": {
           "phases": [
             {
@@ -4130,7 +4172,8 @@
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -4145,6 +4188,11 @@
         "patches": [],
         "artifacts": [
           {
+            "type": "binary",
+            "path": "/workspace/repos/tinyxml2/build/xmltest",
+            "role": "primary"
+          },
+          {
             "type": "library_shared",
             "path": "/workspace/repos/tinyxml2/build/libtinyxml2.so.11.0.0",
             "role": "primary"
@@ -4158,14 +4206,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/tinyxml2/build/libtinyxml2.so.11",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/tinyxml2/build/xmltest",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 269.0,
+        "build_duration_seconds": 220.4,
         "recipe_file": "output/tinyxml2_recipe.md"
       }
     },
@@ -4241,22 +4284,29 @@
       },
       "debian-riscv64": {
         "repo_url": "https://github.com/google/zopfli",
-        "build_system": "make",
+        "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:40:14.694239",
+        "last_built": "2026-06-03T14:59:36.091936",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "make -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
@@ -4266,36 +4316,26 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/zopfli/zopfli",
-            "role": "primary"
-          },
-          {
-            "type": "library_static",
-            "path": "/workspace/repos/zopfli/libzopfli.a",
-            "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/zopfli/libzopfli.so.1.0.3",
+            "path": "/workspace/repos/zopfli/build/zopfli",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/zopfli/zopflipng",
-            "role": "secondary"
+            "path": "/workspace/repos/zopfli/build/zopflipng",
+            "role": "primary"
           },
           {
             "type": "library_static",
-            "path": "/workspace/repos/zopfli/libzopflipng.a",
-            "role": "secondary"
+            "path": "/workspace/repos/zopfli/build/libzopflipng.a",
+            "role": "primary"
           },
           {
-            "type": "library_shared",
-            "path": "/workspace/repos/zopfli/libzopflipng.so.1.0.3",
-            "role": "secondary"
+            "type": "library_static",
+            "path": "/workspace/repos/zopfli/build/libzopfli.a",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 451.2,
+        "build_duration_seconds": 457.4,
         "recipe_file": "output/zopfli_recipe.md"
       }
     },
@@ -4366,7 +4406,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:45:48.037277",
+        "last_built": "2026-06-03T14:56:58.030133",
         "build_plan": {
           "phases": [
             {
@@ -4378,7 +4418,8 @@
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DZLIB_ENABLE_TESTS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -4393,6 +4434,11 @@
         "patches": [],
         "artifacts": [
           {
+            "type": "binary",
+            "path": "/workspace/repos/zlib-ng/build/detect-arch.bin",
+            "role": "primary"
+          },
+          {
             "type": "library_shared",
             "path": "/workspace/repos/zlib-ng/build/libz-ng.so.2.3.90",
             "role": "primary"
@@ -4406,14 +4452,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/zlib-ng/build/libz-ng.so",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/zlib-ng/build/detect-arch.bin",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 465.6,
+        "build_duration_seconds": 300.6,
         "recipe_file": "output/zlib-ng_recipe.md"
       }
     },
@@ -4469,19 +4510,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:48:18.698981",
+        "last_built": "2026-06-03T14:55:34.466806",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libbz2-dev liblzma-dev libzstd-dev libssl-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DMZ_ZIP_ENABLE_TESTS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -4496,6 +4538,11 @@
         "patches": [],
         "artifacts": [
           {
+            "type": "library_static",
+            "path": "/workspace/repos/minizip-ng/build/libppmd.a",
+            "role": "primary"
+          },
+          {
             "type": "library_shared",
             "path": "/workspace/repos/minizip-ng/build/libminizip.so.4.2.1",
             "role": "primary"
@@ -4509,14 +4556,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/minizip-ng/build/libminizip.so.1",
             "role": "primary"
-          },
-          {
-            "type": "library_static",
-            "path": "/workspace/repos/minizip-ng/build/libppmd.a",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 478.2,
+        "build_duration_seconds": 210.5,
         "recipe_file": "output/minizip-ng_recipe.md"
       }
     },
@@ -4562,20 +4604,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:53:22.393183",
+        "last_built": "2026-06-03T14:55:22.437314",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DSNAPPY_BUILD_TESTS=OFF",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -4600,7 +4647,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 448.5,
+        "build_duration_seconds": 189.8,
         "recipe_file": "output/snappy_recipe.md"
       }
     },
@@ -4735,20 +4782,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:07:04.896036",
+        "last_built": "2026-06-03T14:55:52.421394",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -4757,6 +4809,11 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/lzmadec",
+            "role": "primary"
+          },
           {
             "type": "binary",
             "path": "/workspace/repos/xz/build/xzgrep",
@@ -4773,6 +4830,76 @@
             "role": "primary"
           },
           {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_memlimit",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_vli",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_stream_buffer_decode",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_check",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_index",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_block_header",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_filter_str",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_hardware",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_microlzma",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_stream_flags",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_index_hash",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_lzip_decoder",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_filter_flags",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/xz/build/tests_bin/test_bcj_exact_size",
+            "role": "primary"
+          },
+          {
             "type": "library_shared",
             "path": "/workspace/repos/xz/build/liblzma.so",
             "role": "primary"
@@ -4781,84 +4908,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/xz/build/liblzma.so.5",
             "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/xz/build/liblzma.so.5.8.3",
-            "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/lzmadec",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_memlimit",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_vli",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_stream_buffer_decode",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_check",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_index",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_block_header",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_filter_str",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_hardware",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_microlzma",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_stream_flags",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_index_hash",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_lzip_decoder",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/xz/build/tests_bin/test_filter_flags",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1120.5,
+        "build_duration_seconds": 211.5,
         "recipe_file": "output/xz_recipe.md"
       }
     },
@@ -4980,19 +5032,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:01:10.899272",
+        "last_built": "2026-06-03T14:57:10.843201",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DPNG_SHARED=ON -DPNG_STATIC=ON -DPNG_TESTS=OFF -DPNG_EXECUTABLES=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -5052,7 +5105,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 643.8,
+        "build_duration_seconds": 206.1,
         "recipe_file": "output/libpng_recipe.md"
       }
     },
@@ -5167,6 +5220,142 @@
           }
         ],
         "build_duration_seconds": 1745.8,
+        "recipe_file": "output/libjpeg-turbo_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/libjpeg-turbo/libjpeg-turbo",
+        "build_system": "cmake",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T15:02:47.089992",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "cd build && make -j$(nproc)"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/cjpeg",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/bmpsizetest",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/tjbench-static",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/tjunittest-static",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/example",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/tjdecomp",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/cjpeg-static",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/rdjpgcom",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/jpegtran",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/djpeg",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/jcstest",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/strtest",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/example-static",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/pkgscripts/makerpm",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/pkgscripts/makedpkg",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libjpeg-turbo/build/pkgscripts/maketarball",
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libjpeg-turbo/build/libturbojpeg.a",
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libjpeg-turbo/build/libjpeg.a",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libjpeg-turbo/build/libjpeg.so.62",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libjpeg-turbo/build/libturbojpeg.so.0.5.0",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 438.8,
         "recipe_file": "output/libjpeg-turbo_recipe.md"
       }
     },
@@ -5557,19 +5746,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:12:57.570397",
+        "last_built": "2026-06-03T15:00:38.647802",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev libjpeg-dev libpng-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DWITH_JPEG=ON -DWITH_ZLIB=ON -DWITH_PNG=ON -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -5679,7 +5874,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1169.2,
+        "build_duration_seconds": 280.1,
         "recipe_file": "output/libtiff_recipe.md"
       }
     },
@@ -5762,20 +5957,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:20:04.451619",
+        "last_built": "2026-06-03T15:00:20.756250",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake libpng-dev libtiff-dev libjpeg-dev zlib1g-dev liblcms2-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_CODEC=ON -DBUILD_TESTING=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -5789,6 +5984,21 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/openjpeg/build/bin/opj_compress",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/openjpeg/build/bin/opj_decompress",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/openjpeg/build/bin/opj_dump",
+            "role": "primary"
+          },
           {
             "type": "library_static",
             "path": "/workspace/repos/openjpeg/build/bin/libopenjp2.a",
@@ -5808,24 +6018,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/openjpeg/build/bin/libopenjp2.so.2.5.4",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/openjpeg/build/bin/opj_compress",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/openjpeg/build/bin/opj_decompress",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/openjpeg/build/bin/opj_dump",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1127.7,
+        "build_duration_seconds": 225.5,
         "recipe_file": "output/openjpeg_recipe.md"
       }
     },
@@ -5893,7 +6088,7 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:07:30.309925",
+        "last_built": "2026-06-03T15:17:50.176873",
         "build_plan": {
           "phases": [
             {
@@ -5905,7 +6100,8 @@
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCARES_STATIC=ON -DCARES_STATIC_PIC=ON -DCARES_BUILD_TESTS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -5919,6 +6115,16 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/c-ares/build/bin/ahost",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/c-ares/build/bin/adig",
+            "role": "primary"
+          },
           {
             "type": "library_static",
             "path": "/workspace/repos/c-ares/build/lib/libcares.a",
@@ -5938,19 +6144,9 @@
             "type": "library_shared",
             "path": "/workspace/repos/c-ares/build/lib/libcares.so",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/c-ares/build/bin/ahost",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/c-ares/build/bin/adig",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1745.9,
+        "build_duration_seconds": 205.7,
         "recipe_file": "output/c-ares_recipe.md"
       }
     },
@@ -6057,20 +6253,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:14:33.561319",
+        "last_built": "2026-06-03T15:01:20.845012",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libpng-dev libjpeg-turbo8-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DAVIF_CODEC_AOM=OFF -DAVIF_CODEC_DAV1D=OFF -DAVIF_CODEC_LIBGAV1=OFF -DAVIF_LIBYUV=OFF -DAVIF_BUILD_EXAMPLES=OFF -DAVIF_BUILD_TESTS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -6105,7 +6301,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 442.6,
+        "build_duration_seconds": 257.0,
         "recipe_file": "output/libavif_recipe.md"
       }
     },
@@ -6374,30 +6570,43 @@
       },
       "debian-riscv64": {
         "repo_url": "https://github.com/freetype/freetype",
-        "build_system": "make",
+        "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:19:09.656192",
+        "last_built": "2026-06-03T15:10:24.399675",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential pkg-config libpng-dev zlib1g-dev libbz2-dev libbrotli-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "make setup ansi && make -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
         },
         "dependencies": [],
         "patches": [],
-        "artifacts": [],
-        "build_duration_seconds": 416.7,
+        "artifacts": [
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/freetype/build/libfreetype.a",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 597.7,
         "recipe_file": "output/freetype_recipe.md"
       }
     },
@@ -6490,26 +6699,25 @@
         "build_system": "meson",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-05-23T09:28:50.981969",
+        "last_built": "2026-06-03T15:14:18.195763",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential meson ninja-build"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "meson setup build --buildtype=release -Db_ndebug=true -Dtests=disabled -Dexamples=disabled"
+                "meson setup builddir"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "ninja -C build"
+                "ninja -C builddir"
               ]
             }
           ]
@@ -6519,76 +6727,96 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tools/dav1d",
-            "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/dav1d/build/src/libdav1d.so.7.0.0",
-            "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/dav1d/build/src/libdav1d.so.7",
-            "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/dav1d/build/src/libdav1d.so",
+            "path": "/workspace/repos/dav1d/builddir/tests/dav1d.h_test",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/libfuzzer/dav1d_fuzzer_mt",
-            "role": "secondary"
+            "path": "/workspace/repos/dav1d/builddir/tools/dav1d",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/libfuzzer/dav1d_fuzzer",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/common.h_test",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/headers.h_test",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/data.h_test",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/version.h_test",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/picture.h_test",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/dav1d/build/tests/dav1d.h_test",
-            "role": "secondary"
+            "path": "/workspace/repos/dav1d/subprojects/checkasm/gen-arm-core-table.sh",
+            "role": "primary"
           },
           {
             "type": "library_static",
-            "path": "/workspace/repos/dav1d/build/tools/libdav1d_output.a",
-            "role": "secondary"
+            "path": "/workspace/repos/dav1d/builddir/tools/libdav1d_output.a",
+            "role": "primary"
           },
           {
             "type": "library_static",
-            "path": "/workspace/repos/dav1d/build/tools/libdav1d_input.a",
+            "path": "/workspace/repos/dav1d/builddir/tools/libdav1d_input.a",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/dav1d/builddir/src/libdav1d.so.7.0.0.p",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/dav1d/builddir/src/libdav1d.so.7.0.0.p/libdav1d.so.7.0.0.symbols",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/dav1d/builddir/src/libdav1d.so.7.0.0",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/dav1d/builddir/src/libdav1d.so.7",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/dav1d/builddir/src/libdav1d.so",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/libfuzzer/dav1d_fuzzer_mt",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/libfuzzer/dav1d_fuzzer",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/common.h_test",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/headers.h_test",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/data.h_test",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/version.h_test",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/builddir/tests/picture.h_test",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/dav1d/tests/dav1d_argon.bash",
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 426.5,
+        "build_duration_seconds": 813.7,
         "recipe_file": "output/dav1d_recipe.md"
       }
     },
@@ -6644,25 +6872,29 @@
       },
       "debian-riscv64": {
         "repo_url": "https://github.com/xiph/opus",
-        "build_system": "autotools",
+        "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:54:07.317218",
+        "last_built": "2026-06-03T15:14:26.572242",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config zlib1g-dev libogg-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "./autogen.sh",
-                "./configure --disable-tests --disable-examples --disable-docs",
-                "make -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
@@ -6671,92 +6903,12 @@
         "patches": [],
         "artifacts": [
           {
-            "type": "binary",
-            "path": "/workspace/repos/opus/repacketizer_demo",
+            "type": "library_static",
+            "path": "/workspace/repos/opus/build/libopus.a",
             "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/scripts/local_build.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/scripts/rnn_train.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/scripts/dump_rnn.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/scripts/shrink_model.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/doc/build_oggdraft.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/doc/build_draft.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/trivial_example",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/silk/tests/test_unit_LPC_inv_pred_gain",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/opus_compare",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/torch/rdovae/download_datasets.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/torch/rdovae/process_speech.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/torch/osce/stndrd/evaluation/process_dataset.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/torch/lossgen/process_data.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/training_tf2/dump_plc.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/training_tf2/test_lpcnet.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/opus/dnn/training_tf2/train_lpcnet.py",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 2386.5,
+        "build_duration_seconds": 809.1,
         "recipe_file": "output/opus_recipe.md"
       }
     },
@@ -6831,19 +6983,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:23:31.831202",
+        "last_built": "2026-06-03T20:09:57.969725",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libogg-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -6893,7 +7051,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 256.2,
+        "build_duration_seconds": 181.6,
         "recipe_file": "output/vorbis_recipe.md"
       }
     },
@@ -7027,19 +7185,26 @@
         "build_system": "autotools",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:32:29.794682",
+        "last_built": "2026-06-03T15:14:15.174613",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev libogg-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config",
+                "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "./configure"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "./autogen.sh && ./configure --disable-static --enable-shared --disable-dependency-tracking && make -j$(nproc)"
+                "make -j$(nproc)"
               ]
             }
           ]
@@ -7049,26 +7214,91 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/speex/config.guess~",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/ltmain.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/speex/libspeex/testenc_wb",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/speex/libspeex/testenc_uwb",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/speex/libspeex/testenc",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/missing",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/compile",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/config.sub~",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/config.sub",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/config.status",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/config.guess",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/install-sh",
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/speex/speexclient/compile.sh",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/depcomp",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/install-sh~",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/configure",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/speex/autogen.sh",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 739.1,
+        "build_duration_seconds": 570.7,
         "recipe_file": "output/speex_recipe.md"
       }
     },
@@ -7245,19 +7475,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:52:25.469312",
+        "last_built": "2026-06-03T15:30:15.611757",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libssl-dev zlib1g-dev pkg-config"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DENABLE_ZLIB=ON -DENABLE_EXAMPLES=OFF -DENABLE_TESTING=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -7271,6 +7502,11 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libssh2/build/tests/librunner.a",
+            "role": "primary"
+          },
           {
             "type": "library_static",
             "path": "/workspace/repos/libssh2/build/src/libssh2.a",
@@ -7365,14 +7601,9 @@
             "type": "binary",
             "path": "/workspace/repos/libssh2/build/example/sftp_mkdir_nonblock",
             "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/libssh2/build/example/sftp",
-            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 1274.7,
+        "build_duration_seconds": 963.3,
         "recipe_file": "output/libssh2_recipe.md"
       }
     },
@@ -7454,19 +7685,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:40:34.833733",
+        "last_built": "2026-06-03T15:17:50.775891",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config libssl-dev libev-dev zlib1g-dev libc-ares-dev libbrotli-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_LIB_ONLY=ON -DENABLE_EXAMPLES=OFF -DENABLE_TESTS=OFF -DENABLE_DOC=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -7501,7 +7733,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 479.0,
+        "build_duration_seconds": 209.1,
         "recipe_file": "output/nghttp2_recipe.md"
       }
     },
@@ -7572,20 +7804,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:54:30.609308",
+        "last_built": "2026-06-03T15:18:07.257665",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_TESTING=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -7620,7 +7852,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 829.7,
+        "build_duration_seconds": 213.9,
         "recipe_file": "output/libuv_recipe.md"
       }
     },
@@ -7746,19 +7978,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:29:11.647548",
+        "last_built": "2026-06-03T15:22:28.465417",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libssl-dev libmbedtls-dev zlib1g-dev pkg-config"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DEVENT__DISABLE_TESTS=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -7868,7 +8106,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 2200.3,
+        "build_duration_seconds": 455.2,
         "recipe_file": "output/libevent_recipe.md"
       }
     },
@@ -7967,19 +8205,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:31:04.691475",
+        "last_built": "2026-06-03T20:10:02.653009",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libogg-dev libvorbis-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -7990,7 +8234,32 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/flac/build/src/test_libFLAC++/test_libFLAC++",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flac/build/src/test_grabbag/cuesheet/test_cuesheet",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flac/build/src/test_grabbag/picture/test_picture",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flac/build/src/test_streams/test_streams",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/flac/build/src/metaflac/metaflac",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flac/build/src/test_libFLAC/test_libFLAC",
             "role": "primary"
           },
           {
@@ -7999,77 +8268,52 @@
             "role": "primary"
           },
           {
-            "type": "library_static",
-            "path": "/workspace/repos/flac/build/src/libFLAC/libFLAC.a",
-            "role": "primary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flac/build/src/test_libFLAC++/test_libFLAC++",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flac/build/src/test_grabbag/cuesheet/test_cuesheet",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flac/build/src/test_grabbag/picture/test_picture",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flac/build/src/test_streams/test_streams",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flac/build/src/test_libFLAC/test_libFLAC",
-            "role": "secondary"
-          },
-          {
             "type": "binary",
             "path": "/workspace/repos/flac/build/src/test_seeking/test_seeking",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/test_libs_common/libtest_libs_common.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/libFLAC++/libFLAC++.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/share/replaygain_synthesis/libreplaygain_synthesis.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/share/utf8/libutf8.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/share/getopt/libgetopt.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/share/grabbag/libgrabbag.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/flac/build/src/share/replaygain_analysis/libreplaygain_analysis.a",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/flac/build/src/libFLAC/libFLAC.a",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 984.9,
+        "build_duration_seconds": 200.6,
         "recipe_file": "output/flac_recipe.md"
       }
     },
@@ -8298,20 +8542,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:11:05.810986",
+        "last_built": "2026-06-03T19:53:48.201698",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake libsnappy-dev libzstd-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DSNAPPY=ON -DZSTD=ON -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DLEVELDB_BUILD_TESTS=OFF -DLEVELDB_BUILD_BENCHMARKS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -8333,15 +8577,20 @@
           {
             "type": "library_shared",
             "path": "/workspace/repos/leveldb/build/libleveldb.so.1",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_shared",
             "path": "/workspace/repos/leveldb/build/libleveldb.so.1.23.0",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/leveldb/build/libleveldb.so",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 1012.7,
+        "build_duration_seconds": 366.6,
         "recipe_file": "output/leveldb_recipe.md"
       }
     },
@@ -8463,10 +8712,10 @@
       },
       "debian-riscv64": {
         "repo_url": "https://github.com/sqlite/sqlite",
-        "build_system": "unknown",
+        "build_system": "make",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:30:51.854680",
+        "last_built": "2026-06-03T15:23:24.678951",
         "build_plan": {
           "phases": [
             {
@@ -8488,106 +8737,106 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/sqlite/sqlite3",
-            "role": "primary"
-          },
-          {
-            "type": "library_static",
-            "path": "/workspace/repos/sqlite/libsqlite3.a",
-            "role": "primary"
-          },
-          {
-            "type": "library_shared",
-            "path": "/workspace/repos/sqlite/libsqlite3.so",
-            "role": "primary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/sqlite/autosetup/autosetup",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/autosetup/autosetup-config.sub",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/autosetup/autosetup-find-tclsh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/autosetup/autosetup-config.guess",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/lemon",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/jimsh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/session/session1.test",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/session/sessionconflict2.test",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/session/sessionconflict.test",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/session/sessioninvert.test",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/wasm/split-speedtest1-script.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/ext/wasm/mkdist.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/src-verify",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/sqlite/sqlite3",
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/tool/mkctimec.tcl",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/tool/build-all-msvc.bat",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/tool/extract-sqlite3h.tcl",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/sqlite/tool/cg_anno.tcl",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/sqlite/tool/tclConfigShToMake.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/sqlite/tool/spellsift.tcl",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 2175.2,
+        "build_duration_seconds": 327.4,
         "recipe_file": "output/sqlite_recipe.md"
       }
     },
@@ -8708,6 +8957,62 @@
         ],
         "build_duration_seconds": 2009.2,
         "recipe_file": "output/libarchive_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/libarchive/libarchive",
+        "build_system": "cmake",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T15:28:33.161168",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "cd build && make -j$(nproc)"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libarchive/build/libarchive/libarchive.a",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libarchive/build/libarchive/libarchive.so.13.9.0",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libarchive/build/libarchive/libarchive.so",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libarchive/build/libarchive/libarchive.so.13",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 619.3,
+        "recipe_file": "output/libarchive_recipe.md"
       }
     },
     "libxml2": {
@@ -8820,20 +9125,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-05-23T10:40:50.061420",
+        "last_built": "2026-06-03T15:34:38.404360",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_XSLT=OFF -DLIBXML2_WITH_DEBUG=OFF -DLIBXML2_WITH_TESTS=OFF -DLIBXML2_WITH_ZLIB=ON -DLIBXML2_WITH_THREAD=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -8844,12 +9154,67 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testdict",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testapi",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/runxmlconf",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/runsuite",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testlimits",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testrecurse",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testchar",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/runtest",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/libxml2/build/xmllint",
             "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/libxml2/build/xmlcatalog",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testcatalog",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testparser",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libxml2/build/testModule",
             "role": "primary"
           },
           {
@@ -8868,7 +9233,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1818.2,
+        "build_duration_seconds": 892.7,
         "recipe_file": "output/libxml2_recipe.md"
       }
     },
@@ -8947,20 +9312,25 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T05:55:32.205837",
+        "last_built": "2026-06-03T15:34:56.254405",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update",
-                "apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libbz2-dev libreadline-dev libedit-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DPCRE2_BUILD_JIT=ON -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2_8=ON -DPCRE2_BUILD_PCRE2_16=ON -DPCRE2_BUILD_PCRE2_32=ON -DPCRE2_BUILD_PCRE2POSIX=ON",
                 "cd build && make -j$(nproc)"
               ]
             }
@@ -9055,7 +9425,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1522.7,
+        "build_duration_seconds": 274.8,
         "recipe_file": "output/pcre2_recipe.md"
       }
     },
@@ -9134,19 +9504,26 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T06:15:16.775954",
+        "last_built": "2026-06-03T15:39:25.808307",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config libatomic1"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DWITH_EXAMPLES=OFF -DWITH_TESTS=OFF -DWITH_BENCHMARKS=OFF -DWITH_DOCS=OFF -DCMAKE_EXE_LINKER_FLAGS='-latomic' && cmake --build . -j$(nproc)"
+                "cd build && make -j$(nproc)"
               ]
             }
           ]
@@ -9156,7 +9533,37 @@
         "artifacts": [
           {
             "type": "library_shared",
+            "path": "/workspace/repos/highway/build/lib/libgtest_main.so",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/lib/libgtest.so.1.11.0",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/lib/libgtest.so",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/lib/libgtest_main.so.1.11.0",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
             "path": "/workspace/repos/highway/build/libhwy.so.1.4.0",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/libhwy_test.so",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/libhwy_test.so.1",
             "role": "primary"
           },
           {
@@ -9166,16 +9573,66 @@
           },
           {
             "type": "library_shared",
+            "path": "/workspace/repos/highway/build/libhwy_contrib.so.1",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
             "path": "/workspace/repos/highway/build/libhwy.so.1",
+            "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/libhwy_contrib.so",
             "role": "primary"
           },
           {
             "type": "library_shared",
             "path": "/workspace/repos/highway/build/libhwy_test.so.1.4.0",
             "role": "primary"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/highway/build/libhwy_contrib.so.1.4.0",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-shuffle-test.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-env-var-test.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/gtest_help_test.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-catch-exceptions-test.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-failfast-unittest.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-list-tests-unittest.py",
+            "role": "secondary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/highway/build/googletest-src/googletest/test/googletest-setuptestsuite-test.py",
+            "role": "secondary"
           }
         ],
-        "build_duration_seconds": 2466.6,
+        "build_duration_seconds": 281.5,
         "recipe_file": "output/highway_recipe.md"
       }
     },
@@ -9321,19 +9778,20 @@
         "build_system": "cmake",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-05-23T10:43:41.630808",
+        "last_built": "2026-06-03T15:19:39.453719",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libssl-dev libssh2-1-dev libcurl4-openssl-dev libpcre2-dev"
+                "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
               ]
             },
             {
               "name": "configure",
               "commands": [
-                "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF"
+                "mkdir -p build",
+                "cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
               ]
             },
             {
@@ -9347,6 +9805,21 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libgit2/build/git2",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libgit2/build/util_tests",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/libgit2/build/libgit2_tests",
+            "role": "primary"
+          },
           {
             "type": "library_shared",
             "path": "/workspace/repos/libgit2/build/libgit2.so.1.9",
@@ -9364,11 +9837,11 @@
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/libgit2/build/git2",
+            "path": "/workspace/repos/libgit2/build/tests/headertest/headertest",
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 3306.4,
+        "build_duration_seconds": 271.4,
         "recipe_file": "output/libgit2_recipe.md"
       }
     },
@@ -9823,6 +10296,92 @@
         ],
         "build_duration_seconds": 1014.1,
         "recipe_file": "output/libsodium_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/jedisct1/libsodium",
+        "build_system": "autotools",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T15:43:55.577965",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config",
+                "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true"
+              ]
+            },
+            {
+              "name": "configure",
+              "commands": [
+                "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true",
+                "autoreconf -fi",
+                "./configure"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "make -j$(nproc)"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsse2.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libavx512f.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libarmcrypto.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/librdrand.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsodium.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libssse3.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsse41.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libavx2.a"
+          },
+          {
+            "type": "library_static",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libaesni.a"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsodium.so.30"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsodium.so"
+          },
+          {
+            "type": "library_shared",
+            "path": "/workspace/repos/libsodium/src/libsodium/.libs/libsodium.so.30.0.0"
+          }
+        ],
+        "build_duration_seconds": 2173.5,
+        "recipe_file": "output/libsodium_recipe.md"
       }
     },
     "libheif": {
@@ -10089,19 +10648,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:23:07.286566",
+        "last_built": "2026-06-03T13:00:46.957951",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "go mod tidy"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10115,7 +10675,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 152.7,
+        "build_duration_seconds": 325.4,
         "recipe_file": "output/durl_recipe.md"
       }
     },
@@ -10161,7 +10721,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:51:07.136625",
+        "last_built": "2026-06-03T13:14:55.987782",
         "build_plan": {
           "phases": [
             {
@@ -10188,7 +10748,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 977.3,
+        "build_duration_seconds": 341.8,
         "recipe_file": "output/encode_recipe.md"
       }
     },
@@ -10233,7 +10793,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:45:38.019725",
+        "last_built": "2026-06-03T13:17:42.507949",
         "build_plan": {
           "phases": [
             {
@@ -10260,7 +10820,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 647.3,
+        "build_duration_seconds": 486.4,
         "recipe_file": "output/enola_recipe.md"
       }
     },
@@ -10298,7 +10858,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:43:03.488091",
+        "last_built": "2026-06-03T13:16:59.361423",
         "build_plan": {
           "phases": [
             {
@@ -10311,7 +10871,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10325,7 +10885,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 317.9,
+        "build_duration_seconds": 261.6,
         "recipe_file": "output/enumerepo_recipe.md"
       }
     },
@@ -10371,7 +10931,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:50:42.246318",
+        "last_built": "2026-06-03T13:19:28.165649",
         "build_plan": {
           "phases": [
             {
@@ -10384,7 +10944,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10398,7 +10958,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 298.2,
+        "build_duration_seconds": 265.9,
         "recipe_file": "output/exifLooter_recipe.md"
       }
     },
@@ -10437,7 +10997,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:53:16.033751",
+        "last_built": "2026-06-03T13:21:37.246685",
         "build_plan": {
           "phases": [
             {
@@ -10450,7 +11010,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/ffuf-workflow"
+                "go build ./cmd/ffuf-workflow"
               ]
             }
           ]
@@ -10464,7 +11024,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 252.0,
+        "build_duration_seconds": 239.7,
         "recipe_file": "output/FFUF-Workflow-Tool_recipe.md"
       }
     },
@@ -10502,7 +11062,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:55:38.795299",
+        "last_built": "2026-06-03T13:22:02.880845",
         "build_plan": {
           "phases": [
             {
@@ -10515,7 +11075,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10529,7 +11089,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 265.8,
+        "build_duration_seconds": 253.2,
         "recipe_file": "output/fget_recipe.md"
       }
     },
@@ -10575,7 +11135,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:54:25.059045",
+        "last_built": "2026-06-03T13:21:29.933234",
         "build_plan": {
           "phases": [
             {
@@ -10588,7 +11148,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10602,7 +11162,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 217.2,
+        "build_duration_seconds": 222.7,
         "recipe_file": "output/ffufPostprocessing_recipe.md"
       }
     },
@@ -10640,6 +11200,46 @@
           }
         ],
         "build_duration_seconds": 386.3,
+        "recipe_file": "output/fico_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/orcastor/fico",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T13:27:53.274081",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/cmd -buildvcs=false ./cmd"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fico/bin/app",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/fico/cmd/app",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 499.7,
         "recipe_file": "output/fico_recipe.md"
       }
     },
@@ -10694,7 +11294,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:00:16.535935",
+        "last_built": "2026-06-03T13:20:17.629201",
         "build_plan": {
           "phases": [
             {
@@ -10707,7 +11307,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/favirecon"
+                "go build ./cmd/favirecon"
               ]
             }
           ]
@@ -10717,21 +11317,21 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/favirecon/favirecon",
+            "path": "/workspace/repos/favirecon/scripts/check-favicon-ok.sh",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/favirecon/scripts/check-favicon-ok.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/favirecon/scripts/check-dups.sh",
+            "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/favirecon/scripts/check-dups.sh",
-            "role": "secondary"
+            "path": "/workspace/repos/favirecon/favirecon",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 815.7,
+        "build_duration_seconds": 184.5,
         "recipe_file": "output/favirecon_recipe.md"
       }
     },
@@ -10777,7 +11377,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:24:39.202265",
+        "last_built": "2026-06-03T13:49:46.522596",
         "build_plan": {
           "phases": [
             {
@@ -10804,7 +11404,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 324.5,
+        "build_duration_seconds": 404.2,
         "recipe_file": "output/fwanalyzer_recipe.md"
       }
     },
@@ -10848,7 +11448,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:21:32.753743",
+        "last_built": "2026-06-03T13:42:46.878523",
         "build_plan": {
           "phases": [
             {
@@ -10861,7 +11461,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10875,7 +11475,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 341.5,
+        "build_duration_seconds": 848.6,
         "recipe_file": "output/fuzzuli_recipe.md"
       }
     },
@@ -10919,7 +11519,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:29:52.680443",
+        "last_built": "2026-06-03T13:57:06.407700",
         "build_plan": {
           "phases": [
             {
@@ -10932,7 +11532,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -10946,7 +11546,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 307.6,
+        "build_duration_seconds": 433.3,
         "recipe_file": "output/getJS_recipe.md"
       }
     },
@@ -10984,7 +11584,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:38:15.477693",
+        "last_built": "2026-06-03T14:07:24.975428",
         "build_plan": {
           "phases": [
             {
@@ -10997,7 +11597,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11011,7 +11611,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 383.0,
+        "build_duration_seconds": 447.1,
         "recipe_file": "output/git-who_recipe.md"
       }
     },
@@ -11061,7 +11661,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:37:48.599199",
+        "last_built": "2026-06-03T14:08:03.806596",
         "build_plan": {
           "phases": [
             {
@@ -11074,7 +11674,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11093,7 +11693,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 249.4,
+        "build_duration_seconds": 310.3,
         "recipe_file": "output/github-endpoints_recipe.md"
       }
     },
@@ -11132,14 +11732,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:34:50.322417",
+        "last_built": "2026-06-03T14:03:50.958724",
         "build_plan": {
           "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
             {
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11153,7 +11759,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 792.0,
+        "build_duration_seconds": 1013.0,
         "recipe_file": "output/galer_recipe.md"
       }
     },
@@ -11203,19 +11809,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:38:55.757865",
+        "last_built": "2026-06-03T14:09:44.509454",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "go mod tidy && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11225,16 +11832,16 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/github-subdomains/github-subdomains",
+            "path": "/workspace/repos/github-subdomains/main",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/github-subdomains/main",
-            "role": "secondary"
+            "path": "/workspace/repos/github-subdomains/github-subdomains",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 239.8,
+        "build_duration_seconds": 346.2,
         "recipe_file": "output/github-subdomains_recipe.md"
       }
     },
@@ -11294,7 +11901,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:39:17.692011",
+        "last_built": "2026-06-03T14:06:41.981805",
         "build_plan": {
           "phases": [
             {
@@ -11306,7 +11913,8 @@
             {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11335,7 +11943,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 366.2,
+        "build_duration_seconds": 292.5,
         "recipe_file": "output/gitdorks_go_recipe.md"
       }
     },
@@ -11374,13 +11982,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:41:37.362511",
+        "last_built": "2026-06-03T14:13:35.997859",
         "build_plan": {
           "phases": [
             {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ./data"
+                "go mod tidy",
+                "go build ./data"
               ]
             }
           ]
@@ -11388,7 +12003,7 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [],
-        "build_duration_seconds": 134.0,
+        "build_duration_seconds": 225.5,
         "recipe_file": "output/go-fasttld_recipe.md"
       }
     },
@@ -11437,19 +12052,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:47:07.741002",
+        "last_built": "2026-06-03T14:16:34.482255",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/globalping-cli && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11465,10 +12081,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/globalping-cli/mocks/gen_mocks.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 486.3,
+        "build_duration_seconds": 504.7,
         "recipe_file": "output/globalping-cli_recipe.md"
       }
     },
@@ -11558,19 +12174,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:46:35.497950",
+        "last_built": "2026-06-03T14:19:56.234080",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/goawk && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11580,56 +12197,56 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/benchstat.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/fuzz_input.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/make_binaries.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/benchmark.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/benchmark_awks.py",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/goawk/scripts/csvbench/csvbench.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/goawk/goawk",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/benchstat.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/fuzz_input.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/make_binaries.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/benchmark.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/benchmark_awks.py",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
-            "path": "/workspace/repos/goawk/scripts/csvbench/csvbench.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/goawk/testdata/other/gron.awk",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/goawk/testdata/output/t.a",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "library_static",
             "path": "/workspace/repos/goawk/testdata/t.a",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 291.5,
+        "build_duration_seconds": 373.5,
         "recipe_file": "output/goawk_recipe.md"
       }
     },
@@ -11675,7 +12292,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:52:25.202585",
+        "last_built": "2026-06-03T14:24:22.713819",
         "build_plan": {
           "phases": [
             {
@@ -11696,7 +12313,7 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [],
-        "build_duration_seconds": 843.9,
+        "build_duration_seconds": 1012.0,
         "recipe_file": "output/glider_recipe.md"
       }
     },
@@ -11742,7 +12359,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-05-26T11:58:52.819223",
+        "last_built": "2026-06-03T14:32:34.271922",
         "build_plan": {
           "phases": [
             {
@@ -11754,9 +12371,8 @@
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/GoLinkFinder && go mod init golinkfinder",
-                "cd /workspace/repos/GoLinkFinder && go mod tidy",
-                "cd /workspace/repos/GoLinkFinder && go build -buildvcs=false -o GoLinkFinder ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11770,7 +12386,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 159362.1,
+        "build_duration_seconds": 357.3,
         "recipe_file": "output/GoLinkFinder_recipe.md"
       }
     },
@@ -11816,19 +12432,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:54:08.447044",
+        "last_built": "2026-06-03T14:26:30.725141",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gitql && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11842,7 +12459,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 974.4,
+        "build_duration_seconds": 1183.2,
         "recipe_file": "output/gitql_recipe.md"
       }
     },
@@ -11887,13 +12504,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:00:47.988122",
+        "last_built": "2026-06-03T14:34:48.519620",
         "build_plan": {
           "phases": [
             {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/godnsbench && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -11907,7 +12531,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 814.3,
+        "build_duration_seconds": 885.4,
         "recipe_file": "output/godnsbench_recipe.md"
       }
     },
@@ -11951,20 +12575,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:59:45.264192",
+        "last_built": "2026-06-03T14:33:04.960640",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "cd /workspace/repos/gojq && go version",
-                "cd /workspace/repos/gojq && go mod tidy -compat=1.20"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gojq && go build -buildvcs=false ./cmd/gojq"
+                "go mod tidy",
+                "go build ./cmd/gojq"
               ]
             }
           ]
@@ -11978,7 +12602,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 331.4,
+        "build_duration_seconds": 419.4,
         "recipe_file": "output/gojq_recipe.md"
       }
     },
@@ -12017,13 +12641,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:07:07.238935",
+        "last_built": "2026-06-03T14:37:29.503941",
         "build_plan": {
           "phases": [
             {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gocurl && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -12037,7 +12668,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1225.8,
+        "build_duration_seconds": 1249.1,
         "recipe_file": "output/gocurl_recipe.md"
       }
     },
@@ -12082,19 +12713,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:07:32.639784",
+        "last_built": "2026-06-03T14:38:40.213083",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "go version"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gofireprox && go build -buildvcs=false ./cmd/gofireprox"
+                "go mod tidy",
+                "go build ./cmd/gofireprox"
               ]
             }
           ]
@@ -12108,7 +12740,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 901.6,
+        "build_duration_seconds": 850.9,
         "recipe_file": "output/gofireprox_recipe.md"
       }
     },
@@ -12153,13 +12785,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:18:36.670199",
+        "last_built": "2026-06-03T14:41:30.377893",
         "build_plan": {
           "phases": [
             {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gotator && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -12173,7 +12812,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 169.1,
+        "build_duration_seconds": 182.2,
         "recipe_file": "output/gotator_recipe.md"
       }
     },
@@ -12224,19 +12863,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:20:04.229447",
+        "last_built": "2026-06-03T14:43:59.800733",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends ca-certificates"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ./cmd/tasker"
+                "go mod tidy",
+                "go build ./cmd/tasker"
               ]
             }
           ]
@@ -12246,11 +12886,16 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/gronx/install.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/gronx/tasker",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 252.7,
+        "build_duration_seconds": 313.8,
         "recipe_file": "output/gronx_recipe.md"
       }
     },
@@ -12301,6 +12946,35 @@
         ],
         "build_duration_seconds": 855.8,
         "recipe_file": "output/gosmee_recipe.md"
+      },
+      "debian-riscv64": {
+        "repo_url": "https://github.com/chmouel/gosmee",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T14:42:40.581640",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "go build -mod=mod -buildvcs=false ./..."
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [],
+        "build_duration_seconds": 466.6,
+        "recipe_file": "output/gosmee_recipe.md"
       }
     },
     "gungnir": {
@@ -12344,19 +13018,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:37:55.786262",
+        "last_built": "2026-06-03T14:53:39.489461",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "cd /workspace/repos/gungnir && go mod download"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gungnir && go build -buildvcs=false ./cmd/gungnir"
+                "go mod tidy",
+                "go build ./cmd/gungnir"
               ]
             }
           ]
@@ -12370,7 +13045,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 883.6,
+        "build_duration_seconds": 573.9,
         "recipe_file": "output/gungnir_recipe.md"
       }
     },
@@ -13755,7 +14430,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:23:45.641882",
+        "last_built": "2026-06-03T12:55:45.527705",
         "build_plan": {
           "phases": [
             {
@@ -13767,8 +14442,8 @@
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/dsieve && go mod tidy",
-                "cd /workspace/repos/dsieve && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -13782,7 +14457,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 397.0,
+        "build_duration_seconds": 302.5,
         "recipe_file": "output/dsieve_recipe.md"
       },
       "alpine-riscv64": {
@@ -13865,7 +14540,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:46:35.022503",
+        "last_built": "2026-06-03T13:17:07.317062",
         "build_plan": {
           "phases": [
             {
@@ -13892,7 +14567,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 205.9,
+        "build_duration_seconds": 234.3,
         "recipe_file": "output/epoch_recipe.md"
       }
     },
@@ -13902,7 +14577,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:45:03.373473",
+        "last_built": "2026-06-03T13:09:29.435020",
         "build_plan": {
           "phases": [
             {
@@ -13915,7 +14590,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -13926,10 +14601,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/EHole_magic/ehole",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 924.4,
+        "build_duration_seconds": 285.1,
         "recipe_file": "output/EHole_magic_recipe.md"
       },
       "alpine-riscv64": {
@@ -14010,7 +14685,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:18:19.545819",
+        "last_built": "2026-06-03T12:52:26.918793",
         "build_plan": {
           "phases": [
             {
@@ -14023,7 +14698,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14037,7 +14712,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 949.9,
+        "build_duration_seconds": 801.2,
         "recipe_file": "output/dnslookup_recipe.md"
       }
     },
@@ -14047,7 +14722,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:57:35.128399",
+        "last_built": "2026-06-03T13:26:01.282150",
         "build_plan": {
           "phases": [
             {
@@ -14075,11 +14750,16 @@
           },
           {
             "type": "binary",
+            "path": "/workspace/repos/esbuild/dl.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/esbuild/npm/esbuild-wasm/bin/esbuild",
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 746.4,
+        "build_duration_seconds": 660.0,
         "recipe_file": "output/esbuild_recipe.md"
       },
       "alpine-riscv64": {
@@ -14134,19 +14814,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:33:33.216296",
+        "last_built": "2026-06-03T14:01:43.938677",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "go mod tidy"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14156,26 +14837,26 @@
         "artifacts": [
           {
             "type": "binary",
-            "path": "/workspace/repos/garble/garble",
+            "path": "/workspace/repos/garble/scripts/check-third-party.sh",
             "role": "primary"
           },
           {
             "type": "binary",
-            "path": "/workspace/repos/garble/scripts/check-third-party.sh",
-            "role": "secondary"
-          },
-          {
-            "type": "binary",
             "path": "/workspace/repos/garble/scripts/crlf-test.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/garble/scripts/ensure-copyrights.sh",
-            "role": "secondary"
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/garble/garble",
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 583.4,
+        "build_duration_seconds": 736.3,
         "recipe_file": "output/garble_recipe.md"
       }
     },
@@ -14185,7 +14866,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:15:45.715583",
+        "last_built": "2026-06-03T13:46:51.637247",
         "build_plan": {
           "phases": [
             {
@@ -14212,7 +14893,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1343.9,
+        "build_duration_seconds": 1587.1,
         "recipe_file": "output/fingerprintx_recipe.md"
       },
       "alpine-riscv64": {
@@ -14285,7 +14966,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:20:28.724912",
+        "last_built": "2026-06-03T12:55:15.195334",
         "build_plan": {
           "phases": [
             {
@@ -14298,7 +14979,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14312,7 +14993,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 763.6,
+        "build_duration_seconds": 726.4,
         "recipe_file": "output/docker-bench_recipe.md"
       }
     },
@@ -14322,7 +15003,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:26:31.909050",
+        "last_built": "2026-06-03T14:52:05.865055",
         "build_plan": {
           "phases": [
             {
@@ -14343,7 +15024,7 @@
         "dependencies": [],
         "patches": [],
         "artifacts": [],
-        "build_duration_seconds": 1012.4,
+        "build_duration_seconds": 891.8,
         "recipe_file": "output/gospider_recipe.md"
       },
       "alpine-riscv64": {
@@ -14434,7 +15115,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:26:35.548350",
+        "last_built": "2026-06-03T13:02:42.218143",
         "build_plan": {
           "phases": [
             {
@@ -14447,7 +15128,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14463,15 +15144,15 @@
           {
             "type": "binary",
             "path": "/workspace/repos/dperf/hack/build-without-docker.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/dperf/hack/add-license-header.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 720.3,
+        "build_duration_seconds": 880.8,
         "recipe_file": "output/dperf_recipe.md"
       }
     },
@@ -14515,7 +15196,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:25:27.345102",
+        "last_built": "2026-06-03T13:00:31.926682",
         "build_plan": {
           "phases": [
             {
@@ -14542,7 +15223,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 421.9,
+        "build_duration_seconds": 478.6,
         "recipe_file": "output/duf_recipe.md"
       }
     },
@@ -14586,7 +15267,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:32:53.070742",
+        "last_built": "2026-06-03T13:04:37.997103",
         "build_plan": {
           "phases": [
             {
@@ -14609,11 +15290,16 @@
         "artifacts": [
           {
             "type": "binary",
+            "path": "/workspace/repos/dyff/scripts/download-latest.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
             "path": "/workspace/repos/dyff/dyff",
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 579.9,
+        "build_duration_seconds": 526.4,
         "recipe_file": "output/dyff_recipe.md"
       }
     },
@@ -14659,20 +15345,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:34:44.901353",
+        "last_built": "2026-06-03T13:13:06.255000",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends git",
-                "go mod tidy"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "go build ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14686,7 +15372,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 653.6,
+        "build_duration_seconds": 747.2,
         "recipe_file": "output/dynamic-file-searcher_recipe.md"
       }
     },
@@ -14732,7 +15418,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:36:04.480370",
+        "last_built": "2026-06-03T13:12:31.431142",
         "build_plan": {
           "phases": [
             {
@@ -14745,7 +15431,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -14759,7 +15445,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 563.3,
+        "build_duration_seconds": 583.0,
         "recipe_file": "output/eget_recipe.md"
       }
     },
@@ -14865,7 +15551,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:46:29.157382",
+        "last_built": "2026-06-03T13:17:31.802963",
         "build_plan": {
           "phases": [
             {
@@ -14878,7 +15564,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/elvish"
+                "go build ./cmd/elvish"
               ]
             }
           ]
@@ -14894,12 +15580,12 @@
           {
             "type": "binary",
             "path": "/workspace/repos/elvish/pkg/persistent/add-slowdown",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/elvish/website/slides/gen.elv",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
@@ -14957,7 +15643,7 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 810.6,
+        "build_duration_seconds": 705.3,
         "recipe_file": "output/elvish_recipe.md"
       }
     },
@@ -15013,7 +15699,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:59:15.157572",
+        "last_built": "2026-06-03T13:28:32.005723",
         "build_plan": {
           "phases": [
             {
@@ -15042,10 +15728,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/f2/replace/replace_test/testdata/audio.flac",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 760.3,
+        "build_duration_seconds": 686.9,
         "recipe_file": "output/f2_recipe.md"
       }
     },
@@ -15089,20 +15775,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:23:43.946439",
+        "last_built": "2026-06-03T13:55:23.593182",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "apt-get update && apt-get install -y --no-install-recommends git",
-                "cd /workspace/repos/fq && go mod tidy"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/fq && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -15116,7 +15802,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1679.8,
+        "build_duration_seconds": 2020.5,
         "recipe_file": "output/fq_recipe.md"
       }
     },
@@ -15161,7 +15847,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:19:09.077756",
+        "last_built": "2026-06-03T13:49:20.533788",
         "build_plan": {
           "phases": [
             {
@@ -15174,7 +15860,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build ."
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -15188,7 +15874,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1126.7,
+        "build_duration_seconds": 1389.1,
         "recipe_file": "output/fsize_recipe.md"
       }
     },
@@ -15233,7 +15919,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:09:32.970658",
+        "last_built": "2026-06-03T14:25:57.799108",
         "build_plan": {
           "phases": [
             {
@@ -15245,7 +15931,8 @@
             {
               "name": "build",
               "commands": [
-                "go mod tidy && go build ./cmd/gdu"
+                "go mod tidy",
+                "go build ./cmd/gdu"
               ]
             }
           ]
@@ -15259,7 +15946,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 2722.1,
+        "build_duration_seconds": 2189.1,
         "recipe_file": "output/gdu_recipe.md"
       }
     },
@@ -15305,13 +15992,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:25:47.896161",
+        "last_built": "2026-06-03T14:56:28.737446",
         "build_plan": {
           "phases": [
             {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
               "name": "build",
               "commands": [
-                "go build -buildvcs=false ./cmd/goodls"
+                "go mod tidy",
+                "go build ./cmd/goodls"
               ]
             }
           ]
@@ -15325,7 +16019,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1494.4,
+        "build_duration_seconds": 1449.7,
         "recipe_file": "output/goodls_recipe.md"
       }
     },
@@ -15335,7 +16029,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T01:37:38.164204",
+        "last_built": "2026-06-03T13:12:21.796790",
         "build_plan": {
           "phases": [
             {
@@ -15348,7 +16042,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/doggo"
+                "go build ./cmd/doggo"
               ]
             }
           ]
@@ -15364,10 +16058,10 @@
           {
             "type": "binary",
             "path": "/workspace/repos/doggo/install.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 1693.8,
+        "build_duration_seconds": 1731.0,
         "recipe_file": "output/doggo_recipe.md"
       }
     },
@@ -15413,19 +16107,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T03:23:06.400978",
+        "last_built": "2026-06-03T14:47:45.241452",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "cd /workspace/repos/gstring && go mod download"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/gstring && go build -buildvcs=false ."
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
               ]
             }
           ]
@@ -15439,7 +16134,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 176.2,
+        "build_duration_seconds": 299.2,
         "recipe_file": "output/gstring_recipe.md"
       }
     },
@@ -15644,7 +16339,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-01T17:09:48.320194",
+        "last_built": "2026-06-03T18:19:48.887561",
         "build_plan": {
           "phases": [
             {
@@ -15657,7 +16352,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/desync"
+                "go build ./cmd/desync"
               ]
             }
           ]
@@ -15671,7 +16366,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 4647.1,
+        "build_duration_seconds": 1025.6,
         "recipe_file": "output/desync_recipe.md"
       }
     },
@@ -15754,7 +16449,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:27:02.096891",
+        "last_built": "2026-06-03T13:26:05.496435",
         "build_plan": {
           "phases": [
             {
@@ -15767,7 +16462,7 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ./cmd/frpc"
+                "go build ./cmd/frpc"
               ]
             }
           ]
@@ -15783,25 +16478,25 @@
           {
             "type": "binary",
             "path": "/workspace/repos/frp/package.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/frp/hack/run-e2e.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/frp/hack/download.sh",
-            "role": "secondary"
+            "role": "primary"
           },
           {
             "type": "binary",
             "path": "/workspace/repos/frp/hack/run-e2e-compatibility.sh",
-            "role": "secondary"
+            "role": "primary"
           }
         ],
-        "build_duration_seconds": 1761.4,
+        "build_duration_seconds": 234.8,
         "recipe_file": "output/frp_recipe.md"
       }
     },
@@ -15811,37 +16506,7 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:30:23.422664",
-        "build_plan": {
-          "phases": [
-            {
-              "name": "build",
-              "commands": [
-                "go mod tidy && go build -buildvcs=false ./cmd/flyscrape"
-              ]
-            }
-          ]
-        },
-        "dependencies": [],
-        "patches": [],
-        "artifacts": [
-          {
-            "type": "binary",
-            "path": "/workspace/repos/flyscrape/flyscrape",
-            "role": "primary"
-          }
-        ],
-        "build_duration_seconds": 2152.8,
-        "recipe_file": "output/flyscrape_recipe.md"
-      }
-    },
-    "fscan": {
-      "debian-riscv64": {
-        "repo_url": "https://github.com/shadow1ng/fscan",
-        "build_system": "go",
-        "architecture": "riscv64",
-        "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T02:31:46.959353",
+        "last_built": "2026-06-03T19:08:38.681785",
         "build_plan": {
           "phases": [
             {
@@ -15854,7 +16519,49 @@
               "name": "build",
               "commands": [
                 "go mod tidy",
-                "go build -buildvcs=false ."
+                "go build ./cmd/flyscrape"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flyscrape/install.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/flyscrape/flyscrape",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 341.7,
+        "recipe_file": "output/flyscrape_recipe.md"
+      }
+    },
+    "fscan": {
+      "debian-riscv64": {
+        "repo_url": "https://github.com/shadow1ng/fscan",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T19:16:34.849717",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "env GOMAXPROCS=1 go build -p 1 -buildvcs=false ./..."
               ]
             }
           ]
@@ -15868,7 +16575,7 @@
             "role": "primary"
           }
         ],
-        "build_duration_seconds": 1945.9,
+        "build_duration_seconds": 2752.7,
         "recipe_file": "output/fscan_recipe.md"
       }
     },
@@ -15878,19 +16585,20 @@
         "build_system": "go",
         "architecture": "riscv64",
         "sandbox": "debian-riscv64",
-        "last_built": "2026-06-03T04:07:39.893075",
+        "last_built": "2026-06-03T14:47:14.731365",
         "build_plan": {
           "phases": [
             {
               "name": "setup",
               "commands": [
-                "cd /workspace/repos/grpcurl && go mod download"
+                "apt-get update && apt-get install -y --no-install-recommends git"
               ]
             },
             {
               "name": "build",
               "commands": [
-                "cd /workspace/repos/grpcurl && go build -buildvcs=false ./cmd/grpcurl"
+                "go mod tidy",
+                "go build ./cmd/grpcurl"
               ]
             }
           ]
@@ -15919,8 +16627,117 @@
             "role": "secondary"
           }
         ],
-        "build_duration_seconds": 2936.8,
+        "build_duration_seconds": 338.7,
         "recipe_file": "output/grpcurl_recipe.md"
+      }
+    },
+    "ftpgrab": {
+      "debian-riscv64": {
+        "repo_url": "https://github.com/crazy-max/ftpgrab",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T13:55:59.507236",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/cmd -buildvcs=false ./cmd"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [],
+        "build_duration_seconds": 1679.1,
+        "recipe_file": "output/ftpgrab_recipe.md"
+      }
+    },
+    "gosec": {
+      "debian-riscv64": {
+        "repo_url": "https://github.com/securego/gosec",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T14:47:50.141855",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "go build ./cmd/gosec"
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [
+          {
+            "type": "binary",
+            "path": "/workspace/repos/gosec/entrypoint.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/gosec/perf-diff.sh",
+            "role": "primary"
+          },
+          {
+            "type": "binary",
+            "path": "/workspace/repos/gosec/gosec",
+            "role": "primary"
+          }
+        ],
+        "build_duration_seconds": 878.7,
+        "recipe_file": "output/gosec_recipe.md"
+      }
+    },
+    "gickup": {
+      "debian-riscv64": {
+        "repo_url": "https://github.com/cooperspencer/gickup",
+        "build_system": "go",
+        "architecture": "riscv64",
+        "sandbox": "debian-riscv64",
+        "last_built": "2026-06-03T18:30:33.949524",
+        "build_plan": {
+          "phases": [
+            {
+              "name": "setup",
+              "commands": [
+                "apt-get update && apt-get install -y --no-install-recommends git"
+              ]
+            },
+            {
+              "name": "build",
+              "commands": [
+                "go mod tidy",
+                "go build -buildvcs=false ./..."
+              ]
+            }
+          ]
+        },
+        "dependencies": [],
+        "patches": [],
+        "artifacts": [],
+        "build_duration_seconds": 1669.6,
+        "recipe_file": "output/gickup_recipe.md"
       }
     }
   }

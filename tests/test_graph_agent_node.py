@@ -39,8 +39,10 @@ class TestAgentNodeRateLimitRetry(unittest.TestCase):
             out = node(state)
         self.assertEqual(out.current_phase, "scouting")
         self.assertEqual(calls["n"], 2)
-        # First retry should sleep ~30s
-        msleep.assert_called_with(30)
+        # First retry should sleep ~30s (plus jitter)
+        first_wait = msleep.call_args_list[0].args[0]
+        self.assertGreaterEqual(first_wait, 30)
+        self.assertLess(first_wait, 45)
 
     def test_three_rate_limits_then_escalate(self) -> None:
         """Test three rate limits then escalate."""
@@ -71,9 +73,12 @@ class TestAgentNodeRateLimitRetry(unittest.TestCase):
         )
         with mock.patch("time.sleep") as msleep:
             node(create_initial_state("https://x/y.git"))
-        # 30s, then 60s
+        # Exponential backoff with jitter: ~30s then ~60s
         calls = [c.args[0] for c in msleep.call_args_list]
-        self.assertEqual(calls[:2], [30, 60])
+        self.assertGreaterEqual(calls[0], 30)
+        self.assertLess(calls[0], 45)
+        self.assertGreaterEqual(calls[1], 60)
+        self.assertLess(calls[1], 75)
 
     def test_all_rate_limit_terms_recognised(self) -> None:
         """Test all rate limit terms recognised."""
