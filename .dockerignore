@@ -1,0 +1,11 @@
+workspace/
+output/
+data/recipe_cache.json
+__pycache__/
+*.pyc
+.git/
+.venv/
+venv/
+node_modules/
+tests/
+docs/
