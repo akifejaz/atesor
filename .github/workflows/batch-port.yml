@@ -3,7 +3,7 @@ name: ATESOR AI Batch Porting Tests
 # Runs the Atesor AI agent across a curated list of packages, building each
 # one inside the riscv64 sandbox container.
 #
-# Matrix:
+# Jobs:
 #
 #   atesor-debian-smoke   debian sandbox (ubuntu:jammy base) + smoke list
 #   atesor-debian-full    debian sandbox (ubuntu:jammy base) + full  list
@@ -14,7 +14,7 @@ on:
   push:
     branches: [main, ci-dev]
   pull_request:
-    branches: [main, ci-dev]
+    branches: [main]
   # schedule:
   #   # 02:00 UTC nightly -> full sweep on both platforms
   #   - cron: "0 2 * * *"
@@ -44,59 +44,40 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  batch:
-    name: atesor-${{ matrix.platform }}-${{ matrix.list }}
-    # Gate each matrix entry against the event that triggered the run.
+  # ------------------------------------------------------------------------- #
+  # 1. atesor-debian-smoke
+  # ------------------------------------------------------------------------- #
+  atesor-debian-smoke:
+    name: atesor-debian-smoke
     if: >-
-      (
-        matrix.list == 'smoke' &&
-        (github.event_name == 'push' || github.event_name == 'pull_request')
-      ) ||
-      (
-        matrix.list == 'full' && github.event_name == 'schedule'
-      ) ||
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
       (
         github.event_name == 'workflow_dispatch' &&
-        (inputs.target == 'both' || inputs.target == matrix.list) &&
-        (inputs.platform == 'both' || inputs.platform == matrix.platform)
+        (inputs.target == 'smoke' || inputs.target == 'both') &&
+        (inputs.platform == 'debian' || inputs.platform == 'both')
       )
     runs-on: ubuntu-latest
-    #   runs-on: [self-hosted, linux, x64]
-    timeout-minutes: ${{ matrix.list == 'smoke' && 60 || 350 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [debian, alpine]
-        list: [smoke, full]
+    timeout-minutes: 60
     concurrency:
-      group: >-
-        batch-port-${{ matrix.platform }}-${{ matrix.list }}-${{
-          matrix.list == 'smoke' && github.ref || 'global'
-        }}
-      cancel-in-progress: ${{ matrix.list == 'smoke' }}
+      group: batch-port-debian-smoke-${{ github.ref }}
+      cancel-in-progress: true
     env:
-      ATESOR_PLATFORM: ${{ matrix.platform }}
+      ATESOR_PLATFORM: debian
+      LIST: smoke
       WORKERS: ${{ inputs.workers || '2' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Enable riscv64 emulation (binfmt_misc + QEMU)
-        uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v3
         with:
           platforms: riscv64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-
       - name: Install Python dependencies
         run: pip install -r requirements.txt
-
       - name: Write .env from secrets
         run: |
           umask 077
@@ -109,25 +90,207 @@ jobs:
           LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
           OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
           EOF
-
-      - name: Provision sandbox (build image + container)
+      - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
-
-      - name: Run ${{ matrix.list }} batch on ${{ matrix.platform }}
-        run: |
-          python3 .github/scripts/batch_test.py \
-            --list ${{ matrix.list }} \
-            --workers "$WORKERS"
-
+      - name: Run smoke batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-${{ matrix.list }}-logs-${{ github.run_id }}
+          name: debian-smoke-logs-${{ github.run_id }}
           path: |
             output/batch_logs/
             workspace/logs/
             workspace/output/
             data/recipe_cache.json
           if-no-files-found: warn
-          retention-days: ${{ matrix.list == 'smoke' && 14 || 30 }}
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # 2. atesor-debian-full
+  # ------------------------------------------------------------------------- #
+  atesor-debian-full:
+    name: atesor-debian-full
+    if: >-
+      github.event_name == 'schedule' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'full' || inputs.target == 'both') &&
+        (inputs.platform == 'debian' || inputs.platform == 'both')
+      )
+    # TODO: update to self-hosted or Cloud-V / RISE Runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: batch-port-debian-full
+      cancel-in-progress: false
+    env:
+      ATESOR_PLATFORM: debian
+      LIST: full
+      WORKERS: ${{ inputs.workers || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run full batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-full-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ------------------------------------------------------------------------- #
+  # 3. atesor-alpine-smoke
+  # ------------------------------------------------------------------------- #
+  atesor-alpine-smoke:
+    name: atesor-alpine-smoke
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'smoke' || inputs.target == 'both') &&
+        (inputs.platform == 'alpine' || inputs.platform == 'both')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: batch-port-alpine-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ATESOR_PLATFORM: alpine
+      LIST: smoke
+      WORKERS: ${{ inputs.workers || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run smoke batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-smoke-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # 4. atesor-alpine-full
+  # ------------------------------------------------------------------------- #
+  atesor-alpine-full:
+    name: atesor-alpine-full
+    if: >-
+      github.event_name == 'schedule' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'full' || inputs.target == 'both') &&
+        (inputs.platform == 'alpine' || inputs.platform == 'both')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: batch-port-alpine-full
+      cancel-in-progress: false
+    env:
+      ATESOR_PLATFORM: alpine
+      LIST: full
+      WORKERS: ${{ inputs.workers || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run full batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-full-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 30
