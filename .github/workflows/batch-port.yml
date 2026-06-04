@@ -66,6 +66,8 @@ jobs:
       ATESOR_PLATFORM: debian
       LIST: smoke
       WORKERS: ${{ inputs.workers || '2' }}
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:debian
+      LOCAL_IMAGE: atesor-ai-sandbox-debian:latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -90,6 +92,10 @@ jobs:
           LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
           OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
           EOF
+      - name: Pull prebuilt sandbox image (skip local build)
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run smoke batch
@@ -194,6 +200,8 @@ jobs:
       ATESOR_PLATFORM: alpine
       LIST: smoke
       WORKERS: ${{ inputs.workers || '2' }}
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:alpine
+      LOCAL_IMAGE: atesor-ai-sandbox:latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -218,6 +226,10 @@ jobs:
           LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
           OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
           EOF
+      - name: Pull prebuilt sandbox image (skip local build)
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run smoke batch
