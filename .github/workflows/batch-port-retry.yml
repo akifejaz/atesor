@@ -1,0 +1,213 @@
+name: batch-port-retry
+
+# Runs after `batch-port` completes and re-tries the packages that failed
+# in the main run. "Failed" = the main run produced no `<repo>-*-<platform>.zip`
+# for that package. New zips are uploaded to the SAME monthly release as
+# the main workflow (tag: builds-YYYY-MM), so consumers see the freshest
+# successful build per package without dealing with multiple releases.
+#
+# Triggered via `workflow_run`. Runs on the SHA the main workflow ran on,
+# not on the default branch, to keep parity. PR runs are intentionally
+# excluded — retries are only useful for push/schedule/dispatch.
+#
+# Idempotent: if every package in the list already has a zip, the matrix
+# entry skips the re-run entirely. If a re-run still fails, the next
+# retry workflow run (after the next main run) picks it up again.
+
+on:
+  workflow_run:
+    workflows: [batch-port]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      main_run_id:
+        description: "Main batch-port run ID whose artifacts to retry from. Required for manual runs."
+        type: string
+        required: true
+
+permissions:
+  contents: write   # publish assets to the monthly release
+  actions: read     # download artifacts from the triggering run
+
+env:
+  PYTHON_VERSION: "3.11"
+  PYTHONUNBUFFERED: "1"
+  # SHA of the main run we are retrying for, so all 4 jobs agree on parity.
+  MAIN_RUN_ID: >-
+    ${{ github.event.workflow_run.id || github.event.inputs.main_run_id }}
+  MAIN_HEAD_SHA: >-
+    ${{ github.event.workflow_run.head_sha || github.sha }}
+
+concurrency:
+  # Serialize per monthly release to avoid two retry runs racing the same
+  # tag (release create/upload are not strictly atomic).
+  group: batch-port-retry-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: retry-${{ matrix.platform }}-${{ matrix.list }}
+    # Skip if the main workflow was cancelled (cancellations aren't failures
+    # we want to retry around) or triggered by a PR (no release flow).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event != 'pull_request'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: debian
+            list: smoke
+            artifact_glob: debian-smoke-logs-*
+          - platform: debian
+            list: full
+            artifact_glob: debian-full-logs-*
+          - platform: alpine
+            list: smoke
+            artifact_glob: alpine-smoke-logs-*
+          - platform: alpine
+            list: full
+            artifact_glob: alpine-full-logs-*
+    env:
+      ATESOR_PLATFORM: ${{ matrix.platform }}
+      LIST: ${{ matrix.list }}
+      ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+    steps:
+      - name: Checkout main run's SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAIN_HEAD_SHA }}
+
+      - name: Download main run's artifact
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          # The main workflow uploads ONE artifact per job, named like
+          # `debian-smoke-logs-<run_id>`. Pattern + merge-multiple lets us
+          # not care about the exact run id.
+          pattern: ${{ env.ARTIFACT_GLOB }}
+          path: _main_artifact
+          merge-multiple: true
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Compute missing packages
+        id: missing
+        run: |
+          set -euo pipefail
+          src_dir="_main_artifact/workspace/packages"
+          # Seed workspace/packages with whatever the main run produced so
+          # the retry's batch_test sees them and skips re-running them.
+          mkdir -p workspace/packages
+          if [[ -d "$src_dir" ]]; then
+            cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
+          fi
+
+          missing="$(python3 .github/scripts/missing-pkgs.py \
+              --list .github/packages/${LIST}.json \
+              --packages-dir workspace/packages \
+              --platform "$ATESOR_PLATFORM" \
+              --format space)"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [[ -z "$missing" ]]; then
+            echo "::notice::No missing packages for ${ATESOR_PLATFORM}-${LIST}; skipping retry."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            count=$(echo "$missing" | wc -w)
+            echo "::notice::Retrying $count package(s) for ${ATESOR_PLATFORM}-${LIST}: $missing"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable riscv64 emulation
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python
+        if: steps.missing.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        if: steps.missing.outputs.skip == 'false'
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        if: steps.missing.outputs.skip == 'false'
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Pull prebuilt sandbox image (smoke only)
+        if: steps.missing.outputs.skip == 'false' && matrix.list == 'smoke'
+        env:
+          PREBUILT_IMAGE: cloudv10x/atesor-sandbox:${{ matrix.platform }}-latest
+          LOCAL_IMAGE: >-
+            ${{ matrix.platform == 'debian' && 'atesor-ai-sandbox-debian:latest' || 'atesor-ai-sandbox:latest' }}
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
+
+      - name: Provision sandbox
+        if: steps.missing.outputs.skip == 'false'
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Re-run failed packages
+        if: steps.missing.outputs.skip == 'false'
+        env:
+          MISSING: ${{ steps.missing.outputs.missing }}
+        run: |
+          # IMPORTANT: pre-seeded workspace/packages contains zips from the
+          # main run. batch_test only runs packages explicitly listed via
+          # positional args, so we limit it to MISSING and the resulting
+          # workspace/packages then contains BOTH old (from main) and new
+          # (from retry) zips. The release step below uploads everything,
+          # with --clobber overwriting only exact-name duplicates.
+          # shellcheck disable=SC2086  -- intentional word-splitting of MISSING
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers 2 \
+            --package \
+            $MISSING
+
+      - name: Publish zip artifacts to monthly release
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: retry-${{ matrix.platform }}-${{ matrix.list }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload retry logs
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-${{ matrix.platform }}-${{ matrix.list }}-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+          if-no-files-found: warn
+          retention-days: 14

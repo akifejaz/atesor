@@ -36,7 +36,7 @@ on:
         default: "2"
 
 permissions:
-  contents: read
+  contents: write   # publish assets to the monthly GitHub Release
 
 env:
   PYTHON_VERSION: "3.11"
@@ -99,7 +99,14 @@ jobs:
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run smoke batch
-        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-debian-smoke
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,6 +116,7 @@ jobs:
             output/batch_logs/
             workspace/logs/
             workspace/output/
+            workspace/packages/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 14
@@ -164,7 +172,14 @@ jobs:
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run full batch
-        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-debian-full
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -174,6 +189,7 @@ jobs:
             output/batch_logs/
             workspace/logs/
             workspace/output/
+            workspace/packages/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 30
@@ -233,7 +249,14 @@ jobs:
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run smoke batch
-        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-alpine-smoke
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -243,6 +266,7 @@ jobs:
             output/batch_logs/
             workspace/logs/
             workspace/output/
+            workspace/packages/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 14
@@ -297,7 +321,14 @@ jobs:
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
       - name: Run full batch
-        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS"
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-alpine-full
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -307,6 +338,7 @@ jobs:
             output/batch_logs/
             workspace/logs/
             workspace/output/
+            workspace/packages/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 30

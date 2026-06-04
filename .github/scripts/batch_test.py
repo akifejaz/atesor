@@ -272,6 +272,7 @@ _SCHEMA_VERSION = 1
 _MAX_ATTEMPTS = 5
 _AGENT_TIMEOUT_SECONDS = 3600
 _LIST_DESCRIPTION = ""
+_PACKAGE_BUILDS = False
 
 
 def _resolve_list_path(value: str) -> str:
@@ -652,6 +653,8 @@ def run_agent(
             ]
             if PLATFORM in {"alpine", "debian", "ubuntu"}:
                 cmd.extend(["--platform", PLATFORM])
+            if _PACKAGE_BUILDS:
+                cmd.append("--package")
 
             proc = subprocess.Popen(
                 cmd,
@@ -736,6 +739,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--package",
+        action="store_true",
+        help=(
+            "Forward --package to each main.py invocation, producing a "
+            "zip artifact (recipe + source tree) under workspace/packages/ "
+            "for every successful build. Used by CI to upload downloadable "
+            "artifacts."
+        ),
+    )
+    parser.add_argument(
         "names",
         nargs="*",
         help="Optional package names to filter from the chosen list.",
@@ -763,6 +776,9 @@ def main() -> int:
         return 2
     MAX_WORKERS = args.workers
     _populate_container_pool(MAX_WORKERS)
+
+    global _PACKAGE_BUILDS
+    _PACKAGE_BUILDS = bool(args.package)
 
     list_path = _resolve_list_path(args.list_name)
     all_packages, defaults, description = _load_package_list(list_path)
