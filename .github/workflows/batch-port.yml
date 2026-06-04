@@ -66,7 +66,7 @@ jobs:
       ATESOR_PLATFORM: debian
       LIST: smoke
       WORKERS: ${{ inputs.workers || '2' }}
-      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:debian
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:debian-latest
       LOCAL_IMAGE: atesor-ai-sandbox-debian:latest
     steps:
       - uses: actions/checkout@v4
@@ -200,7 +200,7 @@ jobs:
       ATESOR_PLATFORM: alpine
       LIST: smoke
       WORKERS: ${{ inputs.workers || '2' }}
-      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:alpine
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:alpine-latest
       LOCAL_IMAGE: atesor-ai-sandbox:latest
     steps:
       - uses: actions/checkout@v4
