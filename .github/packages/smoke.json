@@ -11,7 +11,6 @@
     { "name": "assetfinder", "url": "https://github.com/tomnomnom/assetfinder",  "lang": "go", "group": "smoke", "tags": ["go", "small"] },
     { "name": "age",         "url": "https://github.com/FiloSottile/age",        "lang": "go", "group": "smoke", "tags": ["go"] },
     { "name": "dasel",       "url": "https://github.com/TomWright/dasel",        "lang": "go", "group": "smoke", "tags": ["go"] },
-    { "name": "axel",        "url": "https://github.com/axel-download-accelerator/axel", "lang": "c", "group": "smoke", "tags": ["c", "autotools"] },
     { "name": "fping",       "url": "https://github.com/schweikert/fping",       "lang": "c",  "group": "smoke", "tags": ["c", "autotools"] },
     { "name": "zlib",        "url": "https://github.com/madler/zlib",            "lang": "c",  "group": "smoke", "tags": ["c", "core"] },
     { "name": "cjson",       "url": "https://github.com/DaveGamble/cJSON",       "lang": "c",  "group": "smoke", "tags": ["c", "cmake"] }
