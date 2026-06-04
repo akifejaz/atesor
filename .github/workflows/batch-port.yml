@@ -113,6 +113,8 @@ jobs:
   atesor-debian-full:
     name: atesor-debian-full
     if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
       (
         github.event_name == 'workflow_dispatch' &&
@@ -239,6 +241,8 @@ jobs:
   atesor-alpine-full:
     name: atesor-alpine-full
     if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
       (
         github.event_name == 'workflow_dispatch' &&
