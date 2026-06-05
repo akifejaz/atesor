@@ -2,17 +2,15 @@ name: batch-port-retry
 
 # Runs after `batch-port` completes and re-tries the packages that failed
 # in the main run. "Failed" = the main run produced no `<repo>-*-<platform>.zip`
-# for that package. New zips are uploaded to the SAME monthly release as
-# the main workflow (tag: builds-YYYY-MM), so consumers see the freshest
-# successful build per package without dealing with multiple releases.
+# for that package. 
 #
-# Triggered via `workflow_run`. Runs on the SHA the main workflow ran on,
-# not on the default branch, to keep parity. PR runs are intentionally
-# excluded — retries are only useful for push/schedule/dispatch.
+# Sharded-main compatibility: the main `*-full` jobs upload one artifact
+# per shard (e.g. `debian-full-logs-<id>-shard-0..N`). The download
+# pattern `debian-full-logs-*` matches all of them and `merge-multiple:
+# true` unions them into one tree, so missing-package computation sees
+# the full picture.
 #
-# Idempotent: if every package in the list already has a zip, the matrix
-# entry skips the re-run entirely. If a re-run still fails, the next
-# retry workflow run (after the next main run) picks it up again.
+# Retry is NOT sharded.
 
 on:
   workflow_run:
@@ -121,6 +119,9 @@ jobs:
           else
             count=$(echo "$missing" | wc -w)
             echo "::notice::Retrying $count package(s) for ${ATESOR_PLATFORM}-${LIST}: $missing"
+            if (( count > 120 )); then
+              echo "::warning::$count missing packages exceeds safe single-job budget (~120 with 2 workers under 6h). Consider sharding the retry workflow."
+            fi
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 

@@ -749,11 +749,57 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--shard-index",
+        type=int,
+        default=None,
+        metavar="I",
+        help=(
+            "Zero-based index of this shard in the workload (requires "
+            "--shard-total). The package list is contiguously sliced "
+            "into --shard-total chunks of ceil(N/total) packages each, "
+            "and this run processes shard I only. Used by the CI "
+            "workflow to keep each job under the 6h limit."
+        ),
+    )
+    parser.add_argument(
+        "--shard-total",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Total number of shards the package list is split into "
+            "(requires --shard-index). Pass 1 to disable sharding."
+        ),
+    )
+    parser.add_argument(
         "names",
         nargs="*",
         help="Optional package names to filter from the chosen list.",
     )
     return parser.parse_args(argv)
+
+
+def _apply_shard(
+    packages: list[tuple[str, str]],
+    shard_index: int,
+    shard_total: int,
+) -> list[tuple[str, str]]:
+    """Return the contiguous slice of ``packages`` for one shard.
+
+    Splits ``packages`` into ``shard_total`` chunks of ``ceil(N/total)``
+    items and returns chunk ``shard_index`` (0-based). With ``total=1``
+    returns the full list unchanged.
+
+    Caller is responsible for validating that 0 <= index < total.
+    """
+    if shard_total <= 1:
+        return list(packages)
+    n = len(packages)
+    # ceil division so every shard except possibly the last is full-sized
+    chunk = -(-n // shard_total)
+    start = shard_index * chunk
+    end = start + chunk
+    return list(packages[start:end])
 
 
 def main() -> int:
@@ -789,6 +835,56 @@ def main() -> int:
         defaults.get("timeout_seconds", _AGENT_TIMEOUT_SECONDS)
     )
     _LIST_DESCRIPTION = description
+
+    # Validate sharding flags before anything else that depends on the
+    # final package list. --shard-index and --shard-total must come as a
+    # pair; combining them with positional name filters is rejected
+    # because the resulting semantics (filter within a shard? across?)
+    # would confuse users.
+    shard_index = args.shard_index
+    shard_total = args.shard_total
+    if (shard_index is None) != (shard_total is None):
+        print(
+            "[ERROR] --shard-index and --shard-total must be provided "
+            "together.",
+            file=sys.stderr,
+        )
+        return 2
+    if shard_total is not None:
+        if shard_total < 1:
+            print(
+                f"[ERROR] --shard-total must be >= 1 (got {shard_total}).",
+                file=sys.stderr,
+            )
+            return 2
+        if shard_index < 0 or shard_index >= shard_total:
+            print(
+                f"[ERROR] --shard-index={shard_index} out of range "
+                f"[0, {shard_total}).",
+                file=sys.stderr,
+            )
+            return 2
+        if args.names:
+            print(
+                "[ERROR] Positional name filters cannot be combined "
+                "with --shard-index/--shard-total.",
+                file=sys.stderr,
+            )
+            return 2
+        sharded = _apply_shard(all_packages, shard_index, shard_total)
+        print(
+            f"[shard] {shard_index + 1}/{shard_total} of {list_path}: "
+            f"{len(sharded)} of {len(all_packages)} packages "
+            f"(group size = {-(-len(all_packages) // shard_total)})",
+            flush=True,
+        )
+        all_packages = sharded
+        if not all_packages:
+            print(
+                "[shard] empty shard, nothing to run; exiting 0.",
+                file=sys.stderr,
+            )
+            return 0
 
     filter_names = set(args.names)
     if filter_names:
