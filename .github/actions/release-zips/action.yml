@@ -2,8 +2,13 @@ name: release-zips
 description: |
   Publish all `*.zip` files in a given directory as assets of the current
   monthly release. Tag format: `builds-YYYY-MM`. Idempotent: the release is
-  created on first use of the month and reused thereafter. Re-uploads of the
-  same filename use `--clobber` (newer build wins).
+  created on first use of the month and reused thereafter.
+
+  Per-package, per-platform dedupe: before uploading, any existing asset
+  matching `<package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip` for the same
+  `<package>` and `<platform>` is deleted from the release, so each
+  (package, platform) keeps exactly one asset (the newest). Different
+  platforms (e.g. `foo-*-alpine.zip` vs `foo-*-debian.zip`) are independent.
 
   This action is intentionally a no-op when the source directory is empty
   or missing, so it can be wired with `if: always()` after a batch step
@@ -79,9 +84,36 @@ runs:
           echo "Release $tag already exists; appending assets."
         fi
 
-        # Upload with --clobber so re-runs of the same package overwrite
-        # the previous asset of the exact same filename. Different timestamps
-        # naturally co-exist as separate assets.
+        # Dedupe pass
+        echo "::group::Dedupe existing assets"
+        existing_assets="$(gh release view "$tag" --repo "$GH_REPO" \
+          --json assets --jq '.assets[].name' 2>/dev/null || true)"
+        for zip in "${zips[@]}"; do
+          fname="$(basename "$zip")"
+          if [[ ! "$fname" =~ ^(.+)-([0-9]{8})-([0-9]{6})-([A-Za-z0-9]+)\.zip$ ]]; then
+            echo "::warning::Unrecognized filename format: $fname (skipping dedupe)"
+            continue
+          fi
+          pkg="${BASH_REMATCH[1]}"
+          platform="${BASH_REMATCH[4]}"
+          pattern="^${pkg}-[0-9]{8}-[0-9]{6}-${platform}\.zip$"
+          while IFS= read -r asset; do
+            [[ -z "$asset" ]] && continue
+            # Skip the exact filename we're about to upload — `--clobber`
+            # below handles the same-name overwrite atomically.
+            [[ "$asset" == "$fname" ]] && continue
+            if [[ "$asset" =~ $pattern ]]; then
+              echo "  - removing stale asset: $asset (superseded by $fname)"
+              gh release delete-asset "$tag" "$asset" \
+                --repo "$GH_REPO" --yes || \
+                echo "::warning::Failed to delete $asset (continuing)"
+            fi
+          done <<< "$existing_assets"
+        done
+        echo "::endgroup::"
+
+        # Upload with --clobber so re-runs of the exact same filename
+        # overwrite cleanly.
         echo "::group::Uploading ${#zips[@]} asset(s)"
         gh release upload "$tag" "${zips[@]}" \
           --repo "$GH_REPO" \
