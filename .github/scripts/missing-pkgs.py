@@ -24,16 +24,30 @@ from typing import Iterable
 
 
 def _load_package_names(list_path: str) -> list[str]:
-    """Return the ordered package names declared in a list JSON file."""
+    """Return the ordered package names declared in a list JSON file.
+
+    Accepts both schemas in use across the workflow:
+
+    * ``.github/packages/*.json`` — ``{"packages": [{"name": ...}, ...]}``
+    * ``remaining-<platform>.json`` (from ``plan-remaining.py``) —
+      ``{"packages": ["name1", "name2", ...]}``
+
+    Mixed lists are tolerated; entries with neither a ``name`` key nor
+    a string value are silently skipped.
+    """
     with open(list_path) as fh:
         data = json.load(fh)
     pkgs = data.get("packages", [])
     out: list[str] = []
     for p in pkgs:
-        name = p.get("name")
-        if not name:
+        if isinstance(p, str):
+            if p:
+                out.append(p)
             continue
-        out.append(name)
+        if isinstance(p, dict):
+            name = p.get("name")
+            if name:
+                out.append(name)
     return out
 
 

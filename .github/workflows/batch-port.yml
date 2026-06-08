@@ -126,11 +126,22 @@ jobs:
           retention-days: 14
 
   # ------------------------------------------------------------------------- #
-  # 2. atesor-debian-full (sharded)
+  # 2. atesor-debian-full / atesor-alpine-full (sharded, skip-already-released)
   #
-  # GitHub Actions caps a single job at 6h. The full package list grows over
-  # time; instead of one monster job, we split it into shards of at most
-  # `group_size` packages each 50.
+  # `plan-full` does two things:
+  #   1. Reads the current monthly release tag (`builds-YYYY-MM`) and
+  #      computes, *per platform*, the set of packages from `full.json`
+  #      that are NOT yet released for that platform — preserving
+  #      declared order.
+  #   2. Chunks that "remaining" list at `group_size` and emits
+  #      per-platform matrix outputs (`debian_total/groups`,
+  #      `alpine_total/groups`). The two platforms have independent
+  #      remaining sets and therefore independent shard counts.
+  #
+  # The remaining lists are uploaded as the `remaining-pkgs` artifact
+  # so each shard job — AND the retry workflow — can read the exact
+  # same plan without re-querying the release at a slightly different
+  # moment.
   # ------------------------------------------------------------------------- #
   plan-full:
     name: plan-full
@@ -143,25 +154,68 @@ jobs:
         (inputs.target == 'full' || inputs.target == 'both')
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read   # gh release view
     outputs:
-      groups: ${{ steps.plan.outputs.groups }}
-      total: ${{ steps.plan.outputs.total }}
+      debian_groups: ${{ steps.plan.outputs.debian_groups }}
+      debian_total:  ${{ steps.plan.outputs.debian_total }}
+      alpine_groups: ${{ steps.plan.outputs.alpine_groups }}
+      alpine_total:  ${{ steps.plan.outputs.alpine_total }}
+    env:
+      GROUP_SIZE: ${{ inputs.group_size || '50' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - id: plan
-        name: Compute shard plan for full list
+
+      - name: Snapshot current monthly release assets
+        id: snapshot
         run: |
-          python3 .github/scripts/plan-shards.py \
-            --list full \
-            --group-size "${{ inputs.group_size || '50' }}" \
-            >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          tag="builds-$(date -u +%Y-%m)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # `gh release view` exits non-zero if the release doesn't
+          # exist yet — that's the expected state at the start of a
+          # new month and means "skip nothing".
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' \
+              > released-assets.txt 2>/dev/null; then
+            count=$(wc -l < released-assets.txt | tr -d ' ')
+            echo "::notice::Found release $tag with $count asset(s)."
+          else
+            : > released-assets.txt
+            echo "::notice::No release $tag yet; nothing to skip."
+          fi
+
+      - id: plan
+        name: Compute per-platform remaining + shard plan
+        run: |
+          set -euo pipefail
+          mkdir -p remaining
+          for platform in debian alpine; do
+            python3 .github/scripts/plan-remaining.py \
+              --list full \
+              --released-assets released-assets.txt \
+              --platform "$platform" \
+              --group-size "$GROUP_SIZE" \
+              --remaining-out "remaining/remaining-${platform}.json" \
+              --output-key-prefix "$platform" \
+              >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Upload remaining-pkgs plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining/remaining-*.json
+          if-no-files-found: error
+          retention-days: 30
 
   atesor-debian-full:
-    name: atesor-debian-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.total }})
+    name: atesor-debian-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.debian_total }})
     needs: plan-full
     if: >-
-      needs.plan-full.outputs.total != '0' &&
+      needs.plan-full.outputs.debian_total != '0' &&
       (
         github.event_name == 'push' ||
         github.event_name == 'pull_request' ||
@@ -175,7 +229,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.plan-full.outputs.groups) }}
+        shard: ${{ fromJSON(needs.plan-full.outputs.debian_groups) }}
     # TODO: update to self-hosted or Cloud-V / RISE Runners
     runs-on: ubuntu-latest
     timeout-minutes: 350
@@ -187,7 +241,7 @@ jobs:
       LIST: full
       WORKERS: ${{ inputs.workers || '2' }}
       SHARD_INDEX: ${{ matrix.shard }}
-      SHARD_TOTAL: ${{ needs.plan-full.outputs.total }}
+      SHARD_TOTAL: ${{ needs.plan-full.outputs.debian_total }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -212,16 +266,42 @@ jobs:
           LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
           OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
           EOF
+      - name: Download remaining-pkgs plan
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+      - name: Resolve this shard's package slice
+        id: slice
+        run: |
+          python3 .github/scripts/slice-pkgs.py \
+            --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
+            --shard-index "$SHARD_INDEX" \
+            --shard-total "$SHARD_TOTAL" \
+            --output-key pkgs \
+            --format space \
+            >> "$GITHUB_OUTPUT"
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
-      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.total }})
+      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.debian_total }})
+        env:
+          PKGS: ${{ steps.slice.outputs.pkgs }}
         run: |
+          if [[ -z "$PKGS" ]]; then
+            echo "::notice::Empty shard slice (all packages already released for $ATESOR_PLATFORM); skipping."
+            exit 0
+          fi
+          # PKGS is already restricted to (1) packages not yet
+          # released for this platform under the current monthly tag
+          # AND (2) this shard's chunk of that remaining set. Pass
+          # straight as positional args — no need for batch_test's
+          # internal --shard-index.
+          # shellcheck disable=SC2086  -- intentional word-splitting
           python3 .github/scripts/batch_test.py \
             --list "$LIST" \
             --workers "$WORKERS" \
-            --shard-index "$SHARD_INDEX" \
-            --shard-total "$SHARD_TOTAL" \
-            --package
+            --package \
+            $PKGS
       - name: Publish zip artifacts to monthly release
         if: always()
         uses: ./.github/actions/release-zips
@@ -321,13 +401,13 @@ jobs:
           retention-days: 14
 
   # ------------------------------------------------------------------------- #
-  # 4. atesor-alpine-full (sharded)
+  # 4. atesor-alpine-full (sharded, skip-already-released; see plan-full)
   # ------------------------------------------------------------------------- #
   atesor-alpine-full:
-    name: atesor-alpine-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.total }})
+    name: atesor-alpine-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.alpine_total }})
     needs: plan-full
     if: >-
-      needs.plan-full.outputs.total != '0' &&
+      needs.plan-full.outputs.alpine_total != '0' &&
       (
         github.event_name == 'push' ||
         github.event_name == 'pull_request' ||
@@ -341,7 +421,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.plan-full.outputs.groups) }}
+        shard: ${{ fromJSON(needs.plan-full.outputs.alpine_groups) }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     concurrency:
@@ -352,7 +432,7 @@ jobs:
       LIST: full
       WORKERS: ${{ inputs.workers || '2' }}
       SHARD_INDEX: ${{ matrix.shard }}
-      SHARD_TOTAL: ${{ needs.plan-full.outputs.total }}
+      SHARD_TOTAL: ${{ needs.plan-full.outputs.alpine_total }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -377,16 +457,37 @@ jobs:
           LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
           OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
           EOF
+      - name: Download remaining-pkgs plan
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+      - name: Resolve this shard's package slice
+        id: slice
+        run: |
+          python3 .github/scripts/slice-pkgs.py \
+            --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
+            --shard-index "$SHARD_INDEX" \
+            --shard-total "$SHARD_TOTAL" \
+            --output-key pkgs \
+            --format space \
+            >> "$GITHUB_OUTPUT"
       - name: Provision sandbox
         run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
-      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.total }})
+      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.alpine_total }})
+        env:
+          PKGS: ${{ steps.slice.outputs.pkgs }}
         run: |
+          if [[ -z "$PKGS" ]]; then
+            echo "::notice::Empty shard slice (all packages already released for $ATESOR_PLATFORM); skipping."
+            exit 0
+          fi
+          # shellcheck disable=SC2086  -- intentional word-splitting
           python3 .github/scripts/batch_test.py \
             --list "$LIST" \
             --workers "$WORKERS" \
-            --shard-index "$SHARD_INDEX" \
-            --shard-total "$SHARD_TOTAL" \
-            --package
+            --package \
+            $PKGS
       - name: Publish zip artifacts to monthly release
         if: always()
         uses: ./.github/actions/release-zips

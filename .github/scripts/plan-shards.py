@@ -82,18 +82,29 @@ def main(argv: list[str]) -> int:
         default=50,
         help="Max packages per shard (default: 50).",
     )
+    parser.add_argument(
+        "--output-key-prefix",
+        default="",
+        help=(
+            "Optional prefix for the emitted KEY=VALUE lines. "
+            "With ``--output-key-prefix=debian`` the keys become "
+            "``debian_total`` and ``debian_groups``."
+        ),
+    )
     args = parser.parse_args(argv)
 
     list_path = _resolve_list_path(args.list)
     count = _load_package_count(list_path)
     total, groups = compute_plan(count, args.group_size)
 
-    print(f"total={total}")
-    print(f"groups={json.dumps(groups)}")
+    prefix = f"{args.output_key_prefix}_" if args.output_key_prefix else ""
+    print(f"{prefix}total={total}")
+    print(f"{prefix}groups={json.dumps(groups)}")
     # Stderr summary for the CI log (won't pollute $GITHUB_OUTPUT).
     print(
         f"[plan-shards] list={list_path} packages={count} "
-        f"group_size={args.group_size} shards={total}",
+        f"group_size={args.group_size} shards={total}"
+        + (f" prefix={args.output_key_prefix}" if prefix else ""),
         file=sys.stderr,
     )
     return 0
