@@ -8,6 +8,7 @@ import unittest
 from src.graph import (
     _inject_go_flag,
     _inject_go_output,
+    _is_go_build_command,
     _is_suspected_oom,
     _replan_signature,
     _resolve_header_to_packages,
@@ -325,6 +326,71 @@ class TestPredictBuildIssues(unittest.TestCase):
         state.context_cache["missing_tools"] = ["protoc"]
         preds = predict_build_issues(state)
         self.assertTrue(any(p["pattern"] == "missing_tools" for p in preds))
+
+    def test_cargo_build_not_flagged_as_go_vcs(self) -> None:
+        """Regression: substring 'go build' must not match 'cargo build'."""
+        state = create_initial_state("https://x/y.git")
+        state.build_plan = _plan("cargo build --release")
+        preds = predict_build_issues(state)
+        self.assertFalse(
+            any(p["issue"] == "Go VCS ownership error" for p in preds)
+        )
+
+    def test_apk_add_cargo_build_base_not_flagged_as_go_vcs(self) -> None:
+        """Regression: 'cargo build-base' (alpine pkg) is not a go build."""
+        state = create_initial_state("https://x/y.git")
+        state.build_plan = _plan("apk add --no-cache rust cargo build-base")
+        preds = predict_build_issues(state)
+        self.assertFalse(
+            any(p["issue"] == "Go VCS ownership error" for p in preds)
+        )
+
+
+class TestIsGoBuildCommand(unittest.TestCase):
+    """Regression tests pinning the word-boundary go-build detector.
+
+    The previous implementation used substring checks like
+    `"go build" in cmd`, which falsely matched `cargo build` (at index 3)
+    and the alpine package list `apk add ... cargo build-base`. Downstream
+    code then mangled those commands (e.g. injecting `-buildvcs=false`
+    into apk arguments), which is what caused the dalfox build failures.
+    """
+
+    def test_matches_plain_go_build(self) -> None:
+        """Test matches plain go build."""
+        self.assertTrue(_is_go_build_command("go build ."))
+
+    def test_matches_go_build_with_flags(self) -> None:
+        """Test matches go build with flags."""
+        self.assertTrue(_is_go_build_command("go build -v ./cmd/foo"))
+
+    def test_matches_go_install(self) -> None:
+        """Test matches go install."""
+        self.assertTrue(_is_go_build_command("go install ./..."))
+
+    def test_matches_go_build_after_env(self) -> None:
+        """Test env-prefixed go build is still detected."""
+        self.assertTrue(
+            _is_go_build_command("env GOMAXPROCS=1 go build -p 1 ./...")
+        )
+
+    def test_does_not_match_cargo_build(self) -> None:
+        """Test does not match cargo build."""
+        self.assertFalse(_is_go_build_command("cargo build --release"))
+
+    def test_does_not_match_apk_cargo_build_base(self) -> None:
+        """Test does not match 'apk add ... cargo build-base'."""
+        self.assertFalse(
+            _is_go_build_command("apk add --no-cache rust cargo build-base")
+        )
+
+    def test_does_not_match_hyphenated_token(self) -> None:
+        """Test does not match 'do go-build' (hyphenated, not a go command)."""
+        self.assertFalse(_is_go_build_command("do go-build"))
+
+    def test_does_not_match_empty(self) -> None:
+        """Test empty / non-string inputs return False."""
+        self.assertFalse(_is_go_build_command(""))
 
 
 class TestToolchainMismatchDetection(unittest.TestCase):

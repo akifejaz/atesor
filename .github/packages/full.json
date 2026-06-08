@@ -46,7 +46,6 @@
     { "name": "certgraph",               "url": "https://github.com/lanrat/certgraph",                        "lang": "go", "group": "go-security",      "tags": ["security"] },
     { "name": "certspotter",             "url": "https://github.com/SSLMate/certspotter",                     "lang": "go", "group": "go-security",      "tags": ["security"] },
     { "name": "cfspeed",                 "url": "https://github.com/makotom/cfspeed",                         "lang": "go", "group": "go-security",      "tags": ["network"] },
-    { "name": "cftun",                   "url": "https://github.com/fmnx/cftun",                              "lang": "go", "group": "go-security",      "tags": ["network"] },
     { "name": "cheat",                   "url": "https://github.com/cheat/cheat",                             "lang": "go", "group": "go-security",      "tags": ["cli"] },
     { "name": "cleed",                   "url": "https://github.com/radulucut/cleed",                         "lang": "go", "group": "go-security",      "tags": ["cli"] },
     { "name": "cli53",                   "url": "https://github.com/barnybug/cli53",                          "lang": "go", "group": "go-security",      "tags": ["dns"] },
