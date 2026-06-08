@@ -26,6 +26,7 @@ def _load(rel_path: str, name: str):
 
 plan_shards = _load(".github/scripts/plan-shards.py", "plan_shards")
 batch_test = _load(".github/scripts/batch_test.py", "batch_test_mod")
+missing_pkgs = _load(".github/scripts/missing-pkgs.py", "missing_pkgs_mod")
 
 
 class TestComputePlan(unittest.TestCase):
@@ -108,3 +109,50 @@ class TestApplyShard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMissingPkgsApplyShard(unittest.TestCase):
+    """missing-pkgs._apply_shard must match batch_test._apply_shard.
+
+    The retry workflow uses missing-pkgs to figure out which packages
+    a single (platform, shard) job should re-run. Its chunking MUST
+    match the main run's chunking exactly — otherwise the retry would
+    re-run packages from the wrong shard.
+    """
+
+    def _names(self, n: int) -> list[str]:
+        return [f"pkg{i}" for i in range(n)]
+
+    def test_matches_batch_test_apply_shard(self) -> None:
+        # Cross-check both implementations across a grid of sizes.
+        for n in [0, 1, 7, 50, 100, 172, 173]:
+            for total in [1, 2, 3, 4, 7]:
+                for idx in range(total):
+                    with self.subTest(n=n, total=total, idx=idx):
+                        names = self._names(n)
+                        pairs = [(name, "url") for name in names]
+                        bt = [
+                            name for name, _ in batch_test._apply_shard(
+                                pairs, idx, total
+                            )
+                        ]
+                        mp = missing_pkgs._apply_shard(names, idx, total)
+                        self.assertEqual(mp, bt)
+
+    def test_total_one_returns_full_list(self) -> None:
+        names = self._names(10)
+        self.assertEqual(
+            missing_pkgs._apply_shard(names, 0, 1), names,
+        )
+
+    def test_partitions_cover_every_name_exactly_once(self) -> None:
+        for n in [0, 1, 50, 173]:
+            for total in [1, 2, 4]:
+                names = self._names(n)
+                with self.subTest(n=n, total=total):
+                    rebuilt: list[str] = []
+                    for i in range(total):
+                        rebuilt.extend(
+                            missing_pkgs._apply_shard(names, i, total)
+                        )
+                    self.assertEqual(rebuilt, names)
