@@ -1,0 +1,570 @@
+name: batch-port-retry
+
+# Runs after the main `ATESOR AI Batch Porting Tests` workflow completes
+# and re-tries the packages that failed in that run. "Failed" = no
+# `<repo>-*-<platform>.zip` was produced for that package by the main
+# run's job(s).
+
+
+on:
+  workflow_run:
+    workflows: ["ATESOR AI Batch Porting Tests"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      main_run_id:
+        description: "Main batch-port run ID whose artifacts to retry from. Required for manual runs."
+        type: string
+        required: true
+      group_size:
+        description: "Packages per shard for the full-list retry (must match the main run for shard parity)."
+        type: string
+        required: false
+        default: "50"
+
+permissions:
+  contents: write   # publish assets to the monthly release
+  actions: read     # download artifacts from the triggering run
+
+env:
+  PYTHON_VERSION: "3.11"
+  PYTHONUNBUFFERED: "1"
+  # SHA of the main run we are retrying for, so all 4 jobs agree on parity.
+  MAIN_RUN_ID: >-
+    ${{ github.event.workflow_run.id || github.event.inputs.main_run_id }}
+  MAIN_HEAD_SHA: >-
+    ${{ github.event.workflow_run.head_sha || github.sha }}
+
+concurrency:
+  # Serialize per main-run to avoid two retry runs racing the same
+  # monthly tag (release create/upload are not strictly atomic).
+  group: batch-port-retry-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  # retry-smoke (matrix: platform)
+  #
+  # Smoke list is small and the main smoke job is unsharded, so the
+  # retry is also unsharded — one job per platform.
+  # ------------------------------------------------------------------------- #
+  retry-smoke:
+    name: retry-${{ matrix.platform }}-smoke
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event != 'pull_request'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [debian, alpine]
+    env:
+      ATESOR_PLATFORM: ${{ matrix.platform }}
+      LIST: smoke
+      ARTIFACT_GLOB: ${{ matrix.platform }}-smoke-logs-*
+    steps:
+      - name: Checkout main run's SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAIN_HEAD_SHA }}
+
+      - name: Download main run's artifact
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.ARTIFACT_GLOB }}
+          path: _main_artifact
+          merge-multiple: true
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Compute missing packages
+        id: missing
+        run: |
+          set -euo pipefail
+          src_dir="_main_artifact/workspace/packages"
+          mkdir -p workspace/packages
+          if [[ -d "$src_dir" ]]; then
+            cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
+          fi
+
+          missing="$(python3 .github/scripts/missing-pkgs.py \
+              --list .github/packages/${LIST}.json \
+              --packages-dir workspace/packages \
+              --platform "$ATESOR_PLATFORM" \
+              --format space)"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [[ -z "$missing" ]]; then
+            echo "::notice::No missing packages for ${ATESOR_PLATFORM}-${LIST}; skipping retry."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            count=$(echo "$missing" | wc -w)
+            echo "::notice::Retrying $count package(s) for ${ATESOR_PLATFORM}-${LIST}: $missing"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable riscv64 emulation
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python
+        if: steps.missing.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        if: steps.missing.outputs.skip == 'false'
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        if: steps.missing.outputs.skip == 'false'
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Pull prebuilt sandbox image
+        if: steps.missing.outputs.skip == 'false'
+        env:
+          PREBUILT_IMAGE: cloudv10x/atesor-sandbox:${{ matrix.platform }}-latest
+          LOCAL_IMAGE: >-
+            ${{ matrix.platform == 'debian' && 'atesor-ai-sandbox-debian:latest' || 'atesor-ai-sandbox:latest' }}
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
+
+      - name: Provision sandbox
+        if: steps.missing.outputs.skip == 'false'
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Re-run failed packages
+        if: steps.missing.outputs.skip == 'false'
+        env:
+          MISSING: ${{ steps.missing.outputs.missing }}
+        run: |
+          # Pre-seeded workspace/packages already contains the main
+          # run's zips for this platform/list; batch_test only runs
+          # packages explicitly named via positional args, so it won't
+          # rebuild what already succeeded.
+          # shellcheck disable=SC2086  -- intentional word-splitting
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers 2 \
+            --package \
+            $MISSING
+
+      - name: Publish zip artifacts to monthly release
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: retry-${{ matrix.platform }}-${{ env.LIST }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload retry logs
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-${{ matrix.platform }}-${{ env.LIST }}-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # plan-retry-full
+  #
+  # Recompute the shard plan from the SAME per-platform "remaining"
+  # set the main run used. We download the `remaining-pkgs` artifact
+  # uploaded by the main run's `plan-full` job, then run
+  # `plan-shards.py` once per platform against the platform-specific
+  # remaining JSON — so retry shards line up 1:1 with main shards.
+  # ------------------------------------------------------------------------- #
+  plan-retry-full:
+    name: plan-retry-full
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event != 'pull_request'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      debian_groups: ${{ steps.plan.outputs.debian_groups }}
+      debian_total:  ${{ steps.plan.outputs.debian_total }}
+      alpine_groups: ${{ steps.plan.outputs.alpine_groups }}
+      alpine_total:  ${{ steps.plan.outputs.alpine_total }}
+    env:
+      GROUP_SIZE: ${{ github.event.inputs.group_size || '50' }}
+    steps:
+      - name: Checkout main run's SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAIN_HEAD_SHA }}
+
+      - name: Download remaining-pkgs plan from main run
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - id: plan
+        name: Compute per-platform retry shard plan
+        run: |
+          set -euo pipefail
+          for platform in debian alpine; do
+            f="remaining/remaining-${platform}.json"
+            if [[ ! -s "$f" ]]; then
+              # No artifact (or empty) -> nothing to retry for this platform.
+              echo "::warning::Missing $f from main run; retry-full will be skipped for ${platform}."
+              echo "${platform}_total=0" >> "$GITHUB_OUTPUT"
+              echo "${platform}_groups=[]" >> "$GITHUB_OUTPUT"
+              continue
+            fi
+            python3 .github/scripts/plan-shards.py \
+              --list "$f" \
+              --group-size "$GROUP_SIZE" \
+              --output-key-prefix "$platform" \
+              >> "$GITHUB_OUTPUT"
+          done
+
+  # ------------------------------------------------------------------------- #
+  # retry-debian-full / retry-alpine-full  (matrix: shard)
+  #
+  # Mirrors the main workflow's atesor-{platform}-full layout: one job
+  # per platform, each independently sharded according to its own
+  # remaining set (so debian's and alpine's shard counts can differ).
+  #
+  # Each shard:
+  #   1. Pulls EVERY full-list zip the main run produced for its
+  #      platform (across all shards) into workspace/packages.
+  #   2. Downloads the per-platform "remaining" plan from the main
+  #      run, slices it to ITS shard via missing-pkgs.py
+  #      --shard-index/--shard-total, and treats that slice as the
+  #      declared set.
+  #   3. Computes missing = (this shard's expected) - (built by main).
+  #   4. Re-runs only those packages and publishes via release-zips.
+  # ------------------------------------------------------------------------- #
+  retry-debian-full:
+    name: retry-debian-full (shard ${{ matrix.shard }}/${{ needs.plan-retry-full.outputs.debian_total }})
+    needs: plan-retry-full
+    if: >-
+      needs.plan-retry-full.outputs.debian_total != '0' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.conclusion != 'cancelled' &&
+          github.event.workflow_run.event != 'pull_request'
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan-retry-full.outputs.debian_groups) }}
+    env:
+      ATESOR_PLATFORM: debian
+      LIST: full
+      ARTIFACT_GLOB: debian-full-logs-*
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ needs.plan-retry-full.outputs.debian_total }}
+    steps:
+      - name: Checkout main run's SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAIN_HEAD_SHA }}
+
+      - name: Download main run's artifacts (all shards for this platform)
+        id: download_built
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.ARTIFACT_GLOB }}
+          path: _main_artifact
+          merge-multiple: true
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Download remaining-pkgs plan from main run
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute missing packages for this shard
+        id: missing
+        run: |
+          set -euo pipefail
+          src_dir="_main_artifact/workspace/packages"
+          mkdir -p workspace/packages
+          if [[ -d "$src_dir" ]]; then
+            cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
+          fi
+
+          missing="$(python3 .github/scripts/missing-pkgs.py \
+              --list "remaining/remaining-${ATESOR_PLATFORM}.json" \
+              --packages-dir workspace/packages \
+              --platform "$ATESOR_PLATFORM" \
+              --shard-index "$SHARD_INDEX" \
+              --shard-total "$SHARD_TOTAL" \
+              --format space)"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [[ -z "$missing" ]]; then
+            echo "::notice::No missing packages for ${ATESOR_PLATFORM}-${LIST} shard ${SHARD_INDEX}/${SHARD_TOTAL}; skipping retry."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            count=$(echo "$missing" | wc -w)
+            echo "::notice::Retrying $count package(s) for ${ATESOR_PLATFORM}-${LIST} shard ${SHARD_INDEX}/${SHARD_TOTAL}: $missing"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable riscv64 emulation
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python
+        if: steps.missing.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        if: steps.missing.outputs.skip == 'false'
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        if: steps.missing.outputs.skip == 'false'
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Provision sandbox
+        if: steps.missing.outputs.skip == 'false'
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Re-run failed packages (shard ${{ matrix.shard }})
+        if: steps.missing.outputs.skip == 'false'
+        env:
+          MISSING: ${{ steps.missing.outputs.missing }}
+        run: |
+          # shellcheck disable=SC2086  -- intentional word-splitting
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers 2 \
+            --package \
+            $MISSING
+
+      - name: Publish zip artifacts to monthly release
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: retry-debian-full-shard-${{ matrix.shard }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload retry logs
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-debian-full-logs-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+          if-no-files-found: warn
+          retention-days: 30
+
+  retry-alpine-full:
+    name: retry-alpine-full (shard ${{ matrix.shard }}/${{ needs.plan-retry-full.outputs.alpine_total }})
+    needs: plan-retry-full
+    if: >-
+      needs.plan-retry-full.outputs.alpine_total != '0' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.conclusion != 'cancelled' &&
+          github.event.workflow_run.event != 'pull_request'
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan-retry-full.outputs.alpine_groups) }}
+    env:
+      ATESOR_PLATFORM: alpine
+      LIST: full
+      ARTIFACT_GLOB: alpine-full-logs-*
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ needs.plan-retry-full.outputs.alpine_total }}
+    steps:
+      - name: Checkout main run's SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAIN_HEAD_SHA }}
+
+      - name: Download main run's artifacts (all shards for this platform)
+        id: download_built
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.ARTIFACT_GLOB }}
+          path: _main_artifact
+          merge-multiple: true
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Download remaining-pkgs plan from main run
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+          run-id: ${{ env.MAIN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute missing packages for this shard
+        id: missing
+        run: |
+          set -euo pipefail
+          src_dir="_main_artifact/workspace/packages"
+          mkdir -p workspace/packages
+          if [[ -d "$src_dir" ]]; then
+            cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
+          fi
+
+          missing="$(python3 .github/scripts/missing-pkgs.py \
+              --list "remaining/remaining-${ATESOR_PLATFORM}.json" \
+              --packages-dir workspace/packages \
+              --platform "$ATESOR_PLATFORM" \
+              --shard-index "$SHARD_INDEX" \
+              --shard-total "$SHARD_TOTAL" \
+              --format space)"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [[ -z "$missing" ]]; then
+            echo "::notice::No missing packages for ${ATESOR_PLATFORM}-${LIST} shard ${SHARD_INDEX}/${SHARD_TOTAL}; skipping retry."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            count=$(echo "$missing" | wc -w)
+            echo "::notice::Retrying $count package(s) for ${ATESOR_PLATFORM}-${LIST} shard ${SHARD_INDEX}/${SHARD_TOTAL}: $missing"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable riscv64 emulation
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Set up Docker Buildx
+        if: steps.missing.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Python
+        if: steps.missing.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        if: steps.missing.outputs.skip == 'false'
+        run: pip install -r requirements.txt
+
+      - name: Write .env from secrets
+        if: steps.missing.outputs.skip == 'false'
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+
+      - name: Provision sandbox
+        if: steps.missing.outputs.skip == 'false'
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+
+      - name: Re-run failed packages (shard ${{ matrix.shard }})
+        if: steps.missing.outputs.skip == 'false'
+        env:
+          MISSING: ${{ steps.missing.outputs.missing }}
+        run: |
+          # shellcheck disable=SC2086  -- intentional word-splitting
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers 2 \
+            --package \
+            $MISSING
+
+      - name: Publish zip artifacts to monthly release
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: retry-alpine-full-shard-${{ matrix.shard }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload retry logs
+        if: always() && steps.missing.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-alpine-full-logs-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+          if-no-files-found: warn
+          retention-days: 30

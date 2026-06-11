@@ -1790,6 +1790,19 @@ def _inject_go_flag(command: str, flag: str) -> str:
     )
 
 
+# Word-boundary matcher for genuine Go build/install invocations. Required
+# because substring checks like `"go build" in cmd` wrongly match
+# `cargo build`, `apk add ... cargo build-base`, `dotnet go build-server`,
+# etc. — and the downstream optimizations (e.g. `command.replace("go build",
+# "go build -buildvcs=false")`) then mangle those unrelated commands.
+_GO_BUILD_RE = re.compile(r"\bgo\s+(?:build|install)\b")
+
+
+def _is_go_build_command(command: str) -> bool:
+    """True iff ``command`` actually invokes ``go build`` or ``go install``."""
+    return bool(_GO_BUILD_RE.search(command))
+
+
 def _inject_go_output(command: str, output_path: str) -> str:
     """Inject `-o <path>` into Go build/install commands."""
     if re.search(r"\b-o\s+\S+", command):
@@ -2010,11 +2023,11 @@ def builder_node(state: AgentState) -> AgentState:
             for pred in predictions:
                 if (
                     pred["pattern"] == "dubious ownership"
-                    and "go build" in command
+                    and _is_go_build_command(command)
                 ):
                     if "-buildvcs=false" not in command:
-                        optimized_cmd = command.replace(
-                            "go build", "go build -buildvcs=false"
+                        optimized_cmd = _inject_go_flag(
+                            command, "-buildvcs=false"
                         )
                         logger.info(
                             f"Proactively optimized command: {optimized_cmd}"
@@ -2056,10 +2069,7 @@ def builder_node(state: AgentState) -> AgentState:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error: {result.stderr[:500]}")
 
-                is_go_build = (
-                    "go build" in optimized_cmd
-                    or "go install" in optimized_cmd
-                )
+                is_go_build = _is_go_build_command(optimized_cmd)
                 is_vcs_error = any(
                     pattern in result.stderr
                     for pattern in [
@@ -3489,7 +3499,7 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
 
     for phase in state.build_plan.phases:
         for cmd in phase.commands:
-            if "go build" in cmd and "-buildvcs=false" not in cmd:
+            if _is_go_build_command(cmd) and "-buildvcs=false" not in cmd:
                 predictions.append(
                     {
                         "phase": phase.name,

@@ -82,6 +82,14 @@ def get_logs_dir() -> str:
     return logs_dir
 
 
+def get_packages_dir() -> str:
+    """Get packages directory path (zip artifacts of successful builds)."""
+    workspace = get_workspace_root()
+    packages_dir = os.path.join(workspace, "packages")
+    os.makedirs(packages_dir, exist_ok=True)
+    return packages_dir
+
+
 # Global configuration
 _IN_DOCKER = is_running_in_docker()
 WORKSPACE_ROOT = get_workspace_root()
@@ -89,6 +97,7 @@ OUTPUT_DIR = get_output_dir()
 REPOS_DIR = get_repos_dir()
 CACHE_DIR = get_cache_dir()
 LOGS_DIR = get_logs_dir()
+PACKAGES_DIR = get_packages_dir()
 
 # Docker Configuration
 CONTAINER_NAME = "atesor-ai-sandbox"
@@ -111,11 +120,13 @@ __all__ = [
     "get_repos_dir",
     "get_cache_dir",
     "get_logs_dir",
+    "get_packages_dir",
     "WORKSPACE_ROOT",
     "OUTPUT_DIR",
     "REPOS_DIR",
     "CACHE_DIR",
     "LOGS_DIR",
+    "PACKAGES_DIR",
     "print_config",
     "CONTAINER_NAME",
     "IMAGE_NAME",
