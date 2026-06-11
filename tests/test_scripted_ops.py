@@ -285,8 +285,7 @@ class TestPathTranslation:
     """Tests for PathTranslation."""
 
     def test_to_host_path_translates_workspace(self) -> None:
-        """Test to host path translates workspace."""
-
+        """Translate a /workspace path to the host root outside Docker."""
         ops = ScriptedOperations()
         # /workspace/repos/foo -> {WORKSPACE_ROOT}/repos/foo on host
         out = ops._to_host_path("/workspace/repos/foo")

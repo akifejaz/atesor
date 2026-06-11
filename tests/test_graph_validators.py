@@ -463,25 +463,30 @@ class TestSerializeBuildCommand(unittest.TestCase):
     """Tests for the OOM serialized-build rewriter."""
 
     def test_go_build_serialized(self) -> None:
+        """Go build commands are serialized with env and -p limits."""
         out = _serialize_build_command("go build ./cmd/x")
         self.assertIn("GOMAXPROCS=1", out)
         self.assertIn("-p 1", out)
 
     def test_go_build_preserves_cd_prefix(self) -> None:
+        """Serialized go builds keep the leading cd command."""
         out = _serialize_build_command("cd sub && go build ./cmd/x")
         self.assertTrue(out.startswith("cd sub && env GOMAXPROCS=1 go build"))
 
     def test_make_serialized(self) -> None:
+        """Make commands replace nproc parallelism with -j1."""
         out = _serialize_build_command("cd build && make -j$(nproc)")
         self.assertIn("-j1", out)
         self.assertNotIn("nproc", out)
         self.assertTrue(out.startswith("cd build &&"))
 
     def test_plain_make_gets_j1(self) -> None:
+        """Plain make commands gain a -j1 serialization flag."""
         out = _serialize_build_command("make")
         self.assertIn("make -j1", out)
 
     def test_cmake_not_mistaken_for_make(self) -> None:
+        """Build commands using cmake are not rewritten as make."""
         out = _serialize_build_command("cmake --build build")
         self.assertEqual(out, "cmake --build build")
 
@@ -490,21 +495,25 @@ class TestSuspectedOOM(unittest.TestCase):
     """Tests for the suspected-OOM detector."""
 
     def test_exit_137_go(self) -> None:
+        """Exit 137 from a go build is treated as suspected OOM."""
         self.assertTrue(
             _is_suspected_oom(_Res(137, "", "", False), "go build ./x")
         )
 
     def test_empty_output_build(self) -> None:
+        """Failed go builds with empty output are treated as OOM."""
         self.assertTrue(
             _is_suspected_oom(_Res(1, "", "", False), "go build ./x")
         )
 
     def test_real_error_not_oom(self) -> None:
+        """Go build failures with stderr are not suspected OOM."""
         self.assertFalse(
             _is_suspected_oom(_Res(1, "", "boom", False), "go build ./x")
         )
 
     def test_non_build_command_not_oom(self) -> None:
+        """Non-build commands are not treated as suspected OOM."""
         self.assertFalse(
             _is_suspected_oom(_Res(137, "", "", False), "git clone x")
         )
@@ -514,6 +523,7 @@ class TestHeaderResolution(unittest.TestCase):
     """Tests for header->package resolution."""
 
     def test_png_header_resolves(self) -> None:
+        """Missing png.h resolves to the Alpine libpng package."""
         from src.platforms import ALPINE_RISCV
 
         pkgs = _resolve_header_to_packages(
@@ -522,6 +532,7 @@ class TestHeaderResolution(unittest.TestCase):
         self.assertEqual(pkgs, ["libpng-dev"])
 
     def test_nested_ogg_header_resolves(self) -> None:
+        """Nested ogg headers resolve to the Debian libogg package."""
         from src.platforms import DEBIAN_RISCV
 
         pkgs = _resolve_header_to_packages(
@@ -530,6 +541,7 @@ class TestHeaderResolution(unittest.TestCase):
         self.assertEqual(pkgs, ["libogg-dev"])
 
     def test_unknown_header_not_guessed(self) -> None:
+        """Unknown headers do not produce guessed package names."""
         from src.platforms import ALPINE_RISCV
 
         pkgs = _resolve_header_to_packages(
@@ -542,24 +554,28 @@ class TestPythonModuleResolution(unittest.TestCase):
     """Tests for missing-Python-module resolution."""
 
     def test_jinja2_module(self) -> None:
+        """Missing jinja2 modules resolve to the jinja2 package."""
         pkgs = _resolve_missing_python_modules(
             "ModuleNotFoundError: No module named 'jinja2'"
         )
         self.assertEqual(pkgs, ["jinja2"])
 
     def test_yaml_maps_to_pyyaml(self) -> None:
+        """Missing yaml modules resolve to the pyyaml package."""
         pkgs = _resolve_missing_python_modules(
             "ModuleNotFoundError: No module named 'yaml'"
         )
         self.assertEqual(pkgs, ["pyyaml"])
 
     def test_dotted_module_uses_top_level(self) -> None:
+        """Dotted module errors resolve by top-level module name."""
         pkgs = _resolve_missing_python_modules(
             "No module named 'google.protobuf'"
         )
         self.assertEqual(pkgs, ["protobuf"])
 
     def test_no_module_error(self) -> None:
+        """Errors without module names produce no Python packages."""
         self.assertEqual(_resolve_missing_python_modules("some error"), [])
 
 

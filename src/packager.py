@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Package a successfully ported repository as a downloadable zip.
 
 Layout produced::
@@ -86,18 +97,14 @@ def _add_repo_tree(
             abs_p = os.path.join(root, fname)
             if os.path.islink(abs_p):
                 symlinks_skipped += 1
-                logger.warning(
-                    "Skipping symlink in package: %s", abs_p
-                )
+                logger.warning("Skipping symlink in package: %s", abs_p)
                 continue
             try:
                 rel_p = os.path.relpath(abs_p, start=repo_path)
                 zf.write(abs_p, arcname=os.path.join(arc_root, rel_p))
                 files_added += 1
             except (OSError, ValueError) as exc:
-                logger.warning(
-                    "Skipping unreadable file %s: %s", abs_p, exc
-                )
+                logger.warning("Skipping unreadable file %s: %s", abs_p, exc)
 
     return files_added, symlinks_skipped
 
@@ -178,9 +185,7 @@ def package_build(
             )
     if agent_log_path:
         if os.path.isfile(agent_log_path):
-            logs_to_add.append(
-                (agent_log_path, f"agent_{repo_name}.log")
-            )
+            logs_to_add.append((agent_log_path, f"agent_{repo_name}.log"))
         else:
             logger.warning(
                 "Agent log not found, omitting from package: %s",

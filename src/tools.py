@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Low-level utilities for command execution and file I/O.
 
 Provides Docker-aware file and command operations together with
@@ -174,8 +185,7 @@ class CommandValidator:
     }
 
     def is_safe(self, command: str) -> Tuple[bool, str]:
-        """
-        Check if a command is safe to execute.
+        """Check if a command is safe to execute.
 
         Returns:
             (is_safe, reason)
@@ -683,8 +693,7 @@ def _strip_bundled_toolchain_packages(command: str) -> str:
 def read_file(
     filepath: str, max_lines: int = 1000, use_docker: bool = True
 ) -> str:
-    """
-    Read file content with line limit.
+    """Read file content with line limit.
 
     Args:
         filepath: Path to file (inside container if use_docker=True)
@@ -726,8 +735,7 @@ def read_file(
 
 
 def write_file(filepath: str, content: str, use_docker: bool = True) -> bool:
-    """
-    Write content to file.
+    """Write content to file.
 
     Args:
         filepath: Path to file
@@ -765,8 +773,7 @@ def write_file(filepath: str, content: str, use_docker: bool = True) -> bool:
 
 
 def file_exists(filepath: str, use_docker: bool = True) -> bool:
-    """
-    Check if file exists.
+    """Check if file exists.
 
     Args:
         filepath: Path to file
@@ -830,7 +837,7 @@ def _convert_codex_envelope_to_unified_diff(
     current_op: Optional[str] = None  # "update" | "add" | "delete"
     body: list[str] = []
 
-    def flush():
+    def flush() -> None:
         nonlocal body
         if not current_path or current_op is None:
             body = []
@@ -916,8 +923,7 @@ def apply_patch(
     cwd: Optional[str] = None,
     use_docker: bool = True,
 ) -> bool:
-    """
-    Apply a patch to one or more files.
+    """Apply a patch to one or more files.
 
     Args:
         patch_content: Unified diff or content to append.

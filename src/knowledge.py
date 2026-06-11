@@ -1,5 +1,15 @@
-"""
-Static knowledge base for RISC-V porting.
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
+"""Static knowledge base for RISC-V porting.
 
 Distro-specific bits (package names, install commands, libc-specific
 errors) live in `src.platforms.PlatformProfile`. This module covers the

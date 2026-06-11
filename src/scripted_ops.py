@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Deterministic, non-LLM repository analysis operations.
 
 Handles repository cloning, build system detection, and dependency
@@ -534,7 +545,7 @@ class ScriptedOperations:
             # root > other.
             repo_basename = os.path.basename(repo_path).lower()
 
-            def score_main(m):
+            def score_main(m: dict) -> int:
                 d = m["dir"].lower()
                 # Hard-penalize codegen helpers, contrib utilities,
                 # examples, and tests.
@@ -870,9 +881,7 @@ class ScriptedOperations:
         )
         go_result = execute_command(go_cmd, use_docker=True)
         if go_result.success and go_result.stdout.strip() != "0":
-            sections.append(
-                f"- Go source files: {go_result.stdout.strip()}\n"
-            )
+            sections.append(f"- Go source files: {go_result.stdout.strip()}\n")
 
         rs_cmd = (
             f"find {target_path} -maxdepth 3 -type f "

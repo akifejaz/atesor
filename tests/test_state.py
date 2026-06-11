@@ -308,7 +308,8 @@ class TestClassifyError(unittest.TestCase):
         ),
         (
             "CMake Error: The source directory "
-            '"/workspace/repos/foo" does not appear to contain CMakeLists.txt.',
+            '"/workspace/repos/foo" does not appear to '
+            "contain CMakeLists.txt.",
             ErrorCategory.CONFIGURATION,
         ),
         ("unrecognized option '--with-foo'", ErrorCategory.CONFIGURATION),

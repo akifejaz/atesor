@@ -21,7 +21,12 @@ from termcolor import colored
 # provider configuration is available at import time.
 load_dotenv()
 
-from src.config import LOGS_DIR, OUTPUT_DIR, PACKAGES_DIR, REPOS_DIR  # noqa: E402
+from src.config import (  # noqa: E402
+    LOGS_DIR,
+    OUTPUT_DIR,
+    PACKAGES_DIR,
+    REPOS_DIR,
+)
 from src.models import check_api_keys, print_model_info  # noqa: E402
 from src.state import AgentState  # noqa: E402
 
@@ -166,8 +171,7 @@ def _ensure_riscv64_binfmt() -> bool:
 
 
 def setup_docker_environment() -> bool:
-    """
-    Set up the Docker environment for RISC-V development.
+    """Set up the Docker environment for RISC-V development.
 
     Image / container / Dockerfile are selected based on the active platform
     profile (Alpine or Debian). A self-check confirms the running container's
@@ -772,8 +776,7 @@ def run_agent(
     verbose: bool = False,
     package: bool = False,
 ) -> int:
-    """
-    Run the RISC-V porting agent on a repository.
+    """Run the RISC-V porting agent on a repository.
 
     Args:
         repo_url: The GitHub/GitLab repository URL
@@ -988,11 +991,7 @@ def run_agent(
                     )
                     return 2
                 logger.info(f"Package generated at: {zip_path}")
-                print(
-                    colored(
-                        f"   Package generated at: {zip_path}", "white"
-                    )
-                )
+                print(colored(f"   Package generated at: {zip_path}", "white"))
 
             return 0
         else:

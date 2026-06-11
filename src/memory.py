@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Agent memory system for few-shot and self-learning.
 
 Provides few-shot learning and self-learning for the multi-agent
@@ -118,9 +129,7 @@ class AgentExample:
             elif atype == "patch":
                 actions_text += f"\n  - patch: {action.get('file', 'repo')}"
 
-        strategy = fix_data.get(
-            "strategy", fix_data.get("analysis", "N/A")
-        )
+        strategy = fix_data.get("strategy", fix_data.get("analysis", "N/A"))
         return (
             f"## {self.name}\n"
             f"Error: {error_msg}\n"
@@ -199,9 +208,7 @@ class AgentMemory:
         self.agent_type = agent_type
         self.examples_dir = examples_dir
         self.examples: List[AgentExample] = []
-        self._filepath = (
-            self.examples_dir / f"{self.agent_type}_examples.json"
-        )
+        self._filepath = self.examples_dir / f"{self.agent_type}_examples.json"
         self._load_examples()
 
     def reload(self) -> None:
@@ -228,9 +235,7 @@ class AgentMemory:
                 f"{self.agent_type}"
             )
         except Exception as e:
-            logger.error(
-                f"Failed to load examples for {self.agent_type}: {e}"
-            )
+            logger.error(f"Failed to load examples for {self.agent_type}: {e}")
 
     def _parse_example(self, ex_data: Dict[str, Any]) -> AgentExample:
         """Parse one example dict, handling both formats."""
@@ -420,9 +425,7 @@ class AgentMemory:
         if not example_data.get("name") or not example_data.get(
             "build_system"
         ):
-            logger.warning(
-                "Cannot save example: missing name or build_system"
-            )
+            logger.warning("Cannot save example: missing name or build_system")
             return False
 
         if self._is_duplicate(example_data):
@@ -643,12 +646,12 @@ def get_cached_recipe(
     architecture: str = "riscv64",
     sandbox: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Look up a cached recipe for a package, scoped to a sandbox (distro+arch).
+    """Look up a cached recipe for a package within a sandbox.
 
-    Falls back to the active platform's sandbox when `sandbox` is None. Returns
-    None if no recipe exists for that combination — even if a recipe exists for
-    a different sandbox (apk vs apt commands are not interchangeable).
+    A sandbox is a distro+arch combination. Falls back to the active
+    platform's sandbox when `sandbox` is None. Returns None if no recipe
+    exists for that combination — even if one exists for a different
+    sandbox (apk vs apt commands are not interchangeable).
     """
     if sandbox is None:
         sandbox = _default_sandbox()
@@ -778,7 +781,7 @@ def get_agent_memory(agent_type: str) -> AgentMemory:
     return MEMORY_INSTANCES[agent_type]
 
 
-def reload_agent_memory(agent_type: str):
+def reload_agent_memory(agent_type: str) -> None:
     """Force reload an agent's memory (after auto-learning writes)."""
     if agent_type in MEMORY_INSTANCES:
         MEMORY_INSTANCES[agent_type].reload()
