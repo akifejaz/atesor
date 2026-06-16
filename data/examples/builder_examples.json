@@ -218,41 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: speex build execution",
-      "tags": [
-        "autotools",
-        "speex"
-      ],
-      "build_system": "autotools",
-      "repo_name": "speex",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config libogg-dev"
-          ]
-        },
-        {
-          "name": "configure",
-          "commands": [
-            "./configure --disable-dependency-tracking --disable-tests --disable-examples --enable-static --disable-shared"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "make -j$(nproc)"
-          ]
-        }
-      ],
-      "timeout_recommendation": "600s",
-      "reasoning": "Auto-learned build execution from speex.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: opus build execution",
       "tags": [
         "cmake",
@@ -3080,6 +3045,29 @@
       "id": "builder-auto-095",
       "source": "auto",
       "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: anew build execution",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "phases": [
+        {
+          "name": "build",
+          "commands": [
+            "go mod tidy && go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anew.",
+      "id": "builder-auto-095",
+      "source": "auto",
+      "timestamp": "2026-06-05",
       "sandbox": "debian-riscv64"
     }
   ]

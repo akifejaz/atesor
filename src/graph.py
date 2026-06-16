@@ -3330,6 +3330,7 @@ def _save_learning_data(state: AgentState):
                 or state.build_artifacts
                 or [],
                 build_duration_seconds=duration,
+                recipe_markdown=state.porting_recipe or None,
             )
 
         logger.info(f"Auto-learning complete for {repo}")

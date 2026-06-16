@@ -14,7 +14,9 @@ from src.memory import (
     get_agent_memory,
     get_cached_recipe,
     load_recipe_cache,
+    materialize_cached_recipe,
     reload_agent_memory,
+    render_recipe_markdown,
     save_to_recipe_cache,
 )
 
@@ -509,3 +511,87 @@ class TestRecipeCache:
         cached = get_cached_recipe("update-test")
         assert cached["build_duration_seconds"] == 20.0
         assert cached["dependencies"] == ["go"]
+
+
+class TestRecipeMaterialization:
+    """Tests for rendering and writing cached recipes to disk."""
+
+    def test_render_reconstructs_from_structured_data(self) -> None:
+        """Renderer builds Markdown from structured cache fields."""
+        recipe = {
+            "repo_url": "https://github.com/madler/zlib",
+            "build_system": "cmake",
+            "architecture": "riscv64",
+            "sandbox": "alpine-riscv64",
+            "last_built": "2026-05-22T22:57:07",
+            "build_plan": {
+                "phases": [{"name": "build", "commands": ["make -j$(nproc)"]}]
+            },
+            "dependencies": ["cmake"],
+            "patches": ["disabled SIMD"],
+            "artifacts": [
+                {"type": "library_static", "path": "libz.a", "role": "primary"}
+            ],
+        }
+        md = render_recipe_markdown("zlib", recipe)
+        assert "# RISC-V Porting Recipe: zlib" in md
+        assert "make -j$(nproc)" in md
+        assert "cmake" in md
+        assert "disabled SIMD" in md
+        assert "libz.a" in md
+        assert "Reconstructed from the recipe cache" in md
+
+    def test_render_uses_stored_markdown_verbatim(self) -> None:
+        """Stored recipe_markdown is returned without reconstruction."""
+        recipe = {
+            "build_system": "cmake",
+            "recipe_markdown": "# Exact Guide\n\nVerbatim body.\n",
+        }
+        md = render_recipe_markdown("zlib", recipe)
+        assert md == "# Exact Guide\n\nVerbatim body.\n"
+        assert "Reconstructed" not in md
+
+    def test_save_persists_recipe_markdown(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """save_to_recipe_cache stores recipe_markdown when provided."""
+        import src.memory as memory
+
+        cache_file = tmp_path / "recipe_cache.json"
+        cache_file.write_text(json.dumps({"version": "2.0", "packages": {}}))
+        monkeypatch.setattr(memory, "RECIPE_CACHE_PATH", cache_file)
+
+        memory.save_to_recipe_cache(
+            repo_name="mark-pkg",
+            repo_url="https://github.com/test/mark-pkg",
+            build_system="go",
+            build_plan={"phases": []},
+            dependencies=[],
+            patches=[],
+            artifacts=[],
+            build_duration_seconds=1.0,
+            recipe_markdown="# Stored\n",
+        )
+        cached = memory.get_cached_recipe("mark-pkg")
+        assert cached["recipe_markdown"] == "# Stored\n"
+
+    def test_materialize_writes_file(self, tmp_path) -> None:
+        """materialize_cached_recipe writes <repo>_recipe.md to disk."""
+        recipe = {
+            "build_system": "cmake",
+            "build_plan": {
+                "phases": [{"name": "build", "commands": ["cmake .."]}]
+            },
+        }
+        out = materialize_cached_recipe("zlib", str(tmp_path), recipe)
+        assert out is not None
+        written = tmp_path / "zlib_recipe.md"
+        assert written.exists()
+        assert "cmake .." in written.read_text()
+        assert out == str(written.resolve())
+
+    def test_materialize_returns_none_without_recipe(self, tmp_path) -> None:
+        """Materialize returns None when no recipe is available."""
+        out = materialize_cached_recipe("absent-pkg", str(tmp_path), {})
+        assert out is None
+        assert not (tmp_path / "absent-pkg_recipe.md").exists()

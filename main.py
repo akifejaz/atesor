@@ -18,17 +18,40 @@ from dotenv import load_dotenv
 from termcolor import colored
 
 # Load environment variables before importing project modules so that
-# provider configuration is available at import time.
+# provider configuration is available at import time. The current
+# directory is searched first, then standard per-user locations, so an
+# installed CLI finds keys regardless of the working directory.
 load_dotenv()
+_home = os.path.expanduser("~")
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+    _home, ".config"
+)
+_xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.join(
+    _home, ".local", "share"
+)
+_env_candidates = [
+    os.path.join(_xdg_config, "atesor-ai", ".env"),
+    os.path.join(_xdg_data, "atesor-ai", ".env"),
+]
+if os.environ.get("ATESOR_HOME"):
+    _env_candidates.insert(0, os.path.join(os.environ["ATESOR_HOME"], ".env"))
+for _env_path in _env_candidates:
+    load_dotenv(_env_path, override=False)
 
+from src import __version__  # noqa: E402
 from src.config import (  # noqa: E402
     LOGS_DIR,
     OUTPUT_DIR,
     PACKAGES_DIR,
     REPOS_DIR,
+    WORKSPACE_ROOT,
 )
 from src.models import check_api_keys, print_model_info  # noqa: E402
 from src.state import AgentState  # noqa: E402
+
+# Directory holding bundled resources (Dockerfiles, seed data), resolved
+# from the install location so image builds work regardless of the CWD.
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # Configure logging
@@ -260,7 +283,7 @@ def setup_docker_environment() -> bool:
             # Use low-level API to stream build progress so the user
             # sees activity
             build_stream = client.api.build(
-                path=".",
+                path=APP_DIR,
                 dockerfile=dockerfile,
                 tag=image_name,
                 rm=True,
@@ -312,6 +335,31 @@ def setup_docker_environment() -> bool:
             try:
                 try:
                     container = client.containers.get(container_name)
+                    # A container created before the workspace path
+                    # changed (e.g. after install/upgrade) keeps its old
+                    # bind mount and would operate on stale files while the
+                    # host-side checks look at the new location. Recreate it
+                    # when the /workspace source no longer matches.
+                    _expected_ws = os.path.realpath(WORKSPACE_ROOT)
+                    _ws_src = next(
+                        (
+                            m.get("Source")
+                            for m in container.attrs.get("Mounts", [])
+                            if m.get("Destination") == "/workspace"
+                        ),
+                        None,
+                    )
+                    if _ws_src and os.path.realpath(_ws_src) != _expected_ws:
+                        print(
+                            colored(
+                                f"   Container '{container_name}' has a "
+                                f"stale workspace mount ({_ws_src}); "
+                                f"recreating for {_expected_ws}...",
+                                "yellow",
+                            )
+                        )
+                        container.remove(force=True)
+                        raise docker.errors.NotFound("stale workspace mount")
                     if container.status != "running":
                         print(
                             colored(
@@ -346,7 +394,7 @@ def setup_docker_environment() -> bool:
                         network_mode="bridge",
                         dns=["8.8.8.8", "8.8.4.4"],
                         volumes={
-                            os.path.abspath("./workspace"): {
+                            os.path.abspath(WORKSPACE_ROOT): {
                                 "bind": "/workspace",
                                 "mode": "rw",
                             }
@@ -527,7 +575,7 @@ def setup_docker_environment() -> bool:
                     network_mode="bridge",
                     dns=["8.8.8.8", "8.8.4.4"],
                     volumes={
-                        os.path.abspath("./workspace"): {
+                        os.path.abspath(WORKSPACE_ROOT): {
                             "bind": "/workspace",
                             "mode": "rw",
                         }
@@ -1086,7 +1134,7 @@ def cleanup_workspace(dry_run: bool = False) -> None:
     import shutil
     from pathlib import Path
 
-    workspace_path = Path("./workspace")
+    workspace_path = Path(WORKSPACE_ROOT)
     if not workspace_path.exists():
         print(colored("Workspace directory does not exist", "yellow"))
         return
@@ -1276,18 +1324,25 @@ def rebuild_all_sandboxes() -> bool:
 def main() -> None:
     """Run the CLI entry point and start the porting workflow."""
     parser = argparse.ArgumentParser(
+        prog="atesor-ai",
         description="ATESOR AI - Automated software porting agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "\n"
             "Examples:\n"
-            "  python main.py --repo https://github.com/madler/zlib\n"
-            "  python main.py --repo "
+            "  atesor-ai --repo https://github.com/madler/zlib\n"
+            "  atesor-ai --repo "
             "https://github.com/sqlite/sqlite "
             "--max-attempts 10 --verbose\n"
-            "  python main.py --cleanup\n"
+            "  atesor-ai --cleanup\n"
             "        "
         ),
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"atesor-ai {__version__}",
     )
 
     parser.add_argument(
@@ -1460,7 +1515,7 @@ def main() -> None:
 
     # Check recipe cache (skip with --force)
     if not args.force:
-        from src.memory import get_cached_recipe
+        from src.memory import get_cached_recipe, materialize_cached_recipe
 
         repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
         cached = get_cached_recipe(repo_name)
@@ -1483,11 +1538,21 @@ def main() -> None:
                     f"  Last built: {cached.get('last_built', '?')}", "white"
                 )
             )
-            print(
-                colored(
-                    f"  Recipe file: {cached.get('recipe_file', '?')}", "white"
-                )
+            # Materialize the recipe into the output dir so the user has a
+            # real file to open, regenerated from the cache on every hit.
+            recipe_path = materialize_cached_recipe(
+                repo_name, OUTPUT_DIR, cached
             )
+            if recipe_path:
+                print(colored(f"  Recipe written to: {recipe_path}", "white"))
+            else:
+                print(
+                    colored(
+                        "  Recipe file: (failed to write — check "
+                        "permissions)",
+                        "yellow",
+                    )
+                )
             print(
                 colored("  Use --force to re-run the full pipeline.", "yellow")
             )
