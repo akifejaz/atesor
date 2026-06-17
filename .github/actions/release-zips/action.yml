@@ -1,0 +1,123 @@
+name: release-zips
+description: |
+  Publish all `*.zip` files in a given directory as assets of the current
+  monthly release. Tag format: `builds-YYYY-MM`. Idempotent: the release is
+  created on first use of the month and reused thereafter.
+
+  Per-package, per-platform dedupe: before uploading, any existing asset
+  matching `<package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip` for the same
+  `<package>` and `<platform>` is deleted from the release, so each
+  (package, platform) keeps exactly one asset (the newest). Different
+  platforms (e.g. `foo-*-alpine.zip` vs `foo-*-debian.zip`) are independent.
+
+  This action is intentionally a no-op when the source directory is empty
+  or missing, so it can be wired with `if: always()` after a batch step
+  whose exit code reflects partial failures.
+
+inputs:
+  packages_dir:
+    description: "Directory containing the .zip files to publish."
+    required: false
+    default: workspace/packages
+  scope:
+    description: |
+      Short label appended to the release notes for traceability
+      (e.g. "atesor-debian-smoke"). Optional.
+    required: false
+    default: ""
+  github_token:
+    description: "GITHUB_TOKEN with `contents: write`."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish zips to monthly release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PACKAGES_DIR: ${{ inputs.packages_dir }}
+        SCOPE: ${{ inputs.scope }}
+        # Repo to release into. `gh` defaults to the current repo via env.
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        if [[ ! -d "$PACKAGES_DIR" ]]; then
+          echo "::notice::No $PACKAGES_DIR directory — nothing to release."
+          exit 0
+        fi
+
+        shopt -s nullglob
+        zips=("$PACKAGES_DIR"/*.zip)
+        if (( ${#zips[@]} == 0 )); then
+          echo "::notice::No zip artifacts in $PACKAGES_DIR — nothing to release."
+          exit 0
+        fi
+
+        # Monthly tag — sortable, lexically chronological.
+        tag="builds-$(date -u +%Y-%m)"
+        title="$(date -u +'%B %Y') builds"
+
+        echo "::group::Release target"
+        echo "  tag       : $tag"
+        echo "  title     : $title"
+        echo "  scope     : ${SCOPE:-(none)}"
+        echo "  zip count : ${#zips[@]}"
+        printf '  - %s\n' "${zips[@]}"
+        echo "::endgroup::"
+
+        # Create the release if it doesn't exist yet. `gh release view` exits
+        # non-zero on missing release — we treat that as "create".
+        if ! gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+          echo "::group::Creating release $tag"
+          month_label="$(date -u +'%B %Y')"
+          notes="**Atesor AI** is a LangGraph multi-agent system that autonomously ports x86/ARM packages to **RISC-V (riscv64)**. Each package below was cloned from upstream, built natively inside a riscv64 Docker sandbox (Alpine/musl or Debian/glibc), fixed where it broke, and packaged with a reproducible recipe."
+          notes+=$'\n\n'"Every \`*.zip\` asset contains the ported source tree, the porting \`build_recipe.md\`, and the per-package build logs. Assets are uploaded incrementally as CI jobs (and the nightly retry workflow) complete throughout **${month_label}** — no need to wait for a single \"green\" run."
+          notes+=$'\n\n'"Filename format: \`<package>-<YYYYMMDD>-<HHMMSS>-<alpine|debian>.zip\`."
+          gh release create "$tag" \
+            --repo "$GH_REPO" \
+            --title "$title" \
+            --notes "$notes"
+          echo "::endgroup::"
+        else
+          echo "Release $tag already exists; appending assets."
+        fi
+
+        # Dedupe pass
+        echo "::group::Dedupe existing assets"
+        existing_assets="$(gh release view "$tag" --repo "$GH_REPO" \
+          --json assets --jq '.assets[].name' 2>/dev/null || true)"
+        for zip in "${zips[@]}"; do
+          fname="$(basename "$zip")"
+          if [[ ! "$fname" =~ ^(.+)-([0-9]{8})-([0-9]{6})-([A-Za-z0-9]+)\.zip$ ]]; then
+            echo "::warning::Unrecognized filename format: $fname (skipping dedupe)"
+            continue
+          fi
+          pkg="${BASH_REMATCH[1]}"
+          platform="${BASH_REMATCH[4]}"
+          pattern="^${pkg}-[0-9]{8}-[0-9]{6}-${platform}\.zip$"
+          while IFS= read -r asset; do
+            [[ -z "$asset" ]] && continue
+            # Skip the exact filename we're about to upload — `--clobber`
+            # below handles the same-name overwrite atomically.
+            [[ "$asset" == "$fname" ]] && continue
+            if [[ "$asset" =~ $pattern ]]; then
+              echo "  - removing stale asset: $asset (superseded by $fname)"
+              gh release delete-asset "$tag" "$asset" \
+                --repo "$GH_REPO" --yes || \
+                echo "::warning::Failed to delete $asset (continuing)"
+            fi
+          done <<< "$existing_assets"
+        done
+        echo "::endgroup::"
+
+        # Upload with --clobber so re-runs of the exact same filename
+        # overwrite cleanly.
+        echo "::group::Uploading ${#zips[@]} asset(s)"
+        gh release upload "$tag" "${zips[@]}" \
+          --repo "$GH_REPO" \
+          --clobber
+        echo "::endgroup::"
+
+        echo "::notice::Uploaded ${#zips[@]} asset(s) to release $tag (scope=${SCOPE:-n/a})"

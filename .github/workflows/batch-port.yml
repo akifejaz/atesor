@@ -1,0 +1,510 @@
+name: ATESOR AI Batch Porting Tests
+
+# Runs the Atesor AI agent across a curated list of packages, building each
+# one inside the riscv64 sandbox container.
+#
+# Jobs:
+#
+#   atesor-debian-smoke   debian sandbox (ubuntu:jammy base) + smoke list
+#   atesor-debian-full    debian sandbox (ubuntu:jammy base) + full  list
+#   atesor-alpine-smoke   alpine sandbox                     + smoke list
+#   atesor-alpine-full    alpine sandbox                     + full  list
+
+on:
+  push:
+    branches: [main, ci-dev]
+  pull_request:
+    branches: [main]
+  # schedule:
+  #   # 02:00 UTC nightly -> full sweep on both platforms
+  #   - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which list(s) to run"
+        type: choice
+        default: smoke
+        options: [smoke, full, both]
+      platform:
+        description: "Sandbox distro"
+        type: choice
+        default: both
+        options: [debian, alpine, both]
+      workers:
+        description: "Parallel worker containers"
+        type: string
+        default: "2"
+      group_size:
+        description: "Max packages per full-list shard (job)"
+        type: string
+        default: "50"
+
+permissions:
+  contents: write   # publish assets to the monthly GitHub Release
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Force unbuffered stdout/stderr so batch_test.py logs stream live to
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  # 1. atesor-debian-smoke
+  # ------------------------------------------------------------------------- #
+  atesor-debian-smoke:
+    name: atesor-debian-smoke
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'smoke' || inputs.target == 'both') &&
+        (inputs.platform == 'debian' || inputs.platform == 'both')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: batch-port-debian-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ATESOR_PLATFORM: debian
+      LIST: smoke
+      WORKERS: ${{ inputs.workers || '2' }}
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:debian-latest
+      LOCAL_IMAGE: atesor-ai-sandbox-debian:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Pull prebuilt sandbox image (skip local build)
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run smoke batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-debian-smoke
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-smoke-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # 2. atesor-debian-full / atesor-alpine-full (sharded, skip-already-released)
+  #
+  # `plan-full` does two things:
+  #   1. Reads the current monthly release tag (`builds-YYYY-MM`) and
+  #      computes, *per platform*, the set of packages from `full.json`
+  #      that are NOT yet released for that platform — preserving
+  #      declared order.
+  #   2. Chunks that "remaining" list at `group_size` and emits
+  #      per-platform matrix outputs (`debian_total/groups`,
+  #      `alpine_total/groups`). The two platforms have independent
+  #      remaining sets and therefore independent shard counts.
+  #
+  # The remaining lists are uploaded as the `remaining-pkgs` artifact
+  # so each shard job — AND the retry workflow — can read the exact
+  # same plan without re-querying the release at a slightly different
+  # moment.
+  # ------------------------------------------------------------------------- #
+  plan-full:
+    name: plan-full
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'full' || inputs.target == 'both')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read   # gh release view
+    outputs:
+      debian_groups: ${{ steps.plan.outputs.debian_groups }}
+      debian_total:  ${{ steps.plan.outputs.debian_total }}
+      alpine_groups: ${{ steps.plan.outputs.alpine_groups }}
+      alpine_total:  ${{ steps.plan.outputs.alpine_total }}
+    env:
+      GROUP_SIZE: ${{ inputs.group_size || '50' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snapshot current monthly release assets
+        id: snapshot
+        run: |
+          set -euo pipefail
+          tag="builds-$(date -u +%Y-%m)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # `gh release view` exits non-zero if the release doesn't
+          # exist yet — that's the expected state at the start of a
+          # new month and means "skip nothing".
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' \
+              > released-assets.txt 2>/dev/null; then
+            count=$(wc -l < released-assets.txt | tr -d ' ')
+            echo "::notice::Found release $tag with $count asset(s)."
+          else
+            : > released-assets.txt
+            echo "::notice::No release $tag yet; nothing to skip."
+          fi
+
+      - id: plan
+        name: Compute per-platform remaining + shard plan
+        run: |
+          set -euo pipefail
+          mkdir -p remaining
+          for platform in debian alpine; do
+            python3 .github/scripts/plan-remaining.py \
+              --list full \
+              --released-assets released-assets.txt \
+              --platform "$platform" \
+              --group-size "$GROUP_SIZE" \
+              --remaining-out "remaining/remaining-${platform}.json" \
+              --output-key-prefix "$platform" \
+              >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Upload remaining-pkgs plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining/remaining-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  atesor-debian-full:
+    name: atesor-debian-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.debian_total }})
+    needs: plan-full
+    if: >-
+      needs.plan-full.outputs.debian_total != '0' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.target == 'full' || inputs.target == 'both') &&
+          (inputs.platform == 'debian' || inputs.platform == 'both')
+        )
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan-full.outputs.debian_groups) }}
+    # TODO: update to self-hosted or Cloud-V / RISE Runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: batch-port-debian-full-shard-${{ matrix.shard }}
+      cancel-in-progress: false
+    env:
+      ATESOR_PLATFORM: debian
+      LIST: full
+      WORKERS: ${{ inputs.workers || '2' }}
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ needs.plan-full.outputs.debian_total }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Download remaining-pkgs plan
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+      - name: Resolve this shard's package slice
+        id: slice
+        run: |
+          python3 .github/scripts/slice-pkgs.py \
+            --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
+            --shard-index "$SHARD_INDEX" \
+            --shard-total "$SHARD_TOTAL" \
+            --output-key pkgs \
+            --format space \
+            >> "$GITHUB_OUTPUT"
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.debian_total }})
+        env:
+          PKGS: ${{ steps.slice.outputs.pkgs }}
+        run: |
+          if [[ -z "$PKGS" ]]; then
+            echo "::notice::Empty shard slice (all packages already released for $ATESOR_PLATFORM); skipping."
+            exit 0
+          fi
+          # PKGS is already restricted to (1) packages not yet
+          # released for this platform under the current monthly tag
+          # AND (2) this shard's chunk of that remaining set. Pass
+          # straight as positional args — no need for batch_test's
+          # internal --shard-index.
+          # shellcheck disable=SC2086  -- intentional word-splitting
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers "$WORKERS" \
+            --package \
+            $PKGS
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-debian-full-shard-${{ matrix.shard }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-full-logs-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ------------------------------------------------------------------------- #
+  # 3. atesor-alpine-smoke
+  # ------------------------------------------------------------------------- #
+  atesor-alpine-smoke:
+    name: atesor-alpine-smoke
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        (inputs.target == 'smoke' || inputs.target == 'both') &&
+        (inputs.platform == 'alpine' || inputs.platform == 'both')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: batch-port-alpine-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      ATESOR_PLATFORM: alpine
+      LIST: smoke
+      WORKERS: ${{ inputs.workers || '2' }}
+      PREBUILT_IMAGE: cloudv10x/atesor-sandbox:alpine-latest
+      LOCAL_IMAGE: atesor-ai-sandbox:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Pull prebuilt sandbox image (skip local build)
+        run: |
+          docker pull --platform linux/riscv64 "$PREBUILT_IMAGE"
+          docker tag "$PREBUILT_IMAGE" "$LOCAL_IMAGE"
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run smoke batch
+        run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-alpine-smoke
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-smoke-logs-${{ github.run_id }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ------------------------------------------------------------------------- #
+  # 4. atesor-alpine-full (sharded, skip-already-released; see plan-full)
+  # ------------------------------------------------------------------------- #
+  atesor-alpine-full:
+    name: atesor-alpine-full (shard ${{ matrix.shard }}/${{ needs.plan-full.outputs.alpine_total }})
+    needs: plan-full
+    if: >-
+      needs.plan-full.outputs.alpine_total != '0' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.target == 'full' || inputs.target == 'both') &&
+          (inputs.platform == 'alpine' || inputs.platform == 'both')
+        )
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan-full.outputs.alpine_groups) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: batch-port-alpine-full-shard-${{ matrix.shard }}
+      cancel-in-progress: false
+    env:
+      ATESOR_PLATFORM: alpine
+      LIST: full
+      WORKERS: ${{ inputs.workers || '2' }}
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ needs.plan-full.outputs.alpine_total }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Write .env from secrets
+        run: |
+          umask 077
+          cat > .env <<'EOF'
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2=${{ vars.LANGCHAIN_TRACING_V2 || 'false' }}
+          OPENROUTER_FALLBACK_MODELS=${{ vars.OPENROUTER_FALLBACK_MODELS }}
+          EOF
+      - name: Download remaining-pkgs plan
+        uses: actions/download-artifact@v4
+        with:
+          name: remaining-pkgs
+          path: remaining
+      - name: Resolve this shard's package slice
+        id: slice
+        run: |
+          python3 .github/scripts/slice-pkgs.py \
+            --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
+            --shard-index "$SHARD_INDEX" \
+            --shard-total "$SHARD_TOTAL" \
+            --output-key pkgs \
+            --format space \
+            >> "$GITHUB_OUTPUT"
+      - name: Provision sandbox
+        run: python3 main.py --setup-only --platform "$ATESOR_PLATFORM"
+      - name: Run full batch (shard ${{ matrix.shard }} of ${{ needs.plan-full.outputs.alpine_total }})
+        env:
+          PKGS: ${{ steps.slice.outputs.pkgs }}
+        run: |
+          if [[ -z "$PKGS" ]]; then
+            echo "::notice::Empty shard slice (all packages already released for $ATESOR_PLATFORM); skipping."
+            exit 0
+          fi
+          # shellcheck disable=SC2086  -- intentional word-splitting
+          python3 .github/scripts/batch_test.py \
+            --list "$LIST" \
+            --workers "$WORKERS" \
+            --package \
+            $PKGS
+      - name: Publish zip artifacts to monthly release
+        if: always()
+        uses: ./.github/actions/release-zips
+        with:
+          packages_dir: workspace/packages
+          scope: atesor-alpine-full-shard-${{ matrix.shard }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-full-logs-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: |
+            output/batch_logs/
+            workspace/logs/
+            workspace/output/
+            workspace/packages/
+            data/recipe_cache.json
+          if-no-files-found: warn
+          retention-days: 30

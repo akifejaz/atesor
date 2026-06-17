@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Multi-agent state machine orchestration and workflow nodes.
 
 Uses LangGraph to manage agent transitions and shared state for the
@@ -12,9 +23,10 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Callable, Dict, List
 
-from langchain_core.messages import HumanMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 
 from .artifact_scanner import ArtifactScanner
@@ -58,12 +70,12 @@ scripted_ops = ScriptedOperations()
 # ============================================================================
 
 
-def get_model_for_role(role: AgentRole):
+def get_model_for_role(role: AgentRole) -> BaseChatModel:
     """Return the right model for an agent role."""
     return create_llm(role)
 
 
-def get_model_pool_for_role(role: AgentRole):
+def get_model_pool_for_role(role: AgentRole) -> List[BaseChatModel]:
     """Return ``[primary, *fallbacks]`` for the role.
 
     Used by validated LLM calls so transient provider errors (404 /
@@ -75,7 +87,11 @@ def get_model_pool_for_role(role: AgentRole):
     return create_llm_pool(role)
 
 
-def invoke_llm(llm, messages, timeout: int = 120):
+def invoke_llm(
+    llm: BaseChatModel,
+    messages: List[BaseMessage],
+    timeout: int = 120,
+) -> BaseMessage:
     """Invoke an LLM with a hard timeout to prevent indefinite hangs.
 
     Uses a daemon thread so blocking HTTP connections don't prevent
@@ -88,7 +104,7 @@ def invoke_llm(llm, messages, timeout: int = 120):
     exception = [None]
     done = threading.Event()
 
-    def worker():
+    def worker() -> None:
         try:
             result[0] = llm.invoke(messages)
         except Exception as e:
@@ -108,7 +124,7 @@ def invoke_llm(llm, messages, timeout: int = 120):
     return result[0]
 
 
-def extract_content(content) -> str:
+def extract_content(content: Any) -> str:
     """Safely extract string content from LLM response."""
     if isinstance(content, str):
         return content
@@ -227,7 +243,7 @@ def is_toolchain_version_mismatch(error_message: str) -> bool:
 
 
 def _replan_signature(error_message: str) -> str:
-    """Return a normalized signature for failures that need a new build plan."""
+    """Return a normalized signature for failures needing a new build plan."""
     msg = (error_message or "").lower()
     signatures = {
         "go_missing_module": "no required module provides",
@@ -265,13 +281,13 @@ def _should_force_replan(state: AgentState) -> bool:
 # ============================================================================
 
 
-def agent_node(role: AgentRole):
+def agent_node(role: AgentRole) -> Callable:
     """Wrap agent nodes with error handling and retries.
 
     Provides state tracking and automatic rate-limit retry.
     """
 
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         def wrapper(state: AgentState) -> AgentState:
             import time
 
@@ -1773,13 +1789,13 @@ def _fixup_top_builddir_in_submakefiles(docker_repo_path: str) -> None:
 
 
 def _extract_cd_prefix(command: str) -> str:
-    """Extract leading `cd ... &&` prefix so companion commands match context."""
+    """Extract leading `cd ... &&` prefix to match companion commands."""
     match = re.match(r"^\s*(cd\s+[^&;]+&&\s*)", command)
     return match.group(1) if match else ""
 
 
 def _inject_go_flag(command: str, flag: str) -> str:
-    """Inject a Go build/install flag once, preserving existing command shape."""
+    """Inject a Go build/install flag once, keeping the command shape."""
     if flag in command:
         return command
     return re.sub(
@@ -1788,6 +1804,19 @@ def _inject_go_flag(command: str, flag: str) -> str:
         command,
         count=1,
     )
+
+
+# Word-boundary matcher for genuine Go build/install invocations. Required
+# because substring checks like `"go build" in cmd` wrongly match
+# `cargo build`, `apk add ... cargo build-base`, `dotnet go build-server`,
+# etc. — and the downstream optimizations (e.g. `command.replace("go build",
+# "go build -buildvcs=false")`) then mangle those unrelated commands.
+_GO_BUILD_RE = re.compile(r"\bgo\s+(?:build|install)\b")
+
+
+def _is_go_build_command(command: str) -> bool:
+    """True iff ``command`` actually invokes ``go build`` or ``go install``."""
+    return bool(_GO_BUILD_RE.search(command))
 
 
 def _inject_go_output(command: str, output_path: str) -> str:
@@ -1883,9 +1912,9 @@ def _is_suspected_oom(result, command: str) -> bool:
         return False
     if result.exit_code == 137:
         return True
-    no_output = not (result.stdout or "").strip() and not (
-        result.stderr or ""
-    ).strip()
+    no_output = (
+        not (result.stdout or "").strip() and not (result.stderr or "").strip()
+    )
     return (not result.success) and no_output
 
 
@@ -1897,7 +1926,7 @@ def _serialize_build_command(command: str) -> str:
     OOM-kills where high build concurrency exhausts emulated memory.
     """
     prefix = _extract_cd_prefix(command)
-    body = command[len(prefix):]
+    body = command[len(prefix) :]
     if re.search(r"\bgo\s+(build|install|test)\b", body):
         body = _inject_go_flag(body, "-p 1")
         if "gomaxprocs" not in body.lower():
@@ -2008,13 +2037,12 @@ def builder_node(state: AgentState) -> AgentState:
 
             optimized_cmd = command
             for pred in predictions:
-                if (
-                    pred["pattern"] == "dubious ownership"
-                    and "go build" in command
-                ):
+                if pred[
+                    "pattern"
+                ] == "dubious ownership" and _is_go_build_command(command):
                     if "-buildvcs=false" not in command:
-                        optimized_cmd = command.replace(
-                            "go build", "go build -buildvcs=false"
+                        optimized_cmd = _inject_go_flag(
+                            command, "-buildvcs=false"
                         )
                         logger.info(
                             f"Proactively optimized command: {optimized_cmd}"
@@ -2056,10 +2084,7 @@ def builder_node(state: AgentState) -> AgentState:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error: {result.stderr[:500]}")
 
-                is_go_build = (
-                    "go build" in optimized_cmd
-                    or "go install" in optimized_cmd
-                )
+                is_go_build = _is_go_build_command(optimized_cmd)
                 is_vcs_error = any(
                     pattern in result.stderr
                     for pattern in [
@@ -2138,7 +2163,8 @@ def builder_node(state: AgentState) -> AgentState:
 
                 if (
                     is_go_build
-                    and "inconsistent vendoring" in (result.stderr or "").lower()
+                    and "inconsistent vendoring"
+                    in (result.stderr or "").lower()
                     and "-mod=mod" not in optimized_cmd
                 ):
                     retry_command = _inject_go_flag(optimized_cmd, "-mod=mod")
@@ -2164,20 +2190,21 @@ def builder_node(state: AgentState) -> AgentState:
                 ):
                     prefix = _extract_cd_prefix(optimized_cmd)
                     tidy_cmd = f"{prefix}go mod tidy"
-                    tidy_result = execute_command(tidy_cmd, cwd=state.repo_path)
+                    tidy_result = execute_command(
+                        tidy_cmd, cwd=state.repo_path
+                    )
                     state.cache_command_result(tidy_cmd, tidy_result)
                     state.log_scripted_op("retry_build_command")
                     if tidy_result.success:
                         retry_result = execute_command(
                             optimized_cmd, cwd=state.repo_path
                         )
-                        state.cache_command_result(
-                            optimized_cmd, retry_result
-                        )
+                        state.cache_command_result(optimized_cmd, retry_result)
                         state.log_scripted_op("retry_build_command")
                         if retry_result.success:
                             logger.info(
-                                "Resolved missing module by running go mod tidy"
+                                "Resolved missing module by running "
+                                "go mod tidy"
                             )
                             continue
                         result = retry_result
@@ -2282,10 +2309,10 @@ def builder_node(state: AgentState) -> AgentState:
                         result = retry_result
 
                 # go.mod lives in a subdirectory -> cd into it and retry.
-                if (
-                    "go.mod file not found"
-                    in (result.stderr or "").lower()
-                    and _builder_retry_allowed(state, f"gomod-dir:{command}")
+                if "go.mod file not found" in (
+                    result.stderr or ""
+                ).lower() and _builder_retry_allowed(
+                    state, f"gomod-dir:{command}"
                 ):
                     host_root = _to_host_path(state.repo_path)
                     found = None
@@ -2297,7 +2324,7 @@ def builder_node(state: AgentState) -> AgentState:
                             break
                     if found:
                         prefix = _extract_cd_prefix(optimized_cmd)
-                        body = optimized_cmd[len(prefix):]
+                        body = optimized_cmd[len(prefix) :]
                         retry_command = f"cd {found} && {body}"
                         retry_result = execute_command(
                             retry_command, cwd=state.repo_path
@@ -3489,7 +3516,7 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
 
     for phase in state.build_plan.phases:
         for cmd in phase.commands:
-            if "go build" in cmd and "-buildvcs=false" not in cmd:
+            if _is_go_build_command(cmd) and "-buildvcs=false" not in cmd:
                 predictions.append(
                     {
                         "phase": phase.name,

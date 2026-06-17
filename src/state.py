@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """Global state definitions, data structures, and status tracking.
 
 Manages the ``AgentState`` dataclass, the enums that describe the
@@ -5,10 +16,10 @@ porting process, and the system-wide helper functions that operate on
 that state.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import re
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage
@@ -298,11 +309,11 @@ class AgentState:
     created_at: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
 
-    def update_timestamp(self):
+    def update_timestamp(self) -> None:
         """Update the last_updated timestamp."""
         self.last_updated = datetime.now()
 
-    def add_error(self, error: ErrorRecord):
+    def add_error(self, error: ErrorRecord) -> None:
         """Add an error to history and update state."""
         self.error_history.append(error)
         self.last_error = error.message
@@ -311,24 +322,24 @@ class AgentState:
         self.attempt_count += 1
         self.update_timestamp()
 
-    def add_fix_attempt(self, fix: FixAttempt):
+    def add_fix_attempt(self, fix: FixAttempt) -> None:
         """Record a fix attempt."""
         self.fixes_attempted.append(fix)
         self.update_timestamp()
 
-    def log_api_call(self, cost: float = 0.0):
+    def log_api_call(self, cost: float = 0.0) -> None:
         """Track API usage."""
         self.api_calls_made += 1
         self.api_cost_usd += cost
         self.update_timestamp()
 
-    def log_scripted_op(self, operation: str = "unknown"):
+    def log_scripted_op(self, operation: str = "unknown") -> None:
         """Track scripted operation usage."""
         self.scripted_ops_count += 1
         self.log_event("scripted_op", {"operation": operation})
         self.update_timestamp()
 
-    def log_event(self, event_type: str, data: Dict[str, Any]):
+    def log_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Add an event to the audit trail."""
         self.audit_trail.append(
             {
@@ -342,14 +353,18 @@ class AgentState:
         )
         self.update_timestamp()
 
-    def log_agent_decision(self, agent: AgentRole, action: str, reason: str):
+    def log_agent_decision(
+        self, agent: AgentRole, action: str, reason: str
+    ) -> None:
         """Log a decision made by an agent."""
         self.log_event(
             "decision",
             {"agent": agent.value, "action": action, "reason": reason},
         )
 
-    def cache_command_result(self, command: str, result: CommandResult):
+    def cache_command_result(
+        self, command: str, result: CommandResult
+    ) -> None:
         """Cache a command result for reuse."""
         cache_key = self._generate_cache_key(command)
         self.command_results_cache[cache_key] = result
@@ -362,7 +377,7 @@ class AgentState:
         cache_key = self._generate_cache_key(command)
         return self.command_results_cache.get(cache_key)
 
-    def cache_file_content(self, filepath: str, content: str):
+    def cache_file_content(self, filepath: str, content: str) -> None:
         """Cache file content to avoid repeated reads."""
         self.file_content_cache[filepath] = content
         self.update_timestamp()
@@ -393,7 +408,7 @@ class AgentState:
         filepath: str,
         artifact_type: str,
         architecture: Optional[str] = None,
-    ):
+    ) -> None:
         """Record a build artifact that was successfully created."""
         artifact = {
             "filepath": filepath,
@@ -410,7 +425,7 @@ class AgentState:
         from dataclasses import asdict
 
         # We need a custom converter for Enums and Datetime
-        def custom_serializer(obj):
+        def custom_serializer(obj: Any) -> Any:
             if isinstance(obj, (datetime, Enum)):
                 return str(obj)
             if isinstance(obj, list):
@@ -423,7 +438,7 @@ class AgentState:
 
         return custom_serializer(asdict(self))
 
-    def save_to_json(self, filepath: str):
+    def save_to_json(self, filepath: str) -> None:
         """Save the current state to a JSON file."""
         import json
 

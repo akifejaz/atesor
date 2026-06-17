@@ -21,7 +21,12 @@ from termcolor import colored
 # provider configuration is available at import time.
 load_dotenv()
 
-from src.config import LOGS_DIR, OUTPUT_DIR  # noqa: E402
+from src.config import (  # noqa: E402
+    LOGS_DIR,
+    OUTPUT_DIR,
+    PACKAGES_DIR,
+    REPOS_DIR,
+)
 from src.models import check_api_keys, print_model_info  # noqa: E402
 from src.state import AgentState  # noqa: E402
 
@@ -166,8 +171,7 @@ def _ensure_riscv64_binfmt() -> bool:
 
 
 def setup_docker_environment() -> bool:
-    """
-    Set up the Docker environment for RISC-V development.
+    """Set up the Docker environment for RISC-V development.
 
     Image / container / Dockerfile are selected based on the active platform
     profile (Alpine or Debian). A self-check confirms the running container's
@@ -767,18 +771,24 @@ def generate_detailed_report(state: dict) -> str:
 
 
 def run_agent(
-    repo_url: str, max_attempts: int = 5, verbose: bool = False
+    repo_url: str,
+    max_attempts: int = 5,
+    verbose: bool = False,
+    package: bool = False,
 ) -> int:
-    """
-    Run the RISC-V porting agent on a repository.
+    """Run the RISC-V porting agent on a repository.
 
     Args:
         repo_url: The GitHub/GitLab repository URL
         max_attempts: Maximum fix attempts before escalation
         verbose: Enable verbose output
+        package: If True, on a successful build, write a zip artifact to
+            ``PACKAGES_DIR`` containing the recipe + source tree. Failure
+            to package is treated as a fatal error (exit 2) when this is
+            requested explicitly.
 
     Returns:
-        Exit code (0 for success, 1 for failure)
+        Exit code (0 for success, 1 for build failure, 2 for packaging failure)
     """
     from langchain_core.messages import HumanMessage
 
@@ -936,6 +946,53 @@ def run_agent(
                     "white",
                 )
             )
+
+            if package:
+                from src.packager import package_build
+
+                recipe_path = os.path.join(
+                    OUTPUT_DIR, f"{final_state.repo_name}_recipe.md"
+                )
+                repo_path = os.path.join(REPOS_DIR, final_state.repo_name)
+                agent_log_path = os.path.join(
+                    LOGS_DIR, f"agent_{final_state.repo_name}.log"
+                )
+                # batch_test.py writes per-package logs to
+                # ``output/batch_logs/<repo>.log`` relative to its CWD,
+                # which is the project root. Resolve from CWD so this
+                # works whether main.py is invoked directly or as a
+                # batch_test child process. Falls back gracefully (warn
+                # + omit) if absent.
+                batch_log_path = os.path.join(
+                    os.getcwd(),
+                    "output",
+                    "batch_logs",
+                    f"{final_state.repo_name}.log",
+                )
+                try:
+                    zip_path = package_build(
+                        repo_name=final_state.repo_name,
+                        repo_path=repo_path,
+                        recipe_path=recipe_path,
+                        platform_name=profile.name,
+                        packages_dir=PACKAGES_DIR,
+                        repo_url=repo_url,
+                        agent_log_path=agent_log_path,
+                        batch_log_path=batch_log_path,
+                    )
+                except Exception as exc:
+                    logger.error("Packaging failed: %s", exc, exc_info=True)
+                    print(
+                        colored(
+                            f"\nPackaging FAILED: {exc}",
+                            "red",
+                            attrs=["bold"],
+                        )
+                    )
+                    return 2
+                logger.info(f"Package generated at: {zip_path}")
+                print(colored(f"   Package generated at: {zip_path}", "white"))
+
             return 0
         else:
             logger.info("PORTING STOPPED / FAILED")
@@ -1287,6 +1344,17 @@ def main() -> None:
         help="Skip recipe cache and re-run full pipeline",
     )
     parser.add_argument(
+        "--package",
+        action="store_true",
+        help=(
+            "On a successful build, write a zip artifact "
+            "(recipe + source tree + manifest) to "
+            "workspace/packages/. Filename format: "
+            "<repo>-<YYYYMMDD-HHMMSS>-<platform>.zip. "
+            "Has no effect on cache hits or failed builds."
+        ),
+    )
+    parser.add_argument(
         "--platform",
         choices=["alpine", "debian", "ubuntu", "auto"],
         default="auto",
@@ -1423,6 +1491,15 @@ def main() -> None:
             print(
                 colored("  Use --force to re-run the full pipeline.", "yellow")
             )
+            if args.package:
+                print(
+                    colored(
+                        "  Note: --package is skipped on cache hits "
+                        "(no fresh source tree to package). "
+                        "Re-run with --force to build and package.",
+                        "yellow",
+                    )
+                )
             return 0
 
     # Run the agent
@@ -1430,6 +1507,7 @@ def main() -> None:
         repo_url=args.repo,
         max_attempts=args.max_attempts,
         verbose=args.verbose,
+        package=args.package,
     )
 
     return exit_code

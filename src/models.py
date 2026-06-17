@@ -1,3 +1,14 @@
+#############################################################################
+# Copyright (c) 2026 10xEngineers
+#
+# Author: Akif Ejaz <akif.ejaz@10xengineers.ai>
+# This program and the accompanying materials are made available under the
+# terms of the MIT License which is available at
+# https://opensource.org/licenses/MIT.
+#
+# SPDX-License-Identifier: MIT
+#############################################################################
+
 """LLM provider management, model configuration, and cost tracking.
 
 Handles interactions with the OpenAI, Gemini, and OpenRouter providers.
@@ -195,10 +206,7 @@ def print_model_info() -> None:
         supervisor = config["supervisor"]["model"]
         planner = config["planner"]["model"]
         builder = config["builder"]["model"]
-        print(
-            f"   Models: {supervisor} (S), {planner} (P), "
-            f"{builder} (B)"
-        )
+        print(f"   Models: {supervisor} (S), {planner} (P), " f"{builder} (B)")
 
 
 # Export functions

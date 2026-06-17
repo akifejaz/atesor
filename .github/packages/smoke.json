@@ -1,0 +1,18 @@
+{
+  "$schema_version": 1,
+  "description": "Smoke test: small, fast, representative mix of Go + C packages. Use this before a full run to catch obvious regressions in ~10 min total.",
+  "defaults": {
+    "max_attempts": 5,
+    "timeout_seconds": 1800
+  },
+  "packages": [
+    { "name": "anew",        "url": "https://github.com/tomnomnom/anew",         "lang": "go", "group": "smoke", "tags": ["go", "small"] },
+    { "name": "gron",        "url": "https://github.com/tomnomnom/gron",         "lang": "go", "group": "smoke", "tags": ["go", "small"] },
+    { "name": "assetfinder", "url": "https://github.com/tomnomnom/assetfinder",  "lang": "go", "group": "smoke", "tags": ["go", "small"] },
+    { "name": "age",         "url": "https://github.com/FiloSottile/age",        "lang": "go", "group": "smoke", "tags": ["go"] },
+    { "name": "dasel",       "url": "https://github.com/TomWright/dasel",        "lang": "go", "group": "smoke", "tags": ["go"] },
+    { "name": "fping",       "url": "https://github.com/schweikert/fping",       "lang": "c",  "group": "smoke", "tags": ["c", "autotools"] },
+    { "name": "zlib",        "url": "https://github.com/madler/zlib",            "lang": "c",  "group": "smoke", "tags": ["c", "core"] },
+    { "name": "cjson",       "url": "https://github.com/DaveGamble/cJSON",       "lang": "c",  "group": "smoke", "tags": ["c", "cmake"] }
+  ]
+}
