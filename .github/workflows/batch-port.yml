@@ -12,7 +12,7 @@ name: ATESOR AI Batch Porting Tests
 
 on:
   push:
-    branches: [main, ci-dev]
+    branches: [main, release]
   pull_request:
     branches: [main]
   # schedule:
