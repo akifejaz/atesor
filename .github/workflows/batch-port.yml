@@ -38,6 +38,10 @@ on:
         description: "Max packages per full-list shard (job)"
         type: string
         default: "50"
+      force_all:
+        description: "Rebuild ALL packages (ignore already-released zips under the monthly tag)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # publish assets to the monthly GitHub Release
@@ -170,14 +174,22 @@ jobs:
 
       - name: Snapshot current monthly release assets
         id: snapshot
+        env:
+          FORCE_ALL: ${{ inputs.force_all }}
         run: |
           set -euo pipefail
           tag="builds-$(date -u +%Y-%m)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # force_all bypasses the release skip entirely: an empty
+          # released-assets list makes plan-remaining.py treat every
+          # package as "remaining", so the full sweep rebuilds all.
+          if [[ "$FORCE_ALL" == "true" ]]; then
+            : > released-assets.txt
+            echo "::notice::force_all=true; ignoring release $tag and rebuilding ALL packages."
           # `gh release view` exits non-zero if the release doesn't
           # exist yet — that's the expected state at the start of a
           # new month and means "skip nothing".
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+          elif gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
               --json assets --jq '.assets[].name' \
               > released-assets.txt 2>/dev/null; then
             count=$(wc -l < released-assets.txt | tr -d ' ')
