@@ -109,7 +109,7 @@ jobs:
       - name: Run smoke batch
         run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -315,7 +315,7 @@ jobs:
             --package \
             $PKGS
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -392,7 +392,7 @@ jobs:
       - name: Run smoke batch
         run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -501,7 +501,7 @@ jobs:
             --package \
             $PKGS
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
