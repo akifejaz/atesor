@@ -126,14 +126,14 @@ class ScriptedOperations:
                     )
                     result = execute_command(clone_cmd, use_docker=True)
         else:
-            # If directory exists but is not a valid git repo, remove it first
-            if os.path.exists(host_repo_path):
-                logger.warning(
-                    f"Directory {name} exists but has no .git, "
-                    f"removing and re-cloning..."
-                )
-                rm_cmd = f"rm -rf {container_repo_path}"
-                execute_command(rm_cmd, use_docker=True)
+            # Always clear any stale path in the container before cloning.
+            # The clone runs INSIDE the container, so a leftover directory
+            # there (a previous run, or a workspace remounted to a new host
+            # path) makes ``git clone`` fail with "destination path already
+            # exists and is not an empty directory". ``rm -rf`` is a no-op
+            # when the path is absent.
+            rm_cmd = f"rm -rf {container_repo_path}"
+            execute_command(rm_cmd, use_docker=True)
 
             logger.info(f"Cloning repository {url}...")
             # Clone inside container

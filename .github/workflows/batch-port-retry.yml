@@ -174,7 +174,7 @@ jobs:
             $MISSING
 
       - name: Publish zip artifacts to monthly release
-        if: always() && steps.missing.outputs.skip == 'false'
+        if: ${{ !cancelled() && steps.missing.outputs.skip == 'false' }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -401,7 +401,7 @@ jobs:
             $MISSING
 
       - name: Publish zip artifacts to monthly release
-        if: always() && steps.missing.outputs.skip == 'false'
+        if: ${{ !cancelled() && steps.missing.outputs.skip == 'false' }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -549,7 +549,7 @@ jobs:
             $MISSING
 
       - name: Publish zip artifacts to monthly release
-        if: always() && steps.missing.outputs.skip == 'false'
+        if: ${{ !cancelled() && steps.missing.outputs.skip == 'false' }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages

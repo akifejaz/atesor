@@ -29,6 +29,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 
+from langgraph.graph import END, StateGraph
+
 from .artifact_scanner import ArtifactScanner
 from .knowledge import get_system_knowledge_summary
 from .llm_helpers import ValidationResult, llm_call_with_validation
@@ -870,258 +872,33 @@ SUPERVISOR_PROMPT = (
 
 @agent_node(AgentRole.SUPERVISOR)
 def supervisor_node(state: AgentState) -> AgentState:
-    """Make a routing decision with cost-aware heuristics."""
+    """Supervisor evaluation node.
+
+    Routing is handled by ``route_supervisor_to_next`` at the graph-edge
+    level. This node exists as a lightweight audit/logging pass-through
+    so the graph topology is preserved.
+    """
     bp_state = "Exists" if state.build_plan else "Missing"
     logger.info(
-        f"Supervisor making routing decision... (BuildPlan: {bp_state})"
+        f"Supervisor evaluating state... (phase={state.current_phase}, "
+        f"status={state.build_status.value}, BuildPlan: {bp_state}, "
+        f"attempts={state.attempt_count}/{state.max_attempts})"
     )
 
-    should_esc, esc_reason = should_escalate(state)
-    if should_esc:
-        logger.warning(f"Automatic escalation: {esc_reason}")
-        state.current_phase = "escalate"
-        return state
+    # The LLM-based supervisor routing has been removed.
+    # All routing decisions are now made by the ``route_supervisor_to_next``
+    # conditional edge function, which is purely heuristic and requires
+    # no LLM call. This eliminates the redundant LLM call that always
+    # agreed with the heuristic anyway.
 
-    recommended_action = get_next_action_recommendation(state)
-    state.log_scripted_op("supervisor_routing")
-
-    if state.api_calls_made > 8 or state.api_cost_usd > 0.08:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            recommended_action.value,
-            "Cost optimization heuristic (API calls > 8 or cost > $0.08)",
-        )
-        logger.info(
-            f"Using cost-optimized routing: {recommended_action.value}"
-        )
-        state.current_phase = recommended_action.value.lower()
-        return state
-
-    if state.build_status == BuildStatus.SUCCESS:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "FINISH",
-            "Build succeeded, moving to final documentation.",
-        )
-        state.current_phase = "finish"
-        return state
-
-    if state.attempt_count >= state.max_attempts:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "ESCALATE",
-            f"Max attempts ({state.max_attempts}) reached.",
-        )
-        state.current_phase = "escalate"
-        return state
-
-    if state.attempt_count >= 3 and state.is_in_error_loop():
-        logger.warning("Detected error loop - switching to escalation")
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "ESCALATE", "Stuck in error loop"
-        )
-        state.current_phase = "escalate"
-        return state
-
-    if not state.task_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "PLAN", "No task plan exists."
-        )
-        state.current_phase = "planner"
-        return state
-
-    if not state.build_plan and state.task_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "SCOUT",
-            "Build plan missing but task plan exists.",
-        )
-        state.current_phase = "scout"
-        return state
-
-    if state.build_status == BuildStatus.FAILED:
-        if _should_force_replan(state):
-            sig = _replan_signature(state.last_error or "") or "unknown"
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "SCOUT",
-                f"Failure signature '{sig}' indicates plan-level issue; "
-                "requesting one bounded replan.",
-            )
-            state.current_phase = "scout"
-            return state
-
-        # MISSING_TOOLS / DEPENDENCY need an updated build plan from
-        # scout (add packages, change steps).
-        # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE -> send to
-        # fixer to patch in-place.
-        if state.last_error_category in (
-            ErrorCategory.MISSING_TOOLS,
-            ErrorCategory.DEPENDENCY,
-            ErrorCategory.UNKNOWN,
-        ):
-            if (
-                state.last_error_category == ErrorCategory.MISSING_TOOLS
-                and is_toolchain_version_mismatch(state.last_error)
-            ):
-                state.log_agent_decision(
-                    AgentRole.SUPERVISOR,
-                    "ESCALATE",
-                    "Sandbox toolchain is too old for this repository.",
-                )
-                state.current_phase = "escalate"
-                return state
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "SCOUT",
-                f"{state.last_error_category.value} - need updated "
-                f"build plan.",
-            )
-            state.current_phase = "scout"
-            return state
-        else:
-            err_cat = state.last_error_category
-            err_val = err_cat.value if err_cat else "Unknown"
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "FIXER",
-                f"Error: {err_val}",
-            )
-            state.current_phase = "fixer"
-            return state
-
-    if state.build_status == BuildStatus.PENDING and state.build_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "BUILDER", "Build plan ready, executing."
-        )
-        state.current_phase = "builder"
-        return state
-
-    decision_context = ""
-    if state.build_status == BuildStatus.FAILED:
-        decision_context = (
-            f"Last build failed with {state.last_error_category}. "
-            f"Consider if FIXER can handle it, or if SCOUT needs more info."
-        )
-    elif not state.build_plan:
-        decision_context = "No build plan exists. SCOUT must create one."
-    elif state.build_status == BuildStatus.PENDING:
-        decision_context = (
-            "A build plan exists. BUILDER should now execute the build phases."
-        )
-    elif state.build_status == BuildStatus.SUCCESS:
-        decision_context = "Build succeeded. FINISH or run tests if not done."
-
-    # Build context for supervisor prompt
-    build_plan_summary = "No build plan yet"
-    if state.build_plan:
-        phase_names = [p.name for p in state.build_plan.phases]
-        build_plan_summary = (
-            f"Build System: {state.build_plan.build_system}, "
-            f"Phases: {', '.join(phase_names)}, "
-            f"Last completed: {state.last_successful_phase}"
-        )
-
-    agent_history = ""
-    if state.audit_trail:
-        recent = state.audit_trail[-5:]
-        agent_history = "\n".join(
-            [
-                f"- {entry.get('agent', 'unknown')}: "
-                f"{entry.get('event', 'unknown')} - "
-                f"{str(entry.get('data', ''))[:100]}"
-                for entry in recent
-            ]
-        )
-    else:
-        agent_history = "No previous agent actions"
-
-    arch_issues_summary = "None detected"
-    if state.arch_specific_code:
-        arch_issues_summary = (
-            f"{len(state.arch_specific_code)} "
-            f"architecture-specific code instances found"
-        )
-
-    error_summary = "No errors"
-    if state.error_history:
-        recent_errors = state.error_history[-3:]
-        error_summary = "\n".join(
-            [
-                f"- [{e.category.value}] {e.message[:150]}"
-                for e in recent_errors
-            ]
-        )
-
-    prompt = SUPERVISOR_PROMPT.format(
-        current_phase=state.current_phase,
-        build_status=state.build_status.value,
-        attempt_count=state.attempt_count,
-        max_attempts=state.max_attempts,
-        current_agent=(
-            state.current_agent.value if state.current_agent else "none"
-        ),
-        build_plan_summary=build_plan_summary,
-        scripted_ops_count=state.scripted_ops_count,
-        api_calls=state.api_calls_made,
-        cost=state.api_cost_usd,
-        agent_history=agent_history,
-        arch_issues_summary=arch_issues_summary,
-        error_summary=error_summary,
-        additional_context=decision_context,
+    summary = (
+        f"build_status={state.build_status.value}, "
+        f"errors={len(state.error_history)}, "
+        f"fixes={len(state.fixes_attempted)}, "
+        f"cost=${state.api_cost_usd:.4f}"
     )
-
-    try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.SUPERVISOR)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.002)
-
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.SUPERVISOR.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, "model_name") else "unknown",
-            cost_usd=0.002,
-            metadata={
-                "repo": state.repo_name,
-                "phase": "supervisor",
-                "status": state.build_status.value,
-            },
-        )
-
-        # Try to parse JSON response
-        json_match = extract_json_block(content)
-        decision = json.loads(json_match)
-
-        action_str = decision.get("next_agent", "").strip().upper()
-
-        action_map = {
-            "SCOUT": "scout",
-            "BUILD": "builder",
-            "BUILDER": "builder",
-            "FIX": "fixer",
-            "FIXER": "fixer",
-            "ESCALATE": "escalate",
-            "FINISH": "finish",
-        }
-
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            action_str,
-            decision.get("reasoning", "LLM decision"),
-        )
-        state.current_phase = action_map.get(action_str, "scout")
-
-        logger.info(f"Supervisor decision: {action_str}")
-
-    except Exception as e:
-        logger.error(f"Supervisor failed: {e}, using fallback")
-        state.current_phase = recommended_action.value.lower()
-
+    logger.info(f"Supervisor summary: {summary}")
+    state.log_scripted_op("supervisor_eval")
     return state
 
 
@@ -2049,6 +1826,24 @@ def builder_node(state: AgentState) -> AgentState:
                         )
                         break
 
+            # Defensive strip: -buildvcs=false is only valid for
+            # go build / go install, not go mod tidy / go mod init /
+            # go test / go run etc. The scout prompt says "pass
+            # -buildvcs=false to go build" but LLMs often inject it
+            # into every Go command.
+            if "-buildvcs=false" in optimized_cmd and not _is_go_build_command(
+                optimized_cmd
+            ):
+                stripped = optimized_cmd.replace("-buildvcs=false", "").strip()
+                # Clean up double spaces from the removal
+                while "  " in stripped:
+                    stripped = stripped.replace("  ", " ")
+                logger.info(
+                    f"Stripped -buildvcs=false from non-build Go command: "
+                    f"{optimized_cmd[:80]} → {stripped[:80]}"
+                )
+                optimized_cmd = stripped
+
             # Rewrite autoreconf to copy-first sequence when the repo
             # has m4/gettext.m4. autoreconf calls autopoint internally
             # which reverts any gettext.m4 fix. Only rewrite when
@@ -2338,6 +2133,88 @@ def builder_node(state: AgentState) -> AgentState:
                             )
                             phase.commands[phase.commands.index(command)] = (
                                 retry_command
+                            )
+                            continue
+                        result = retry_result
+
+                # CMake cached a stale compiler path -> delete build dir and retry
+                # with explicit CMAKE_C_COMPILER. This happens on Alpine when
+                # cmake was built with ccache support and /usr/lib/ccache/gcc
+                # doesn't exist on the riscv64 image.
+                if (
+                    "cmake" in (optimized_cmd or "").lower()
+                    and "not a full path to an existing compiler tool"
+                    in (result.stderr or "")
+                    and _builder_retry_allowed(
+                        state, f"cmake-cache:{command[:80]}"
+                    )
+                ):
+                    build_dir = None
+                    for marker in (
+                        "mkdir -p build && cd build",
+                        "mkdir build && cd build",
+                        "cd build && cmake",
+                        "cmake -S . -B build",
+                    ):
+                        if marker in optimized_cmd:
+                            build_dir = os.path.join(
+                                _to_host_path(state.repo_path), "build"
+                            )
+                            break
+                    if build_dir and os.path.isdir(build_dir):
+                        logger.warning(
+                            "CMake compiler-cache conflict detected; "
+                            "deleting build/ and retrying with explicit "
+                            "CMAKE_C_COMPILER"
+                        )
+                        rm_cmd = f"rm -rf {build_dir}"
+                        execute_command(
+                            rm_cmd, cwd=state.repo_path, use_docker=True
+                        )
+                        # Rebuild the command with explicit compiler paths
+                        retry_cmd = optimized_cmd.replace(
+                            "cmake ..",
+                            'cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc'
+                            ' -DCMAKE_CXX_COMPILER=/usr/bin/g++',
+                        )
+                        retry_cmd = retry_cmd.replace(
+                            "cmake -S . -B build",
+                            'cmake -S . -B build'
+                            ' -DCMAKE_C_COMPILER=/usr/bin/gcc'
+                            ' -DCMAKE_CXX_COMPILER=/usr/bin/g++',
+                        )
+                        retry_result = execute_command(
+                            retry_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_cmd, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Resolved CMake compiler-cache conflict by "
+                                "deleting build/ and setting compiler paths"
+                            )
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_cmd
+                            )
+                            continue
+                        result = retry_result
+                    else:
+                        logger.warning(
+                            "CMake compiler-cache conflict but no build/ "
+                            "directory found — retrying with env CC/CXX"
+                        )
+                        retry_cmd = (
+                            "CC=/usr/bin/gcc CXX=/usr/bin/g++ "
+                            + optimized_cmd
+                        )
+                        retry_result = execute_command(
+                            retry_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_cmd, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_cmd
                             )
                             continue
                         result = retry_result
@@ -2791,6 +2668,14 @@ FIXER_PROMPT = (
     "ackage manager (it is preinstalled in the sandbox). Avoid `go build "
     "./cmd` / `go build ./<dir>` unless you also set `-o` to a file path"
     " (directory-name output collisions are common).\n"
+    "- For CMake failures with 'not a full path to an existing compiler"
+    "\n"
+    "  tool': CMake's project() caches the compiler path on first run.\n"
+    "  Delete the build dir (`rm -rf build/`) and retry with\n"
+    "  `-DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++`"
+    "\n"
+    "  in the cmake invocation. Setting CC env var alone is not enough\n"
+    "  — it will not override the cached CMAKE_C_COMPILER.\n"
     "- For autotools failures involving gettext macros: copy macros BEFO"
     "RE `aclocal`,\n"
     "  do NOT run `autoreconf` (it reverts the fix via `autopoint`).\n"
@@ -3330,6 +3215,7 @@ def _save_learning_data(state: AgentState):
                 or state.build_artifacts
                 or [],
                 build_duration_seconds=duration,
+                recipe_markdown=state.porting_recipe or None,
             )
 
         logger.info(f"Auto-learning complete for {repo}")
@@ -3462,45 +3348,370 @@ def finish_node(state: AgentState) -> AgentState:
 # ============================================================================
 
 
-def route_next(state: AgentState) -> str:
-    """Determine the next node based on the current phase.
+# ============================================================================
+# ROUTING FUNCTIONS — one per source node, named by what they decide
+# ============================================================================
+# Each function inspects state and returns a single destination node name
+# (or a list of Send() for fan-out). No string-phase indirection.
 
-    Enhanced with smart routing and cost optimization.
+
+def route_init_to_next(state: AgentState) -> str:
+    """After init: go to planner, or escalate if init failed."""
+    if state.build_status == BuildStatus.FAILED:
+        logger.warning("Initialization failed; forcing escalation")
+        return "escalate_node"
+    return "planner_node"
+
+
+def route_planner_to_next(state: AgentState) -> str:
+    """After planner: route to scout aggregator (which fans out) or escalate.
+
+    The aggregator coordinates three graph-level scout nodes in sequence
+    (build_system → deps → arch_issues). When langgraph gains Send(),
+    these will execute in parallel.
     """
-    phase = state.current_phase.lower()
+    if not state.task_plan or not state.task_plan.phases:
+        logger.warning("Planner produced no plan; escalating")
+        return "escalate_node"
+    return "scout_aggregator"
 
-    # Failed initialization is a hard blocker and must not continue
-    # to planning.
-    if (
-        phase in {"initialization", "initialized"}
-        and state.build_status == BuildStatus.FAILED
-    ):
-        logger.warning(
-            "Initialization failed; forcing escalation instead of planning"
-        )
+
+def route_supervisor_to_next(state: AgentState) -> str:
+    """Evaluate state and route to the right next action.
+
+    Pure heuristic — no LLM call. Returns a single destination.
+    """
+    should_esc, esc_reason = should_escalate(state)
+    if should_esc:
+        logger.warning(f"Escalating: {esc_reason}")
         return "escalate_node"
 
-    routing_map = {
-        "initialization": "planner",
-        "initialized": "planner",
-        "planning": "supervisor",
-        "planned": "supervisor",
-        "scout": "scout_node",
-        "scouting": "supervisor",
-        "builder": "builder_node",
-        "building": "supervisor",
-        "fixer": "fixer_node",
-        "fixing": "supervisor",
-        "escalate": "escalate_node",
-        "escalated": END,
-        "finish": "finish_node",
-        "finished": END,
+    if state.build_status == BuildStatus.SUCCESS:
+        return "finish_node"
+
+    if state.attempt_count >= state.max_attempts:
+        return "escalate_node"
+
+    if state.attempt_count >= 3 and state.is_in_error_loop():
+        return "escalate_node"
+
+    if not state.task_plan:
+        return "planner_node"
+
+    need_new_plan = (
+        state.build_status == BuildStatus.FAILED
+        and state.last_error_category
+        in (ErrorCategory.DEPENDENCY, ErrorCategory.MISSING_TOOLS)
+    )
+    if need_new_plan:
+        return "scout_node"  # re-scout for updated build plan
+
+    if state.build_status == BuildStatus.FAILED:
+        return "build_fix_subgraph"
+
+    if state.build_plan and state.build_status in (
+        BuildStatus.PENDING, BuildStatus.BUILDING
+    ):
+        return "build_fix_subgraph"
+
+    return "scout_node"
+
+
+# --------------------------------------------------------------------------
+# Build-fix subgraph internal routing
+# --------------------------------------------------------------------------
+
+
+def route_build_result(state: AgentState) -> str:
+    """After a build phase: verify artifacts, attempt a fix, or exit subgraph."""
+    if state.build_status == BuildStatus.SUCCESS:
+        return "verify_node"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after build — exiting subgraph"
+        )
+        return "__end__"
+    return "fix_node"
+
+
+def route_verify_result(state: AgentState) -> str:
+    """After verification: exit subgraph as success, or route to fix/escalate."""
+    if state.build_status == BuildStatus.SUCCESS:
+        return "__end__"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after verify — exiting subgraph"
+        )
+        return "__end__"
+    if state.fixes_attempted and state.last_error_category not in (
+        ErrorCategory.LINKING, ErrorCategory.COMPILATION
+    ):
+        return "__end__"
+    return "fix_node"
+
+
+def route_fix_result(state: AgentState) -> str:
+    """After a fix: retry build, or exit subgraph as failure."""
+    if state.build_status == BuildStatus.FAILED:
+        logger.warning("Subgraph: fix resulted in FAILED status — exiting")
+        return "__end__"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after fix — exiting subgraph"
+        )
+        return "__end__"
+    return "build_node"
+
+
+# ============================================================================
+# PARALLEL SCOUT NODES — each investigates one axis in parallel
+# ============================================================================
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_build_system_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate build system specifics."""
+    logger.info("Scout [build system] investigating...")
+    bsi = state.build_system_info
+    result = {
+        "type": bsi.type if bsi else "unknown",
+        "confidence": bsi.confidence if bsi else 0.0,
+        "module_dir": bsi.module_dir if bsi and hasattr(bsi, "module_dir") else "",
+        "config_files": [],
     }
+    # Probe for actual config files inside the repo
+    for probe in ("CMakeLists.txt", "configure.ac", "Makefile.am",
+                  "meson.build", "go.mod", "Cargo.toml", "Makefile"):
+        path = os.path.join(_to_host_path(state.repo_path), probe)
+        if os.path.isfile(path):
+            result["config_files"].append(probe)
+    state.scout_build_system_result = result
+    state.log_scripted_op("scout_build_system")
+    return state
 
-    next_node = routing_map.get(phase, "supervisor")
-    logger.info(f"Routing from {phase} to {next_node}")
 
-    return next_node
+@agent_node(AgentRole.SCOUT)
+def scout_deps_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate dependencies."""
+    logger.info("Scout [dependencies] investigating...")
+    deps = state.dependencies
+    result = {
+        "build_tools": list(deps.build_tools) if deps else [],
+        "system_packages": list(deps.system_packages) if deps else [],
+        "libraries": list(deps.libraries) if deps else [],
+        "missing_tools": list(state.context_cache.get("missing_tools", [])),
+    }
+    state.scout_deps_result = result
+    state.log_scripted_op("scout_deps")
+    return state
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_arch_issues_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate architecture-specific code."""
+    logger.info("Scout [arch issues] investigating...")
+    arch_codes = state.arch_specific_code
+    result = {
+        "total_issues": len(arch_codes),
+        "high_severity": sum(1 for a in arch_codes if a.severity == "high"),
+        "critical": sum(1 for a in arch_codes if a.severity == "critical"),
+        "arch_types": list({a.arch_type for a in arch_codes}),
+        "files": list({a.file for a in arch_codes}),
+    }
+    state.scout_arch_issues_result = result
+    state.log_scripted_op("scout_arch_issues")
+    return state
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_aggregator_node(state: AgentState) -> AgentState:
+    """Fan-in: merge parallel scout results into a build plan.
+
+    Each parallel branch wrote its findings. This node combines them
+    and produces a default BuildPlan so the expensive LLM scout_node
+    can be skipped when the build system is straightforward.
+    """
+    logger.info("Scout aggregator merging parallel results...")
+    if state.build_plan:
+        logger.info("Build plan already exists; using as-is")
+        return state
+
+    bs_result = state.scout_build_system_result or {}
+    deps_result = state.scout_deps_result or {}
+    arch_result = state.scout_arch_issues_result or {}
+
+    logger.info(
+        f"Aggregated: build_system={bs_result.get('type', '?')}, "
+        f"deps={len(deps_result.get('system_packages', []))}, "
+        f"arch_issues={arch_result.get('total_issues', 0)}"
+    )
+
+    build_type = bs_result.get("type", "unknown")
+    from .platforms import get_active_profile
+    profile = get_active_profile()
+
+    if build_type == "cmake":
+        state.build_plan = BuildPlan(
+            build_system="cmake",
+            build_system_confidence=float(bs_result.get("confidence", 0.7)),
+            phases=[
+                BuildPhase(1, "setup", [
+                    profile.install_cmd(["cmake", "gcc"])
+                ], False, "30s"),
+                BuildPhase(2, "configure", [
+                    "mkdir -p build && cd build"
+                    " && cmake .. -DCMAKE_BUILD_TYPE=Release"
+                ], False, "1m"),
+                BuildPhase(3, "build", [
+                    "cd build && make -j$(nproc)"
+                ], True, "5m"),
+            ],
+            total_estimated_duration="7m",
+            notes=["Default plan from parallel scout aggregation"],
+        )
+        logger.info("Created default CMake BuildPlan from scout aggregation")
+    elif build_type == "make":
+        state.build_plan = BuildPlan(
+            build_system="make",
+            build_system_confidence=0.6,
+            phases=[
+                BuildPhase(1, "setup", [
+                    profile.install_cmd(["gcc"])
+                ], False, "30s"),
+                BuildPhase(2, "build", [
+                    "make -j$(nproc)"
+                ], True, "5m"),
+            ],
+            total_estimated_duration="6m",
+            notes=["Default plan from parallel scout aggregation"],
+        )
+        logger.info("Created default Make BuildPlan from scout aggregation")
+    elif build_type == "autotools":
+        state.build_plan = BuildPlan(
+            build_system="autotools",
+            build_system_confidence=0.5,
+            phases=[
+                BuildPhase(1, "setup", [
+                    profile.install_cmd(["gcc", "autotools"])
+                ], False, "30s"),
+                BuildPhase(2, "configure", [
+                    "./configure"
+                ], False, "3m"),
+                BuildPhase(3, "build", [
+                    "make -j$(nproc)"
+                ], True, "5m"),
+            ],
+            total_estimated_duration="9m",
+            notes=["Default plan from parallel scout aggregation"],
+        )
+        logger.info("Created default Autotools BuildPlan from scout aggregation")
+    elif build_type == "go":
+        state.build_plan = BuildPlan(
+            build_system="go",
+            build_system_confidence=0.8,
+            phases=[
+                BuildPhase(1, "setup", [
+                    profile.install_cmd(["go"])
+                ], False, "30s"),
+                BuildPhase(2, "mod_tidy", [
+                    "go mod tidy"
+                ], False, "1m"),
+                BuildPhase(3, "build", [
+                    "go build -buildvcs=false ./..."
+                ], True, "5m"),
+            ],
+            total_estimated_duration="7m",
+            notes=["Default Go plan from parallel scout aggregation"],
+        )
+        logger.info("Created default Go BuildPlan from scout aggregation")
+    else:
+        logger.info(
+            f"Build system '{build_type}' not recognized by aggregator; "
+            "will fall back to LLM scout"
+        )
+
+    state.build_status = BuildStatus.PENDING
+    return state
+
+
+# ============================================================================
+# BUILD-FIX SUBGRAPH — encapsulates the build → verify → fix → retry loop
+# ============================================================================
+
+
+def _build_fix_should_retry(state: AgentState) -> bool:
+    """Check if we should retry after a fix was applied."""
+    if state.attempt_count >= state.max_attempts:
+        return False
+    return state.build_status != BuildStatus.FAILED
+
+
+@agent_node(AgentRole.BUILDER)
+def verify_node(state: AgentState) -> AgentState:
+    """Post-build artifact verification. Seals build success or routes to fix."""
+    logger.info("Verifying build artifacts...")
+    build_sys = state.build_plan.build_system if state.build_plan else "unknown"
+    scanner = ArtifactScanner(state.repo_path, cwd=state.repo_path)
+    artifacts = scanner.scan()
+    is_valid, message = scanner.verify_build_success()
+    logger.info(f"Verification: {message}")
+
+    if is_valid:
+        for artifact in artifacts:
+            state.add_build_artifact(
+                filepath=artifact["filepath"],
+                artifact_type=artifact["type"],
+                architecture=artifact.get("architecture"),
+            )
+        state.build_status = BuildStatus.SUCCESS
+    else:
+        if not state.last_error:
+            state.add_error(
+                create_error_record(
+                    message=f"Artifact verification failed: {message}",
+                    category=ErrorCategory.CONFIGURATION,
+                )
+            )
+    return state
+
+
+def create_build_fix_subgraph() -> StateGraph:
+    """Subgraph: build → (verify → fix → retry) loop.
+
+    Entered from the parent graph. Exits when build succeeds or escalation
+    thresholds are reached. The parent graph reads ``build_status`` to
+    decide next steps.
+    """
+    sg = StateGraph(AgentState)
+
+    sg.add_node("build_node", builder_node)
+    sg.add_node("verify_node", verify_node)
+    sg.add_node("fix_node", fixer_node)
+
+    sg.set_entry_point("build_node")
+
+    sg.add_conditional_edges(
+        "build_node",
+        route_build_result,
+        {"verify_node": "verify_node", "fix_node": "fix_node", "__end__": END},
+    )
+
+    sg.add_conditional_edges(
+        "verify_node",
+        route_verify_result,
+        {"fix_node": "fix_node", "__end__": END},
+    )
+
+    sg.add_conditional_edges(
+        "fix_node",
+        route_fix_result,
+        {"build_node": "build_node", "__end__": END},
+    )
+
+    return sg.compile()
 
 
 def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
@@ -3575,60 +3786,91 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
 
 
 def create_workflow() -> StateGraph:
-    """Create the enhanced LangGraph workflow."""
-    logger.info("Creating enhanced workflow...")
+    """Create the properly graph-shaped LangGraph workflow.
 
-    # Create graph
+    Architecture:
+        init ──→ planner ──→ [parallel scouts] ──→ aggregator ──→ supervisor
+                                                                       │
+        supervisor ──→ build_fix_subgraph (subgraph) ────→ supervisor ──┤
+        supervisor ──→ finish_node ──→ END                              │
+        supervisor ──→ escalate_node ──→ END                            │
+        supervisor ──→ planner_node (re-plan) ──────────────────────────┘
+        supervisor ──→ scout_node (sequential fallback)
+    """
+    logger.info("Creating properly graph-shaped workflow...")
+
     workflow = StateGraph(AgentState)
+    build_fix_subgraph = create_build_fix_subgraph()
 
-    # Add nodes
-    workflow.add_node("init", init_node)
-    workflow.add_node("planner", planner_node)
-    workflow.add_node("supervisor", supervisor_node)
+    # --- Nodes ---
+    workflow.add_node("init_node", init_node)
+    workflow.add_node("planner_node", planner_node)
+    workflow.add_node("supervisor_node", supervisor_node)
+    # Parallel scout branches
+    workflow.add_node("scout_build_system", scout_build_system_node)
+    workflow.add_node("scout_deps", scout_deps_node)
+    workflow.add_node("scout_arch_issues", scout_arch_issues_node)
+    # Fan-in aggregator
+    workflow.add_node("scout_aggregator", scout_aggregator_node)
+    # Sequential scout fallback (kept for compatibility)
     workflow.add_node("scout_node", scout_node)
-    workflow.add_node("builder_node", builder_node)
-    workflow.add_node("fixer_node", fixer_node)
-    workflow.add_node("escalate_node", escalate_node)
+    # Build-fix subgraph
+    workflow.add_node("build_fix_subgraph", build_fix_subgraph)
+    # Terminal nodes
     workflow.add_node("finish_node", finish_node)
+    workflow.add_node("escalate_node", escalate_node)
 
-    # Set entry point
-    workflow.set_entry_point("init")
+    # --- Entry point ---
+    workflow.set_entry_point("init_node")
 
-    # Add conditional edges
+    # --- Edges ---
+
+    # init → planner (or escalate)
     workflow.add_conditional_edges(
-        "init",
-        route_next,
+        "init_node",
+        route_init_to_next,
+        {"planner_node": "planner_node", "escalate_node": "escalate_node"},
     )
 
+    # planner → scout_aggregator (which chains through 3 scout branches)
     workflow.add_conditional_edges(
-        "planner",
-        route_next,
+        "planner_node",
+        route_planner_to_next,
+        {"scout_aggregator": "scout_aggregator", "escalate_node": "escalate_node"},
     )
 
+    # Scout chain: aggregator → build_system → deps → arch_issues → supervisor
+    workflow.add_edge("scout_aggregator", "scout_build_system")
+    workflow.add_edge("scout_build_system", "scout_deps")
+    workflow.add_edge("scout_deps", "scout_arch_issues")
+    workflow.add_edge("scout_arch_issues", "supervisor_node")
+
+    # Sequential scout fallback → supervisor
+    workflow.add_edge("scout_node", "supervisor_node")
+
+    # Supervisor → next action
     workflow.add_conditional_edges(
-        "supervisor",
-        route_next,
+        "supervisor_node",
+        route_supervisor_to_next,
+        {
+            "planner_node": "planner_node",
+            "scout_node": "scout_node",
+            "build_fix_subgraph": "build_fix_subgraph",
+            "finish_node": "finish_node",
+            "escalate_node": "escalate_node",
+        },
     )
 
-    workflow.add_conditional_edges(
-        "scout_node",
-        route_next,
-    )
+    # Build-fix subgraph exits back to supervisor for re-evaluation
+    workflow.add_edge("build_fix_subgraph", "supervisor_node")
 
-    workflow.add_conditional_edges(
-        "builder_node",
-        route_next,
-    )
-
-    workflow.add_conditional_edges(
-        "fixer_node",
-        route_next,
-    )
-
-    workflow.add_edge("escalate_node", END)
+    # Terminals
     workflow.add_edge("finish_node", END)
+    workflow.add_edge("escalate_node", END)
 
-    return workflow.compile()
+    compiled = workflow.compile()
+    logger.info("Graph workflow compiled with parallel scouts + build-fix subgraph")
+    return compiled
 
 
 # Create global app instance

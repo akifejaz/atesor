@@ -288,6 +288,14 @@ class AgentState:
         default_factory=dict
     )
 
+    # ========== Parallel Scout Results ==========
+    scout_build_system_result: Optional[Dict[str, Any]] = None
+    scout_deps_result: Optional[Dict[str, Any]] = None
+    scout_arch_issues_result: Optional[Dict[str, Any]] = None
+
+    # ========== Subgraph status: parent graph reads this to decide next step ==========
+    subgraph_outcome: Optional[str] = None  # "success" | "failure" | "fix_needed"
+
     # ========== Agent Communication ==========
     messages: List[BaseMessage] = field(default_factory=list)
 

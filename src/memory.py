@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -37,11 +38,44 @@ from typing import Any, Dict, List, Optional
 
 import filelock
 
+from .config import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
-EXAMPLES_DIR = Path(__file__).parent.parent / "data" / "examples"
-RECIPE_CACHE_PATH = Path(__file__).parent.parent / "data" / "recipe_cache.json"
+# Seed examples and the recipe cache ship with the package; the runtime
+# copies live in the writable data directory resolved by src.config.
+_BUNDLED_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+EXAMPLES_DIR = Path(DATA_DIR) / "examples"
+RECIPE_CACHE_PATH = Path(DATA_DIR) / "recipe_cache.json"
 MAX_EXAMPLES_PER_AGENT = 100
+
+
+def _seed_bundled_data() -> None:
+    """Seed the writable data dir from bundled defaults on first run.
+
+    Copies packaged example files and the recipe cache into the
+    writable data directory when absent, so a read-only install (for
+    example under ``/opt``) still has a working, user-writable few-shot
+    store and cache.
+    """
+    os.makedirs(EXAMPLES_DIR, exist_ok=True)
+    bundled_examples = _BUNDLED_DATA_DIR / "examples"
+    if bundled_examples.is_dir():
+        for seed_file in bundled_examples.glob("*.json"):
+            target = EXAMPLES_DIR / seed_file.name
+            if not target.exists():
+                shutil.copy2(seed_file, target)
+    if not RECIPE_CACHE_PATH.exists():
+        bundled_cache = _BUNDLED_DATA_DIR / "recipe_cache.json"
+        if bundled_cache.exists():
+            shutil.copy2(bundled_cache, RECIPE_CACHE_PATH)
+        else:
+            RECIPE_CACHE_PATH.write_text(
+                json.dumps({"version": "2.0", "packages": {}})
+            )
+
+
+_seed_bundled_data()
 
 
 @dataclass
@@ -676,6 +710,7 @@ def save_to_recipe_cache(
     build_duration_seconds: float,
     architecture: str = "riscv64",
     sandbox: Optional[str] = None,
+    recipe_markdown: Optional[str] = None,
 ) -> bool:
     """Upsert a package recipe in the cache, scoped per sandbox.
 
@@ -694,6 +729,8 @@ def save_to_recipe_cache(
         build_duration_seconds: Wall-clock build duration.
         architecture: Target architecture. Defaults to ``"riscv64"``.
         sandbox: Sandbox key; defaults to the active platform.
+        recipe_markdown: The rendered recipe guide. Stored verbatim so a
+            later cache hit can reproduce the exact ``<repo>_recipe.md``.
 
     Returns:
         True if the cache was written successfully, else False.
@@ -736,6 +773,8 @@ def save_to_recipe_cache(
                 "build_duration_seconds": round(build_duration_seconds, 1),
                 "recipe_file": f"output/{repo_name}_recipe.md",
             }
+            if recipe_markdown:
+                recipe["recipe_markdown"] = recipe_markdown
 
             # Ensure nested layout (entry is a dict keyed by sandbox)
             pkg_entry = packages.get(repo_name)
@@ -765,6 +804,113 @@ def save_to_recipe_cache(
     except Exception as e:
         logger.error(f"Failed to save recipe cache for {repo_name}: {e}")
         return False
+
+
+def render_recipe_markdown(repo_name: str, recipe: Dict[str, Any]) -> str:
+    """Render a Markdown porting recipe from a cached recipe entry.
+
+    Returns the stored ``recipe_markdown`` verbatim when present (the
+    exact guide produced by the original build). Otherwise it
+    reconstructs a readable recipe from the structured cache fields, so a
+    cache hit can still materialize a usable ``<repo>_recipe.md``.
+
+    Args:
+        repo_name: The package/repository name.
+        recipe: The cached recipe entry for a single sandbox.
+
+    Returns:
+        The recipe rendered as a Markdown document.
+    """
+    stored = recipe.get("recipe_markdown")
+    if stored:
+        return stored if stored.endswith("\n") else stored + "\n"
+
+    lines = [f"# RISC-V Porting Recipe: {repo_name}", ""]
+    if recipe.get("repo_url"):
+        lines.append(f"- **Repository:** {recipe['repo_url']}")
+    lines.append(
+        f"- **Build system:** {recipe.get('build_system', 'unknown')}"
+    )
+    lines.append(
+        f"- **Architecture:** {recipe.get('architecture', 'riscv64')}"
+    )
+    if recipe.get("sandbox"):
+        lines.append(f"- **Sandbox:** {recipe['sandbox']}")
+    if recipe.get("last_built"):
+        lines.append(f"- **Last built:** {recipe['last_built']}")
+    lines += [
+        "",
+        "> Reconstructed from the recipe cache. Re-run with `--force` to "
+        "regenerate the full guide from a fresh build.",
+        "",
+    ]
+
+    deps = recipe.get("dependencies") or []
+    if deps:
+        lines += ["## Dependencies", ""]
+        lines += [f"- {d}" for d in deps]
+        lines.append("")
+
+    phases = (recipe.get("build_plan") or {}).get("phases") or []
+    if phases:
+        lines += ["## Build Steps", ""]
+        for phase in phases:
+            lines += [f"### {phase.get('name', 'step')}", "", "```bash"]
+            lines += list(phase.get("commands", []))
+            lines += ["```", ""]
+
+    patches = recipe.get("patches") or []
+    if patches:
+        lines += ["## Patches / Fixes Applied", ""]
+        lines += [f"- {p}" for p in patches]
+        lines.append("")
+
+    artifacts = recipe.get("artifacts") or []
+    if artifacts:
+        lines += ["## Build Artifacts", ""]
+        for art in artifacts:
+            role = f" ({art['role']})" if art.get("role") else ""
+            path = art.get("path", "")
+            lines.append(f"- **{art.get('type', 'binary')}**{role}: `{path}`")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def materialize_cached_recipe(
+    repo_name: str,
+    output_dir: str,
+    recipe: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """Write a cached recipe to ``<output_dir>/<repo_name>_recipe.md``.
+
+    Looks up the active-sandbox recipe when ``recipe`` is not supplied.
+    This lets a cache hit leave a tangible recipe file the user can open,
+    instead of only printing cached metadata.
+
+    Args:
+        repo_name: The package/repository name.
+        output_dir: Directory to write the recipe file into.
+        recipe: A pre-fetched recipe entry. Falls back to
+            ``get_cached_recipe(repo_name)`` when ``None``.
+
+    Returns:
+        The absolute path to the written file, or None if no recipe
+        exists or the write failed.
+    """
+    if recipe is None:
+        recipe = get_cached_recipe(repo_name)
+    if not recipe:
+        return None
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, f"{repo_name}_recipe.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(render_recipe_markdown(repo_name, recipe))
+        return os.path.abspath(path)
+    except OSError as e:
+        logger.error(f"Failed to write recipe file for {repo_name}: {e}")
+        return None
 
 
 # ============================================================================

@@ -440,12 +440,15 @@ def detect_platform(container_name: Optional[str] = None) -> PlatformProfile:
         logger.warning(f"ATESOR_PLATFORM={override!r} is unknown; ignoring")
 
     if container_name is None:
-        try:
-            from .tools import DockerConfig
-
-            container_name = DockerConfig.CONTAINER_NAME
-        except Exception:
-            return _DEFAULT_PROFILE
+        # Resolve the container to inspect WITHOUT calling
+        # get_container_name()/get_active_profile(): those depend on the
+        # very profile we are detecting, so routing through them here
+        # recurses (detect_platform -> get_container_name ->
+        # get_active_profile -> detect_platform) until RecursionError.
+        container_name = (
+            os.environ.get("ATESOR_CONTAINER", "").strip()
+            or _DEFAULT_PROFILE.container_name
+        )
 
     try:
         result = subprocess.run(
