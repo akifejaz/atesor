@@ -520,3 +520,69 @@ jobs:
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 30
+
+  # ------------------------------------------------------------------------- #
+  # 5. Collect full-run logs from all shards (both platforms)
+  #
+  # This runs at the end of full workflows even when shard jobs fail/cancel.
+  # It aggregates all available shard artifacts, extracts only *.log files,
+  # and publishes one combined artifact retained for 30 days.
+  # ------------------------------------------------------------------------- #
+  collect-full-shard-logs:
+    name: collect-full-shard-logs
+    needs:
+      - plan-full
+      - atesor-debian-full
+      - atesor-alpine-full
+    if: >-
+      always() &&
+      needs.plan-full.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download debian full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debian-full-logs-${{ github.run_id }}-shard-*
+          path: collected/debian
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Download alpine full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: alpine-full-logs-${{ github.run_id }}-shard-*
+          path: collected/alpine
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Collect all *.log files
+        run: |
+          set -euo pipefail
+          mkdir -p collected-logs
+          # Preserve shard-level path context to avoid filename collisions.
+          while IFS= read -r f; do
+            rel="${f#collected/}"
+            mkdir -p "collected-logs/$(dirname "$rel")"
+            cp "$f" "collected-logs/$rel"
+          done < <(find collected -type f -name '*.log' 2>/dev/null || true)
+
+          count=$(find collected-logs -type f -name '*.log' | wc -l | tr -d ' ')
+          echo "Collected $count log file(s)."
+
+      - name: Upload platform full logs (debian)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logs-debian
+          path: collected-logs/debian/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload platform full logs (alpine)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logs-alpine
+          path: collected-logs/alpine/
+          if-no-files-found: warn
+          retention-days: 30
