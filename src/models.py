@@ -115,6 +115,10 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
     only the primary is returned (those providers' SDKs already retry
     transient errors transparently).
 
+    A lightweight health-check runs each fallback model with a tiny
+    prompt at pool-creation time; models that return 404/429 are skipped
+    so the pool only contains reachable models.
+
     Callers that want resilience to ``Model not found`` / 404 from the
     primary pass this list into
     ``llm_call_with_validation(fallback_llms=...)``.
@@ -124,7 +128,7 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
 
     Returns:
         A list whose first element is the primary model, followed by any
-        configured fallback models.
+        reachable fallback models.
     """
     primary = create_llm(role)
     provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
@@ -133,20 +137,42 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
     raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
     fallback_ids = [m.strip() for m in raw.split(",") if m.strip()]
     if not fallback_ids:
-        # Default pool for free-tier OpenRouter where upstream model
-        # availability can vary by minute.
         fallback_ids = [
+            "google/gemini-2.0-flash-exp:free",
             "meta-llama/llama-3.3-70b-instruct:free",
             "qwen/qwen3-14b:free",
             "deepseek/deepseek-r1-0528:free",
+            "anthropic/claude-3-5-haiku:free",
+            "openrouter/auto",
         ]
     fallbacks = []
     for model_id in fallback_ids:
         try:
-            fallbacks.append(_create_llm_with_model(role, model_id))
+            llm = _create_llm_with_model(role, model_id)
+            if _health_check(llm):
+                fallbacks.append(llm)
+            else:
+                logger.warning(f"Skipping unhealthy fallback '{model_id}'")
         except Exception as exc:
             logger.warning(f"Skipping fallback model '{model_id}': {exc}")
     return [primary, *fallbacks]
+
+
+def _health_check(llm: BaseChatModel, max_wait: int = 5) -> bool:
+    """Return True if *llm* responds to a tiny prompt within *max_wait*.
+
+    Lightweight probe that catches 404/429 and unreachable models at
+    pool-creation time instead of failing during a real agent call.
+    """
+    try:
+        from langchain_core.messages import HumanMessage
+        probe = llm.invoke(
+            [HumanMessage(content="Say OK")],
+            timeout=max_wait,
+        )
+        return bool(getattr(probe, "content", ""))
+    except Exception:
+        return False
 
 
 def _resolve_model_name(role: AgentRole) -> str:

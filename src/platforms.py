@@ -233,6 +233,20 @@ ALPINE_RISCV = PlatformProfile(
             "`GOPROXY`, `GONOSUMCHECK`, and `GOFLAGS=-buildvcs=false`"
             " are pre-set."
         ),
+        (
+            "If `git` is not installed (\"git: command not found\"),"
+            " install it via the package manager first."
+        ),
+        (
+            "For large RISC-V functions, link with"
+            " `-mcmodel=medany` to avoid `relocation truncated to fit`"
+            " errors."
+        ),
+        (
+            "If the bundled Go toolchain is too old for go.mod,"
+            " download a newer riscv64 Go binary from"
+            " https://go.dev/dl/ as a recovery option."
+        ),
     ],
 )
 
@@ -394,8 +408,22 @@ DEBIAN_RISCV = PlatformProfile(
         (
             "GOTOOLCHAIN=local is set image-wide; if go.mod requires a"
             " newer Go than the bundled toolchain, treat as"
-            " MISSING_TOOLS and escalate — do NOT attempt apt golang"
+            " MISSING_TOOLS and escalate -- do NOT attempt apt golang"
             " install."
+        ),
+        (
+            "If `git` is not installed (\"git: command not found\"),"
+            " install it via the package manager first."
+        ),
+        (
+            "For large RISC-V functions, link with"
+            " `-mcmodel=medany` to avoid `relocation truncated to fit`"
+            " errors."
+        ),
+        (
+            "If the bundled Go toolchain is too old for go.mod,"
+            " download a newer riscv64 Go binary from"
+            " https://go.dev/dl/ as a recovery option."
         ),
     ],
 )

@@ -19,6 +19,8 @@ import json
 import logging
 import os
 import re
+import stat
+import tempfile
 from typing import Any, Dict, List, Optional
 
 from src.state import (
@@ -61,6 +63,101 @@ class ScriptedOperations:
 
         logger.info(f"ScriptedOperations initialized: {self.workspace_root}")
 
+
+    def _setup_git_askpass(self) -> None:
+        token = os.environ.get("GIT_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+        if not token:
+            return
+
+        # Write script via Python file I/O — no shell interpolation of the token
+        fd, path = tempfile.mkstemp(prefix="git-askpass-")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write("#!/bin/sh\n")
+                f.write(f"echo \"$_GIT_TOKEN\"\n")  # read from env, never inline
+            os.chmod(path, stat.S_IRWXU)  # 700 — owner only
+        except Exception:
+            os.unlink(path)
+            raise
+
+        # Pass token through env var, not embedded in the script text
+        execute_command(
+            ["git", "config", "--global", "core.askPass", path],
+            use_docker=True,
+            extra_env={"GIT_ASKPASS": path, "_GIT_TOKEN": token},
+        )
+        self._askpass_path = path  # store for cleanup later
+
+
+    def _build_auth_clone_cmd(self, url: str, container_repo_path: str) -> str:
+        """
+        Return a shell-safe clone command with auth via git config.
+
+        Sets http.extraHeader globally before cloning so the token never
+        appears in the process argument list. Uses ``git config --global``
+        so the credential persists for the process lifetime without
+        exposure in argv.
+        """
+        token = os.environ.get("GIT_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
+        if token:
+            escaped_token = token.replace("'", "'\"'\"'")
+            configure_cmd = (
+                'git config --global http.extraHeader '
+                f"'Authorization: bearer {escaped_token}'"
+            )
+            execute_command(configure_cmd, use_docker=True)
+
+        return f"git clone --depth 1 {url} {container_repo_path}"
+
+
+    def _is_auth_error(self, result: CommandResult) -> bool:
+        err = (result.stderr or "").lower()
+        return any(
+            pat in err
+            for pat in [
+                "could not read username",
+                "could not read password",
+                "authentication failed",
+                "403 forbidden",
+                "401 unauthorized",
+                "access denied",
+                "no such device or address",
+            ]
+        )
+
+
+    def _try_url_variants(self, url: str, name: str) -> Optional[CommandResult]:
+        # Validate name — only allow safe path components
+        if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name):
+            raise ValueError(f"Unsafe repo name: {name!r}")
+
+        # Validate url scheme
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
+        container_repo_path = f"/workspace/repos/{name}"
+        variants = []
+
+        if "/cgit/" in url:
+            variants.append(url.replace("/cgit/", "/git/"))
+        if not url.endswith(".git"):
+            variants.append(url + ".git")
+
+        for variant in variants:
+            # Use list form — no shell, no injection
+            execute_command(["rm", "-rf", container_repo_path], use_docker=True)
+            cmd = ["git", "clone", "--depth", "1", variant, container_repo_path]
+            result = execute_command(cmd, use_docker=True)
+            if result.success:
+                logger.info("Clone succeeded via URL variant: %s", variant)  # no f-string in logger
+                return result
+
+        return None
+    
     def _to_host_path(self, path: str) -> str:
         """Translate container path to host path if necessary."""
         if path.startswith("/workspace") and not os.path.exists("/workspace"):
@@ -126,19 +223,36 @@ class ScriptedOperations:
                     )
                     result = execute_command(clone_cmd, use_docker=True)
         else:
-            # Always clear any stale path in the container before cloning.
-            # The clone runs INSIDE the container, so a leftover directory
-            # there (a previous run, or a workspace remounted to a new host
-            # path) makes ``git clone`` fail with "destination path already
-            # exists and is not an empty directory". ``rm -rf`` is a no-op
-            # when the path is absent.
             rm_cmd = f"rm -rf {container_repo_path}"
             execute_command(rm_cmd, use_docker=True)
 
+            self._setup_git_askpass()
+
             logger.info(f"Cloning repository {url}...")
-            # Clone inside container
-            cmd = f"git clone --depth 1 {url} {container_repo_path}"
+            cmd = self._build_auth_clone_cmd(url, container_repo_path)
             result = execute_command(cmd, use_docker=True)
+
+            if not result.success and self._is_auth_error(result):
+                logger.warning(
+                    f"Auth failure for {name}, retrying without token..."
+                )
+                rm_cmd = f"rm -rf {container_repo_path}"
+                execute_command(rm_cmd, use_docker=True)
+                cmd = f"git clone --depth 1 {url} {container_repo_path}"
+                result = execute_command(cmd, use_docker=True)
+
+            if not result.success:
+                logger.warning(
+                    f"Clone failed for {name}, trying URL variants..."
+                )
+                variant_result = self._try_url_variants(url, name)
+                if variant_result is not None:
+                    result = variant_result
+                    logger.info(f"Clone via URL variant succeeded for {name}")
+                else:
+                    logger.error(
+                        f"All clone attempts failed for {name} ({url})"
+                    )
 
         # Configure git safe.directory to prevent "dubious ownership" errors
         # This is needed because the workspace is mounted from host
@@ -187,6 +301,43 @@ class ScriptedOperations:
 
     # ========== Build System Detection ==========
 
+    def _has_npm_build_script(self, repo_path: str) -> bool:
+        """Check if package.json has a 'build' script (true npm project)."""
+        pkg_file = os.path.join(repo_path, "package.json")
+        if not os.path.exists(pkg_file):
+            return False
+        try:
+            with open(pkg_file, "r", encoding="utf-8", errors="ignore") as f:
+                pkg = json.load(f)
+            scripts = pkg.get("scripts", {})
+            if isinstance(scripts, dict) and "build" in scripts:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _score_go_subdir(self, root: str, repo_path: str) -> int:
+        """Score a Go module root based on main package and cmd/ dir.
+        Higher = more likely to be the primary build target.
+        """
+        score = 0
+        if os.path.isfile(os.path.join(root, "main.go")):
+            score += 10
+        cmd_dir = os.path.join(root, "cmd")
+        if os.path.isdir(cmd_dir):
+            score += 8
+        for entry in os.scandir(root):
+            if entry.is_file() and entry.name.endswith(".go"):
+                try:
+                    with open(entry.path, "r", encoding="utf-8",
+                              errors="ignore") as f:
+                        if "package main" in f.read(2048):
+                            score += 5
+                            break
+                except Exception:
+                    pass
+        return score
+
     def detect_build_system(self, repo_path: str) -> BuildSystemInfo:
         """Detect the build system using file-based heuristics.
 
@@ -201,7 +352,7 @@ class ScriptedOperations:
         repo_path = self._to_host_path(repo_path)
         build_systems = {
             "cmake": ["CMakeLists.txt"],
-            "autotools": ["configure.ac", "configure.in"],
+            "autotools": ["configure.ac", "configure.in", "configure"],
             "make": ["Makefile", "GNUmakefile"],
             "meson": ["meson.build"],
             "cargo": ["Cargo.toml"],
@@ -220,6 +371,14 @@ class ScriptedOperations:
             for file in files:
                 filepath = os.path.join(repo_path, file)
                 if os.path.exists(filepath):
+                    # npm requires stricter detection: need lockfile or build script
+                    if build_sys == "npm":
+                        has_lock = os.path.exists(
+                            os.path.join(repo_path, "package-lock.json")
+                        )
+                        has_build = self._has_npm_build_script(repo_path)
+                        if not has_lock and not has_build:
+                            continue
                     detected.append((build_sys, file))
                     if file in [
                         "CMakeLists.txt",
@@ -228,36 +387,54 @@ class ScriptedOperations:
                         "go.mod",
                     ]:
                         confidence_scores[build_sys] = 0.95
+                    elif file == "configure":
+                        confidence_scores[build_sys] = 0.85
                     else:
                         confidence_scores[build_sys] = (
                             confidence_scores.get(build_sys, 0) + 0.3
                         )
 
         if not detected:
-            for build_sys in ["go", "cargo"]:
-                for root, dirs, files in os.walk(repo_path):
-                    if ".git" in root:
-                        continue
-                    if "go.mod" in files and build_sys == "go":
-                        module_dir = root.replace(repo_path, "").lstrip("/")
-                        detected.append(("go", f"{module_dir}/go.mod"))
-                        confidence_scores["go"] = 0.90
-                        logger.info(
-                            f"Found Go module in subdirectory: "
-                            f"{module_dir}/go.mod"
-                        )
-                        break
-                    if "Cargo.toml" in files and build_sys == "cargo":
-                        module_dir = root.replace(repo_path, "").lstrip("/")
-                        detected.append(("cargo", f"{module_dir}/Cargo.toml"))
-                        confidence_scores["cargo"] = 0.90
-                        logger.info(
-                            f"Found Cargo module in subdirectory: "
-                            f"{module_dir}/Cargo.toml"
-                        )
-                        break
-                if detected:
-                    break
+            go_subdir_candidates = []
+            cargo_found = None
+            for root, dirs, files in os.walk(repo_path):
+                if ".git" in root:
+                    continue
+                if "go.mod" in files:
+                    module_dir = root.replace(repo_path, "").lstrip("/")
+                    score = self._score_go_subdir(root, repo_path)
+                    go_subdir_candidates.append(
+                        (root, module_dir, score)
+                    )
+                if "Cargo.toml" in files and cargo_found is None:
+                    module_dir = root.replace(repo_path, "").lstrip("/")
+                    cargo_found = (root, module_dir)
+                    logger.info(
+                        f"Found Cargo module in subdirectory: "
+                        f"{module_dir}/Cargo.toml"
+                    )
+
+            if go_subdir_candidates:
+                candidates_sorted = sorted(
+                    go_subdir_candidates, key=lambda x: x[2], reverse=True
+                )
+                best_root, best_dir, best_score = candidates_sorted[0]
+                detected.append(("go", f"{best_dir}/go.mod"))
+                confidence_scores["go"] = 0.90
+                logger.info(
+                    f"Found Go module in subdirectory: "
+                    f"{best_dir}/go.mod (score={best_score})"
+                )
+            elif cargo_found:
+                detected.append(("cargo", f"{cargo_found[1]}/Cargo.toml"))
+                confidence_scores["cargo"] = 0.90
+
+        if not detected and os.path.exists(
+            os.path.join(repo_path, "Makefile")
+        ):
+            detected.append(("make", "Makefile"))
+            confidence_scores["make"] = 0.5
+            logger.info("Only Makefile found; detected as make (fallback)")
 
         if not detected:
             return BuildSystemInfo(
@@ -266,6 +443,17 @@ class ScriptedOperations:
                 primary_file="",
                 additional_files=[],
             )
+
+        # Priority boost: prefer Go over npm when both detected
+        sys_types = {s for s, _ in detected}
+        if "go" in sys_types and "npm" in sys_types:
+            # Demote npm below go
+            if (
+                "npm" in confidence_scores
+                and "go" in confidence_scores
+                and confidence_scores["npm"] >= confidence_scores["go"]
+            ):
+                confidence_scores["npm"] = confidence_scores["go"] - 0.1
 
         best_system = max(confidence_scores.items(), key=lambda x: x[1])
 
@@ -510,7 +698,22 @@ class ScriptedOperations:
             return result
 
         result["has_go_mod"] = True
-        go_mod_path, module_dir = go_mod_files[0]
+
+        # Prefer go_mod entry whose root has main.go or cmd/, else first
+        best_mod = go_mod_files[0]
+        if len(go_mod_files) > 1:
+            scored = [
+                (root, d, self._score_go_subdir(root, repo_path))
+                for root, d in go_mod_files
+            ]
+            scored.sort(key=lambda x: x[2], reverse=True)
+            best_mod = (scored[0][0], scored[0][1])
+            logger.info(
+                f"Chose go.mod at '{scored[0][1]}' (score={scored[0][2]}) "
+                f"out of {len(scored)} candidates"
+            )
+
+        go_mod_path, module_dir = best_mod
         result["module_dir"] = module_dir
 
         main_files = []

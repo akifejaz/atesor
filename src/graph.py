@@ -23,12 +23,10 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
-from langgraph.graph import END, StateGraph
-
 from langgraph.graph import END, StateGraph
 
 from .artifact_scanner import ArtifactScanner
@@ -48,6 +46,7 @@ from .state import (
     BuildPhase,
     BuildPlan,
     BuildStatus,
+    CommandResult,
     ErrorCategory,
     FailureSeverity,
     FixAttempt,
@@ -230,6 +229,72 @@ def _build_command_error_message(result, fallback: str) -> str:
     return f"{fallback} (exit {result.exit_code}) - {detail}"
 
 
+def _try_clone_recovery(state: AgentState, url: str, name: str) -> Optional[CommandResult]:
+    """Try additional URL-level recovery when the initial clone fails.
+
+    Explores URL transformations, logs which (if any) succeeded so the
+    memory system can learn from the pattern.
+    """
+    host_repo_path = os.path.join(
+        getattr(scripted_ops, "repos_dir", "/workspace/repos"), name
+    )
+    container_repo_path = f"/workspace/repos/{name}"
+    tried = [url]
+
+    variants = []
+    if "/cgit/" in url:
+        variants.append(url.replace("/cgit/", "/git/"))
+    if not url.endswith(".git"):
+        variants.append(url + ".git")
+
+    for variant in variants:
+        rm_cmd = f"rm -rf {container_repo_path}"
+        execute_command(rm_cmd, use_docker=True)
+        cmd = f"git clone --depth 1 {variant} {container_repo_path}"
+        result = execute_command(cmd, use_docker=True)
+        if result.success:
+            logger.info(
+                f"Clone recovery succeeded via URL variant: {variant}"
+            )
+            state.context_cache["clone_recovery"] = {
+                "original_url": url,
+                "success_url": variant,
+                "attempted": tried + [variant],
+            }
+            return result
+        tried.append(variant)
+
+    state.context_cache["clone_recovery"] = {
+        "original_url": url,
+        "attempted": tried,
+        "success_url": None,
+    }
+    return None
+
+
+def _classify_clone_failure(message: str) -> ErrorCategory:
+    """Classify a clone failure into a specific error category."""
+    msg = message.lower()
+    if any(
+        pat in msg
+        for pat in [
+            "could not read username",
+            "could not read password",
+            "no such device or address",
+            "authentication failed",
+        ]
+    ):
+        return ErrorCategory.NETWORK
+    if re.search(r"repository\s+not\s+found", msg):
+        return ErrorCategory.CONFIGURATION
+    if any(
+        pat in msg
+        for pat in ["could not resolve", "name or service not known"]
+    ):
+        return ErrorCategory.NETWORK
+    return ErrorCategory.CONFIGURATION
+
+
 def is_toolchain_version_mismatch(error_message: str) -> bool:
     """Return True if an error indicates an outdated compiler toolchain."""
     err = (error_message or "").lower()
@@ -374,22 +439,42 @@ def init_node(state: AgentState) -> AgentState:
         message = _build_command_error_message(
             result, f"Repository clone/update failed for {state.repo_url}"
         )
-        error = create_error_record(
-            message=message,
-            category=classify_error(message),
-            severity=FailureSeverity.HIGH,
-            command=result.command,
+
+        recovery_result = _try_clone_recovery(
+            state, state.repo_url, state.repo_name
         )
-        state.add_error(error)
-        state.build_status = BuildStatus.FAILED
-        state.current_phase = "escalate"
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "ESCALATE",
-            f"Critical init failure ({error.severity.value}): "
-            f"{error.message[:200]}",
-        )
-        return state
+        if recovery_result is not None:
+            logger.info(
+                f"Clone recovery succeeded for {state.repo_name} "
+                f"via URL variant"
+            )
+            result = recovery_result
+            state.log_scripted_op("clone_recovery")
+        else:
+            recovery_data = state.context_cache.get("clone_recovery", {})
+            if recovery_data.get("attempted"):
+                message += (
+                    f" | Tried variants: "
+                    f"{', '.join(recovery_data['attempted'])}"
+                )
+
+            category = _classify_clone_failure(message)
+            error = create_error_record(
+                message=message,
+                category=category,
+                severity=FailureSeverity.HIGH,
+                command=result.command,
+            )
+            state.add_error(error)
+            state.build_status = BuildStatus.FAILED
+            state.current_phase = "escalate"
+            state.log_agent_decision(
+                AgentRole.SUPERVISOR,
+                "ESCALATE",
+                f"Critical init failure ({error.category.value}): "
+                f"{error.message[:200]}",
+            )
+            return state
 
     logger.info("Performing quick analysis with scripted operations...")
     try:
@@ -1488,19 +1573,46 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
         )
     else:
         logger.warning(
-            f"Unknown build system '{build_type}', using generic fallback"
+            f"Unknown build system '{build_type}', using discovery fallback"
         )
+        repo_host = _to_host_path(state.repo_path)
+        discovery_cmds = []
+        for probe, label in [
+            ("configure", "autotools"),
+            ("CMakeLists.txt", "cmake"),
+            ("Makefile", "make"),
+            ("meson.build", "meson"),
+            ("go.mod", "go"),
+            ("Cargo.toml", "cargo"),
+            ("setup.py", "python"),
+        ]:
+            if os.path.isfile(os.path.join(repo_host, probe)):
+                discovery_cmds.append(f"ls -la {probe} 2>/dev/null")
+        if not discovery_cmds:
+            if repo_host:
+                discovery_cmds = [
+                    f"ls -la {repo_host}",
+                    "find . -maxdepth 2 -name 'Makefile' -o "
+                    "-name 'configure' -o -name 'CMakeLists.txt' "
+                    "-o -name '*.mk' 2>/dev/null | head -20",
+                ]
+            else:
+                discovery_cmds = ["ls -la", "echo 'No repo path available'"]
         return BuildPlan(
             build_system=build_type,
             build_system_confidence=0.3,
             phases=[
-                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
-                BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
+                BuildPhase(
+                    1, "discover", discovery_cmds, False, "15s"
+                ),
+                BuildPhase(
+                    2, "build", ["make -j$(nproc)"], False, "5m"
+                ),
             ],
             total_estimated_duration="6m",
             notes=[
-                f"Generic fallback - build system not recognized "
-                f"({profile.name})"
+                f"Discovery fallback - build system not recognized; "
+                f"probing repo for build files ({profile.name})"
             ],
         )
 
@@ -2277,6 +2389,148 @@ def builder_node(state: AgentState) -> AgentState:
                             )
                             continue
                         result = retry_result
+
+                # Missing git in Debian sandbox -> install and retry
+                if (
+                    "command not found" in (result.stderr or "").lower()
+                    and "git" in command
+                    and _builder_retry_allowed(state, f"missing-git:{command}")
+                ):
+                    _gtool = get_active_profile()
+                    _gtool_install = _gtool.install_cmd(["git"])
+                    execute_command(_gtool_install, cwd=state.repo_path)
+                    _gtool_retry = execute_command(
+                        optimized_cmd, cwd=state.repo_path
+                    )
+                    state.cache_command_result(optimized_cmd, _gtool_retry)
+                    state.log_scripted_op("retry_build_command")
+                    if _gtool_retry.success:
+                        logger.info("Installed git and retried successfully")
+                        continue
+                    result = _gtool_retry
+
+                # Go version too old -> install newer Go via golang.org/dl
+                if is_toolchain_version_mismatch(result.stderr or ""):
+                    _gv_match = re.search(
+                        r'go\.mod requires go (>=?\s*)?(\d+\.\d+\.\d+)',
+                        result.stderr or ""
+                    )
+                    if _gv_match and _builder_retry_allowed(
+                        state, f"go-version:{command}"
+                    ):
+                        _gv_needed = _gv_match.group(2)
+                        logger.warning(
+                            "Go version too old, attempting to install "
+                            f"Go {_gv_needed}"
+                        )
+                        _gv_cmd = (
+                            f"go install golang.org/dl/go{_gv_needed}@latest "
+                            f"&& go{_gv_needed} download"
+                        )
+                        _gv_inst = execute_command(
+                            _gv_cmd, cwd=state.repo_path
+                        )
+                        state.log_scripted_op("install_go_version")
+                        if _gv_inst.success:
+                            _gv_retry = execute_command(
+                                optimized_cmd, cwd=state.repo_path
+                            )
+                            state.cache_command_result(
+                                optimized_cmd, _gv_retry
+                            )
+                            state.log_scripted_op("retry_build_command")
+                            if _gv_retry.success:
+                                logger.info(
+                                    "Resolved by upgrading Go to "
+                                    f"{_gv_needed}"
+                                )
+                                continue
+                            result = _gv_retry
+
+                # RISC-V linker relocation truncated -> add -mcmodel=medany
+                if (
+                    "relocation truncated" in (result.stderr or "").lower()
+                    and "R_RISCV" in (result.stderr or "")
+                    and _builder_retry_allowed(
+                        state, f"jal-reloc:{command}"
+                    )
+                ):
+                    logger.warning(
+                        "RISC-V relocation truncated; retrying with "
+                        "-mcmodel=medany"
+                    )
+                    _medany_cmd = (
+                        "CFLAGS='-mcmodel=medany' "
+                        "CXXFLAGS='-mcmodel=medany' "
+                        + optimized_cmd
+                    )
+                    _medany_retry = execute_command(
+                        _medany_cmd, cwd=state.repo_path
+                    )
+                    state.cache_command_result(_medany_cmd, _medany_retry)
+                    state.log_scripted_op("retry_build_command")
+                    if _medany_retry.success:
+                        logger.info(
+                            "Resolved RISC-V relocation by adding "
+                            "-mcmodel=medany"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            _medany_cmd
+                        )
+                        continue
+                    result = _medany_retry
+
+                # Package not found on riscv64 repo -> try one-by-one, skip missing
+                _pkg_fail_patterns = [
+                    "unable to locate package",
+                    "unable to select packages",
+                    "no such package",
+                    "has no installation candidate",
+                ]
+                if (
+                    any(
+                        p in (result.stderr or "").lower()
+                        for p in _pkg_fail_patterns
+                    )
+                    and _builder_retry_allowed(
+                        state, f"missing-pkg:{command[:80]}"
+                    )
+                ):
+                    _pprofile = get_active_profile()
+                    _pkg_match = re.search(
+                        r"(?:apt-get\s+install\s+-y|apk\s+add)\s+(.+)",
+                        optimized_cmd
+                    )
+                    if _pkg_match:
+                        _pkgs = shlex.split(_pkg_match.group(1))
+                        _good = []
+                        _bad = []
+                        for _pkg in _pkgs:
+                            _single_cmd = _pprofile.install_cmd([_pkg])
+                            _single_r = execute_command(
+                                _single_cmd, cwd=state.repo_path
+                            )
+                            state.log_scripted_op("install_package_single")
+                            if _single_r.success:
+                                _good.append(_pkg)
+                            else:
+                                _bad.append(_pkg)
+                                logger.warning(
+                                    f"Package '{_pkg}' not found on "
+                                    "riscv64; skipping"
+                                )
+                        if _good:
+                            logger.info(
+                                f"Installed {len(_good)}/{len(_pkgs)} "
+                                "packages (skipped "
+                                f"{len(_bad)} unavailable on riscv64)"
+                            )
+                            if _bad:
+                                _good_cmd = _pprofile.install_cmd(_good)
+                                phase.commands[
+                                    phase.commands.index(command)
+                                ] = _good_cmd
+                            continue
 
                 error_message = _build_command_error_message(
                     result, f"Build command failed: {command}"
@@ -3630,7 +3884,43 @@ def scout_aggregator_node(state: AgentState) -> AgentState:
     else:
         logger.info(
             f"Build system '{build_type}' not recognized by aggregator; "
-            "will fall back to LLM scout"
+            "creating discovery-based build plan"
+        )
+        repo_host = _to_host_path(state.repo_path)
+        discovery_cmds = []
+        for probe, label in [
+            ("configure", "autotools"),
+            ("CMakeLists.txt", "cmake"),
+            ("Makefile", "make"),
+            ("meson.build", "meson"),
+            ("go.mod", "go"),
+            ("Cargo.toml", "cargo"),
+            ("setup.py", "python"),
+        ]:
+            if os.path.isfile(os.path.join(repo_host, probe)):
+                discovery_cmds.append(f"ls -la {probe} 2>/dev/null")
+        if not discovery_cmds:
+            discovery_cmds = [
+                f"ls -la {state.repo_path}",
+                "find . -maxdepth 2 -name 'Makefile' -o "
+                "-name 'configure' -o -name 'CMakeLists.txt' "
+                "-o -name '*.mk' 2>/dev/null | head -20",
+            ]
+        state.build_plan = BuildPlan(
+            build_system="unknown",
+            build_system_confidence=0.2,
+            phases=[
+                BuildPhase(1, "discover", discovery_cmds, False, "15s"),
+                BuildPhase(2, "build", ["make -j$(nproc)"], True, "5m"),
+            ],
+            total_estimated_duration="6m",
+            notes=[
+                "Discovery-based build plan — build system was not "
+                "detected; probing repo for build files"
+            ],
+        )
+        logger.info(
+            "Created discovery BuildPlan for unknown build system"
         )
 
     state.build_status = BuildStatus.PENDING

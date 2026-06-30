@@ -500,6 +500,23 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.RATE_LIMIT
 
+    # Git clone auth failures (sandbox has no git credentials)
+    if any(
+        term in error_lower
+        for term in [
+            "could not read username",
+            "could not read password",
+            "no such device or address",
+            "authentication failed",
+            "could not read from remote",
+        ]
+    ):
+        return ErrorCategory.NETWORK
+
+    # Bad repository URL (not a real repo)
+    if re.search(r"repository\s+['\"][^'\"]+['\"]\s+not\s+found", error_lower):
+        return ErrorCategory.CONFIGURATION
+
     # Network errors
     if any(
         term in error_lower
@@ -664,9 +681,21 @@ def classify_error(error_message: str) -> ErrorCategory:
             "unable to locate package",
             "unable to lock database",
             "broken packages",
+            "has no installation candidate",
         ]
     ):
         return ErrorCategory.DEPENDENCY
+
+    # Empty repository (git clone succeeded but no commits)
+    if any(
+        term in error_lower
+        for term in [
+            "does not have any commits",
+            "does not have any commits yet",
+            "empty repository",
+        ]
+    ):
+        return ErrorCategory.CONFIGURATION
 
     # Go toolchain version mismatch
     if any(
