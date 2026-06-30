@@ -233,6 +233,20 @@ ALPINE_RISCV = PlatformProfile(
             "`GOPROXY`, `GONOSUMCHECK`, and `GOFLAGS=-buildvcs=false`"
             " are pre-set."
         ),
+        (
+            "If `git` is not installed (\"git: command not found\"),"
+            " install it via the package manager first."
+        ),
+        (
+            "For large RISC-V functions, link with"
+            " `-mcmodel=medany` to avoid `relocation truncated to fit`"
+            " errors."
+        ),
+        (
+            "If the bundled Go toolchain is too old for go.mod,"
+            " download a newer riscv64 Go binary from"
+            " https://go.dev/dl/ as a recovery option."
+        ),
     ],
 )
 
@@ -394,8 +408,22 @@ DEBIAN_RISCV = PlatformProfile(
         (
             "GOTOOLCHAIN=local is set image-wide; if go.mod requires a"
             " newer Go than the bundled toolchain, treat as"
-            " MISSING_TOOLS and escalate — do NOT attempt apt golang"
+            " MISSING_TOOLS and escalate -- do NOT attempt apt golang"
             " install."
+        ),
+        (
+            "If `git` is not installed (\"git: command not found\"),"
+            " install it via the package manager first."
+        ),
+        (
+            "For large RISC-V functions, link with"
+            " `-mcmodel=medany` to avoid `relocation truncated to fit`"
+            " errors."
+        ),
+        (
+            "If the bundled Go toolchain is too old for go.mod,"
+            " download a newer riscv64 Go binary from"
+            " https://go.dev/dl/ as a recovery option."
         ),
     ],
 )
@@ -440,12 +468,15 @@ def detect_platform(container_name: Optional[str] = None) -> PlatformProfile:
         logger.warning(f"ATESOR_PLATFORM={override!r} is unknown; ignoring")
 
     if container_name is None:
-        try:
-            from .tools import DockerConfig
-
-            container_name = DockerConfig.CONTAINER_NAME
-        except Exception:
-            return _DEFAULT_PROFILE
+        # Resolve the container to inspect WITHOUT calling
+        # get_container_name()/get_active_profile(): those depend on the
+        # very profile we are detecting, so routing through them here
+        # recurses (detect_platform -> get_container_name ->
+        # get_active_profile -> detect_platform) until RecursionError.
+        container_name = (
+            os.environ.get("ATESOR_CONTAINER", "").strip()
+            or _DEFAULT_PROFILE.container_name
+        )
 
     try:
         result = subprocess.run(

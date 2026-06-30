@@ -377,864 +377,6 @@
       "reasoning": "Projects using CGO need gcc available. Install build-base and relevant -dev packages."
     },
     {
-      "name": "Auto: libssh2 (cmake)",
-      "tags": [
-        "cmake",
-        "libssh2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libssh2",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake libssl-dev zlib1g-dev"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF",
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libssh2 build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: openjpeg (cmake)",
-      "tags": [
-        "cmake",
-        "openjpeg"
-      ],
-      "build_system": "cmake",
-      "repo_name": "openjpeg",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update",
-              "apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev libtiff-dev libpng-dev libjpeg-dev"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=ON -DBUILD_TESTING=OFF -DWITH_ASTYLE=OFF -DWITH_DOCS=OFF",
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful openjpeg build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: c-ares (cmake)",
-      "tags": [
-        "cmake",
-        "c-ares"
-      ],
-      "build_system": "cmake",
-      "repo_name": "c-ares",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCARES_STATIC=ON -DCARES_BUILD_TESTS=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful c-ares build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libexpat (cmake)",
-      "tags": [
-        "cmake",
-        "libexpat"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libexpat",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "cd /workspace/repos/libexpat/expat && cmake -B build -DCMAKE_BUILD_TYPE=Release -DEXPAT_BUILD_TESTS=OFF -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_DOCS=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd /workspace/repos/libexpat/expat && cmake --build build -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libexpat build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libxml2 (cmake)",
-      "tags": [
-        "cmake",
-        "libxml2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libxml2",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update",
-              "apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_XSLT=OFF -DLIBXML2_WITH_DEBUG=OFF -DLIBXML2_WITH_TESTS=OFF -DLIBXML2_WITH_ZLIB=ON -DLIBXML2_WITH_THREAD=ON",
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libxml2 build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libuv (cmake)",
-      "tags": [
-        "cmake",
-        "libuv"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libuv",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update",
-              "apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release",
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libuv build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libgit2 (cmake)",
-      "tags": [
-        "cmake",
-        "libgit2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "libgit2",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config zlib1g-dev libssl-dev libssh2-1-dev libcurl4-openssl-dev libpcre2-dev"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CLAR=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libgit2 build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: jansson (cmake)",
-      "tags": [
-        "cmake",
-        "jansson"
-      ],
-      "build_system": "cmake",
-      "repo_name": "jansson",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DJANSSON_BUILD_SHARED=ON -DJANSSON_BUILD_STATIC=ON -DJANSSON_EXAMPLES=OFF -DJANSSON_BUILD_DOCS=OFF -DJANSSON_WITH_TESTS=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful jansson build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: tinyxml2 (cmake)",
-      "tags": [
-        "cmake",
-        "tinyxml2"
-      ],
-      "build_system": "cmake",
-      "repo_name": "tinyxml2",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful tinyxml2 build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: libyaml (autotools)",
-      "tags": [
-        "autotools",
-        "libyaml"
-      ],
-      "build_system": "autotools",
-      "repo_name": "libyaml",
-      "trigger": {
-        "build_system": "autotools",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "autotools",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "./bootstrap && ./configure --disable-static --enable-shared && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful libyaml build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: highway (cmake)",
-      "tags": [
-        "cmake",
-        "highway"
-      ],
-      "build_system": "cmake",
-      "repo_name": "highway",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DHWY_ENABLE_EXAMPLES=OFF -DHWY_ENABLE_TESTS=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful highway build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: byp4xx (go)",
-      "tags": [
-        "go",
-        "byp4xx"
-      ],
-      "build_system": "go",
-      "repo_name": "byp4xx",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd /workspace/repos/byp4xx && go mod init byp4xx && go mod tidy && go build -buildvcs=false -o bypass4xx ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful byp4xx build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: cariddi (go)",
-      "tags": [
-        "go",
-        "cariddi"
-      ],
-      "build_system": "go",
-      "repo_name": "cariddi",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./cmd/cariddi"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful cariddi build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: encode (go)",
-      "tags": [
-        "go",
-        "encode"
-      ],
-      "build_system": "go",
-      "repo_name": "encode",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false ./cmd/encode"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful encode build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-23",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: gitdorks_go (go)",
-      "tags": [
-        "go",
-        "gitdorks_go"
-      ],
-      "build_system": "go",
-      "repo_name": "gitdorks_go",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd /workspace/repos/gitdorks_go && go mod tidy",
-              "cd /workspace/repos/gitdorks_go && go build -buildvcs=false ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful gitdorks_go build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-24",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: go-fasttld (go)",
-      "tags": [
-        "go",
-        "go-fasttld"
-      ],
-      "build_system": "go",
-      "repo_name": "go-fasttld",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./data"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful go-fasttld build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-05-24",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: zlib (cmake)",
-      "tags": [
-        "cmake",
-        "zlib"
-      ],
-      "build_system": "cmake",
-      "repo_name": "zlib",
-      "trigger": {
-        "build_system": "cmake",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "cmake",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends build-essential cmake"
-            ]
-          },
-          {
-            "name": "configure",
-            "commands": [
-              "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF -DZLIB_BUILD_EXAMPLES=OFF"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd build && make -j$(nproc)"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful zlib build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: gau (go)",
-      "tags": [
-        "go",
-        "gau"
-      ],
-      "build_system": "go",
-      "repo_name": "gau",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false ./cmd/gau"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful gau build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: dnsx (go)",
-      "tags": [
-        "go",
-        "dnsx"
-      ],
-      "build_system": "go",
-      "repo_name": "dnsx",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./cmd/dnsx"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful dnsx build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: csprecon (go)",
-      "tags": [
-        "go",
-        "csprecon"
-      ],
-      "build_system": "go",
-      "repo_name": "csprecon",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./cmd/csprecon"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful csprecon build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: doggo (go)",
-      "tags": [
-        "go",
-        "doggo"
-      ],
-      "build_system": "go",
-      "repo_name": "doggo",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false ./cmd/doggo"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful doggo build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: cli53 (go)",
-      "tags": [
-        "go",
-        "cli53"
-      ],
-      "build_system": "go",
-      "repo_name": "cli53",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build ./cmd/cli53"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful cli53 build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: desync (go)",
-      "tags": [
-        "go",
-        "desync"
-      ],
-      "build_system": "go",
-      "repo_name": "desync",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "go mod tidy",
-              "go build -buildvcs=false ./cmd/desync"
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful desync build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-01",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: dbbench (go)",
       "tags": [
         "go",
@@ -3729,6 +2871,795 @@
       "id": "scout-auto-093",
       "source": "auto",
       "timestamp": "2026-06-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: anew (go)",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anew build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-05",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: zlib (cmake)",
+      "tags": [
+        "cmake",
+        "zlib"
+      ],
+      "build_system": "cmake",
+      "repo_name": "zlib",
+      "trigger": {
+        "build_system": "cmake",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "cmake",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update",
+              "apk add build-base cmake"
+            ]
+          },
+          {
+            "name": "configure",
+            "commands": [
+              "mkdir -p build",
+              "cd build && cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ -DCMAKE_BUILD_TYPE=Release -DZLIB_BUILD_TESTING=OFF -DZLIB_BUILD_EXAMPLES=OFF"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd build && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful zlib build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: gron (go)",
+      "tags": [
+        "go",
+        "gron"
+      ],
+      "build_system": "go",
+      "repo_name": "gron",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gron build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: assetfinder (go)",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/assetfinder && go mod tidy && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assetfinder build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cJSON (make)",
+      "tags": [
+        "make",
+        "cJSON"
+      ],
+      "build_system": "make",
+      "repo_name": "cJSON",
+      "trigger": {
+        "build_system": "make",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "make",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends build-essential"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/cJSON && make clean && make -j$(nproc)"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cJSON build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: chisel (go)",
+      "tags": [
+        "go",
+        "chisel"
+      ],
+      "build_system": "go",
+      "repo_name": "chisel",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful chisel build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: croc (go)",
+      "tags": [
+        "go",
+        "croc"
+      ],
+      "build_system": "go",
+      "repo_name": "croc",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful croc build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: gitleaks (go)",
+      "tags": [
+        "go",
+        "gitleaks"
+      ],
+      "build_system": "go",
+      "repo_name": "gitleaks",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "go mod tidy"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/config -buildvcs=false ./cmd/generate/config"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful gitleaks build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: ffuf (go)",
+      "tags": [
+        "go",
+        "ffuf"
+      ],
+      "build_system": "go",
+      "repo_name": "ffuf",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/ffuf && env GOMAXPROCS=1 go mod tidy && go build -p 1 -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful ffuf build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: airixss (go)",
+      "tags": [
+        "go",
+        "airixss"
+      ],
+      "build_system": "go",
+      "repo_name": "airixss",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends build-essential"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/airixss && go build -buildvcs=false -o airixss airixss.go"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful airixss build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: axel (autotools)",
+      "tags": [
+        "autotools",
+        "axel"
+      ],
+      "build_system": "autotools",
+      "repo_name": "axel",
+      "trigger": {
+        "build_system": "autotools",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "autotools",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cp /usr/share/gettext/m4/*.m4 m4/ 2>/dev/null || true && aclocal -I m4 -I /usr/share/aclocal && autoconf"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful axel build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: allxfr (go)",
+      "tags": [
+        "go",
+        "allxfr"
+      ],
+      "build_system": "go",
+      "repo_name": "allxfr",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false -o allxfr ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful allxfr build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: freeze (go)",
+      "tags": [
+        "go",
+        "freeze"
+      ],
+      "build_system": "go",
+      "repo_name": "freeze",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false -o freeze ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful freeze build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: AnalyticsRelationships (go)",
+      "tags": [
+        "go",
+        "AnalyticsRelationships"
+      ],
+      "build_system": "go",
+      "repo_name": "AnalyticsRelationships",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/AnalyticsRelationships && go mod tidy && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful AnalyticsRelationships build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: glow (go)",
+      "tags": [
+        "go",
+        "glow"
+      ],
+      "build_system": "go",
+      "repo_name": "glow",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/glow && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful glow build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: byp4xx (go)",
+      "tags": [
+        "go",
+        "byp4xx"
+      ],
+      "build_system": "go",
+      "repo_name": "byp4xx",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod init github.com/example/byp4xx",
+              "go mod tidy",
+              "go build -buildvcs=false -o byp4xx ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful byp4xx build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: anyproxy (go)",
+      "tags": [
+        "go",
+        "anyproxy"
+      ],
+      "build_system": "go",
+      "repo_name": "anyproxy",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/anyproxy && go mod tidy",
+              "cd /workspace/repos/anyproxy && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful anyproxy build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: axfr2hosts (go)",
+      "tags": [
+        "go",
+        "axfr2hosts"
+      ],
+      "build_system": "go",
+      "repo_name": "axfr2hosts",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "cd /workspace/repos/axfr2hosts && go mod tidy",
+              "cd /workspace/repos/axfr2hosts && go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful axfr2hosts build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: certgraph (go)",
+      "tags": [
+        "go",
+        "certgraph"
+      ],
+      "build_system": "go",
+      "repo_name": "certgraph",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "echo \"No external dependencies required\""
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful certgraph build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cfspeed (go)",
+      "tags": [
+        "go",
+        "cfspeed"
+      ],
+      "build_system": "go",
+      "repo_name": "cfspeed",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/cfspeed -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cfspeed build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cleed (go)",
+      "tags": [
+        "go",
+        "cleed"
+      ],
+      "build_system": "go",
+      "repo_name": "cleed",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "go mod tidy"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cleed build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: cariddi (go)",
+      "tags": [
+        "go",
+        "cariddi"
+      ],
+      "build_system": "go",
+      "repo_name": "cariddi",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./cmd/cariddi"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful cariddi build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: csprecon (go)",
+      "tags": [
+        "go",
+        "csprecon"
+      ],
+      "build_system": "go",
+      "repo_name": "csprecon",
+      "trigger": {
+        "build_system": "go",
+        "has_main": false
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apt-get update && apt-get install -y --no-install-recommends git"
+            ]
+          },
+          {
+            "name": "build",
+            "commands": [
+              "go mod tidy",
+              "go build -buildvcs=false ./cmd/csprecon"
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful csprecon build.",
+      "id": "scout-auto-093",
+      "source": "auto",
+      "timestamp": "2026-06-17",
       "sandbox": "debian-riscv64"
     }
   ]

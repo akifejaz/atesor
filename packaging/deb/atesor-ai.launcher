@@ -1,3 +1,4 @@
+#!/bin/sh
 #############################################################################
 # Copyright (c) 2026 10xEngineers
 #
@@ -8,12 +9,12 @@
 #
 # SPDX-License-Identifier: MIT
 #############################################################################
+#
+# Launcher for the Atesor AI RISC-V porting agent installed via .deb.
+# Runs the bundled virtualenv interpreter against the installed app tree.
 
-"""Core package for the Atesor AI RISC-V software porting system.
+APP_DIR=/opt/atesor-ai/app
+VENV_PYTHON=/opt/atesor-ai/venv/bin/python3
 
-Atesor AI is a smart, multi-stage agentic system that automates porting
-software packages to RISC-V. This package initializes the core source
-module.
-"""
-
-__version__ = "0.1.0"
+export PYTHONPATH="${APP_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+exec "${VENV_PYTHON}" "${APP_DIR}/main.py" "$@"

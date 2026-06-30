@@ -1,88 +1,147 @@
-"""Tests for src/graph.py route_next phase matrix and escalation guard."""
+"""Tests for graph routing: init, planner, supervisor, build-fix subgraph."""
 
 import unittest
 
-from langgraph.graph import END
+from src.graph import (
+    route_init_to_next,
+    route_planner_to_next,
+    route_supervisor_to_next,
+    route_build_result,
+    route_verify_result,
+    route_fix_result,
+)
+from src.state import (
+    AgentState,
+    BuildStatus,
+    ErrorCategory,
+    TaskPlan,
+    TaskPhase,
+    BuildPlan,
+    BuildPhase,
+    AgentRole,
+    create_initial_state,
+)
 
-from src.graph import route_next
-from src.state import AgentState, BuildStatus, create_initial_state
 
-
-def _st(phase: str, status: BuildStatus = BuildStatus.PLANNING) -> AgentState:
-    """St."""
-    s = create_initial_state("https://x/y.git")
-    s.current_phase = phase
-    s.build_status = status
+def _base_state(**overrides) -> AgentState:
+    s = create_initial_state("https://github.com/a/b.git")
+    for k, v in overrides.items():
+        setattr(s, k, v)
     return s
 
 
-class TestRouteNextPhases(unittest.TestCase):
-    """Full phase → node matrix from routing_map."""
+class TestRouteInit(unittest.TestCase):
+    def test_successful_init_routes_to_planner(self):
+        s = _base_state(build_status=BuildStatus.PENDING)
+        self.assertEqual(route_init_to_next(s), "planner_node")
 
-    CASES = [
-        ("initialization", "planner"),
-        ("initialized", "planner"),
-        ("planning", "supervisor"),
-        ("planned", "supervisor"),
-        ("scout", "scout_node"),
-        ("scouting", "supervisor"),
-        ("builder", "builder_node"),
-        ("building", "supervisor"),
-        ("fixer", "fixer_node"),
-        ("fixing", "supervisor"),
-        ("escalate", "escalate_node"),
-        ("finish", "finish_node"),
-    ]
-
-    def test_all_known_phases_route_correctly(self) -> None:
-        """Test all known phases route correctly."""
-        for phase, expected in self.CASES:
-            with self.subTest(phase=phase):
-                self.assertEqual(route_next(_st(phase)), expected)
-
-    def test_terminal_phases_route_to_end(self) -> None:
-        """Test terminal phases route to end."""
-        self.assertEqual(route_next(_st("escalated")), END)
-        self.assertEqual(route_next(_st("finished")), END)
-
-    def test_case_insensitive_phase_matching(self) -> None:
-        # current_phase.lower() is taken — accept mixed-case phases
-        """Test case insensitive phase matching."""
-        self.assertEqual(route_next(_st("Scout")), "scout_node")
-        self.assertEqual(route_next(_st("BUILDER")), "builder_node")
-        self.assertEqual(route_next(_st("Planning")), "supervisor")
-
-    def test_unknown_phase_falls_back_to_supervisor(self) -> None:
-        """Test unknown phase falls back to supervisor."""
-        self.assertEqual(route_next(_st("does_not_exist")), "supervisor")
-        self.assertEqual(route_next(_st("")), "supervisor")
-        self.assertEqual(route_next(_st("foobar")), "supervisor")
+    def test_failed_init_routes_to_escalate(self):
+        s = _base_state(build_status=BuildStatus.FAILED)
+        self.assertEqual(route_init_to_next(s), "escalate_node")
 
 
-class TestEscalationGuard(unittest.TestCase):
-    """Failed initialization must escalate, never go to planner."""
+class TestRoutePlanner(unittest.TestCase):
+    def test_planner_with_plan_routes_to_scout_aggregator(self):
+        tp = TaskPlan(
+            phases=[TaskPhase(1, "test", "test", AgentRole.SCOUT, False)]
+        )
+        s = _base_state(task_plan=tp)
+        self.assertEqual(route_planner_to_next(s), "scout_aggregator")
 
-    def test_failed_initialization_forces_escalation(self) -> None:
-        """Test failed initialization forces escalation."""
-        st = _st("initialization", BuildStatus.FAILED)
-        self.assertEqual(route_next(st), "escalate_node")
+    def test_planner_no_plan_escalates(self):
+        s = _base_state(task_plan=None)
+        self.assertEqual(route_planner_to_next(s), "escalate_node")
 
-    def test_failed_initialized_forces_escalation(self) -> None:
-        """Test failed initialized forces escalation."""
-        st = _st("initialized", BuildStatus.FAILED)
-        self.assertEqual(route_next(st), "escalate_node")
+    def test_planner_empty_phases_escalates(self):
+        tp = TaskPlan(phases=[])
+        s = _base_state(task_plan=tp)
+        self.assertEqual(route_planner_to_next(s), "escalate_node")
 
-    def test_in_progress_initialization_routes_normally(self) -> None:
-        """Test in progress initialization routes normally."""
-        st = _st("initialization", BuildStatus.PLANNING)
-        self.assertEqual(route_next(st), "planner")
 
-    def test_failed_status_outside_init_still_uses_routing_map(self) -> None:
-        """Test failed status outside init still uses routing map."""
-        # FAILED in scouting should still go to supervisor (only init
-        # is guarded).
-        st = _st("scouting", BuildStatus.FAILED)
-        self.assertEqual(route_next(st), "supervisor")
+class TestRouteSupervisor(unittest.TestCase):
+    def test_success_routes_to_finish(self):
+        s = _base_state(build_status=BuildStatus.SUCCESS)
+        self.assertEqual(route_supervisor_to_next(s), "finish_node")
+
+    def test_max_attempts_escalates(self):
+        s = _base_state(
+            attempt_count=5, max_attempts=5, build_status=BuildStatus.FAILED
+        )
+        self.assertEqual(route_supervisor_to_next(s), "escalate_node")
+
+    def test_error_loop_escalates(self):
+        from src.state import ErrorRecord, ErrorCategory
+        err = ErrorRecord(message="fail", category=ErrorCategory.COMPILATION)
+        s = _base_state(
+            attempt_count=3,
+            max_attempts=5,
+            error_history=[err, err, err],
+            build_status=BuildStatus.FAILED,
+        )
+        self.assertEqual(route_supervisor_to_next(s), "escalate_node")
+
+    def test_missing_deps_routes_to_scout(self):
+        from src.state import ErrorRecord
+        err = ErrorRecord(
+            message="pkg not found",
+            category=ErrorCategory.DEPENDENCY,
+        )
+        tp = TaskPlan(
+            phases=[TaskPhase(1, "t", "t", AgentRole.SCOUT, False)]
+        )
+        s = _base_state(
+            task_plan=tp,
+            build_status=BuildStatus.FAILED,
+            last_error_category=ErrorCategory.DEPENDENCY,
+            error_history=[err],
+        )
+        self.assertEqual(route_supervisor_to_next(s), "scout_node")
+
+    def test_no_task_plan_routes_to_planner(self):
+        s = _base_state(task_plan=None, build_status=BuildStatus.PENDING)
+        self.assertEqual(route_supervisor_to_next(s), "planner_node")
+
+    def test_pending_build_routes_to_subgraph(self):
+        bp = BuildPlan(
+            build_system="make",
+            build_system_confidence=0.8,
+            phases=[BuildPhase(1, "build", ["make"])],
+            total_estimated_duration="1m",
+        )
+        s = _base_state(
+            task_plan=TaskPlan(
+                phases=[TaskPhase(1, "t", "t", AgentRole.SCOUT, False)]
+            ),
+            build_plan=bp,
+            build_status=BuildStatus.PENDING,
+        )
+        self.assertEqual(route_supervisor_to_next(s), "build_fix_subgraph")
+
+
+class TestBuildFixSubgraphRouting(unittest.TestCase):
+    def test_build_success_routes_to_verify(self):
+        s = _base_state(build_status=BuildStatus.SUCCESS)
+        self.assertEqual(route_build_result(s), "verify_node")
+
+    def test_build_fail_routes_to_fix(self):
+        s = _base_state(build_status=BuildStatus.FAILED)
+        self.assertEqual(route_build_result(s), "fix_node")
+
+    def test_verify_success_exits_subgraph(self):
+        s = _base_state(build_status=BuildStatus.SUCCESS)
+        self.assertEqual(route_verify_result(s), "__end__")
+
+    def test_verify_fail_routes_to_fix(self):
+        s = _base_state(build_status=BuildStatus.FAILED)
+        self.assertEqual(route_verify_result(s), "fix_node")
+
+    def test_fix_success_retries_build(self):
+        s = _base_state(build_status=BuildStatus.PENDING)
+        self.assertEqual(route_fix_result(s), "build_node")
+
+    def test_fix_still_failed_exits_subgraph(self):
+        s = _base_state(build_status=BuildStatus.FAILED)
+        self.assertEqual(route_fix_result(s), "__end__")
 
 
 if __name__ == "__main__":
