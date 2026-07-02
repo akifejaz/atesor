@@ -874,7 +874,13 @@ def run_agent(
         final_state = initial_state
         step_count = 0
 
-        for output in app.stream(initial_state):
+        # LangGraph's default recursion_limit (25 super-steps) is too
+        # tight for a full replan + multi-fix run and aborts with
+        # GraphRecursionError; the real loop bound is max_attempts +
+        # the cost cap, so give the graph generous headroom.
+        for output in app.stream(
+            initial_state, config={"recursion_limit": 120}
+        ):
             for node_name, state_update in output.items():
                 step_count += 1
 
@@ -1442,10 +1448,17 @@ def main() -> None:
     if args.container:
         os.environ["ATESOR_CONTAINER"] = args.container
 
-    # Extract repo name early for per-repo logging
+    # Extract repo name early for per-repo logging. Must match the
+    # derivation in create_initial_state exactly — the recipe cache is
+    # keyed by the state's repo_name, so any divergence here makes
+    # cache lookups miss forever.
+    from src.state import sanitize_repo_name
+
     repo_name = ""
     if args.repo:
-        repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
+        repo_name = sanitize_repo_name(
+            args.repo.strip().rstrip("/").split("/")[-1].removesuffix(".git")
+        )
 
     # Configure logging (per-repo log files avoid corruption in batch mode)
     configure_logging(args.verbose, repo_name=repo_name)
@@ -1517,7 +1530,6 @@ def main() -> None:
     if not args.force:
         from src.memory import get_cached_recipe, materialize_cached_recipe
 
-        repo_name = args.repo.rstrip("/").split("/")[-1].replace(".git", "")
         cached = get_cached_recipe(repo_name)
         if cached:
             print(

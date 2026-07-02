@@ -495,25 +495,25 @@ class TestSerializeBuildCommand(unittest.TestCase):
         self.assertEqual(out, "cmake --build build")
 
     def test_cargo_fetch_gets_env_only(self) -> None:
-        """cargo fetch has no -j flag; env CARGO_BUILD_JOBS=1 is added."""
+        """Verify cargo fetch gets env only (it has no -j flag)."""
         out = _serialize_build_command("cargo fetch")
         self.assertIn("CARGO_BUILD_JOBS=1", out)
         # `cargo fetch` must not gain a spurious -j 1 flag.
         self.assertNotIn(" -j ", out)
 
     def test_cargo_build_gets_j_and_env(self) -> None:
-        """cargo build gets both -j 1 and CARGO_BUILD_JOBS env."""
+        """Verify cargo build gets both -j 1 and CARGO_BUILD_JOBS."""
         out = _serialize_build_command("cargo build --release")
         self.assertIn("cargo build -j 1", out)
         self.assertIn("CARGO_BUILD_JOBS=1", out)
 
     def test_pip_install_gets_makeflags(self) -> None:
-        """pip install serialization is via MAKEFLAGS (setup.py fanout)."""
+        """Verify pip install serializes via MAKEFLAGS."""
         out = _serialize_build_command("pip install .")
         self.assertIn("MAKEFLAGS=-j1", out)
 
     def test_npm_install_gets_jobs_flag(self) -> None:
-        """npm install gains --jobs 1."""
+        """Verify npm install gains --jobs 1."""
         out = _serialize_build_command("npm install")
         self.assertIn("npm install --jobs 1", out)
 
@@ -548,13 +548,13 @@ class TestSuspectedOOM(unittest.TestCase):
         )
 
     def test_cargo_fetch_exit137(self) -> None:
-        """cargo fetch OOM (exit 137) is caught."""
+        """Verify cargo fetch OOM (exit 137) is caught."""
         self.assertTrue(
             _is_suspected_oom(_Res(137, "", "", False), "cargo fetch")
         )
 
     def test_npm_install_empty_output(self) -> None:
-        """npm install failing with no output is treated as OOM."""
+        """Verify npm install with no output is treated as OOM."""
         self.assertTrue(
             _is_suspected_oom(_Res(1, "", "", False), "npm install")
         )

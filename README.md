@@ -125,18 +125,19 @@ shared `AgentState` dataclass through every node.
    |   planner_node  (LLM: TaskPlan + fallback)                  |
    |     |  route_planner_to_next(state)                         |
    |     v                                                       |
-   |   scout_aggregator --> scout_build_system                   |
-   |                           |  (0-LLM, reads build files)     |
-   |                           v                                 |
-   |                         scout_deps                          |
-   |                           |  (0-LLM, reads deps)            |
-   |                           v                                 |
-   |                         scout_arch_issues                   |
-   |                           |  (0-LLM, counts arch patterns)  |
-   |                           v                                 |
-   |   scout_node (legacy fallback, LLM: BuildPlan + fallback)   |
-   |                           |                                 |
-   |                           v                                 |
+   |   scout_build_system  (0-LLM, reads build files)            |
+   |     v                                                       |
+   |   scout_deps  (0-LLM, reads deps)                           |
+   |     v                                                       |
+   |   scout_arch_issues  (0-LLM, counts arch patterns)          |
+   |     v                                                       |
+   |   scout_aggregator  (fan-in: default BuildPlan for          |
+   |     |   well-known build systems, deps merged into setup)   |
+   |     |  route_scout_aggregator_to_next(state)                |
+   |     |----> scout_node  (LLM: BuildPlan, used when the       |
+   |     |        aggregator defers: unknown/low-confidence      |
+   |     |        build system or heavy arch-specific code)      |
+   |     v                                                       |
    |   supervisor_node  (ZERO LLM - pure heuristic routing)      |
    |     |                                     |    |    |       |
    |     |  route_supervisor_to_next(state)    |    |    |       |
@@ -191,12 +192,16 @@ Every state has **per-node routing functions**. Each is unique to its source nod
 
 - `route_init_to_next`: checks `state.build_status` → `planner_node` /
   `escalate_node`
-- `route_planner_to_next`: checks `state.task_plan` → `scout_aggregator` /
-  `escalate_node`
+- `route_planner_to_next`: checks `state.task_plan` → `scout_build_system`
+  (entering the scout chain) / `escalate_node`
+- `route_scout_aggregator_to_next`: checks `state.build_plan` →
+  `supervisor_node` (heuristic plan built) / `scout_node` (defer to the
+  LLM scout)
 - `route_supervisor_to_next`: checks `state.build_status`, `state.task_plan`,
   `state.last_error_category`, `state.attempt_count` → 5 possible destinations
   (`planner_node`, `scout_node`, `build_fix_subgraph`, `finish_node`,
-  `escalate_node`)
+  `escalate_node`). A `SUCCESS` build always routes to `finish_node`,
+  even at the attempt/cost ceiling.
 
 The build-fix cycle is a compiled **subgraph** (`create_build_fix_subgraph()`)
 with its own internal routing:

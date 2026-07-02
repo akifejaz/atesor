@@ -7,7 +7,6 @@ from unittest import mock
 from src.llm_helpers import (
     LLMCallOutcome,
     ValidationResult,
-    _build_replacement_llm,
     _extract_affordable_tokens,
     _extract_slug_hint,
     _is_provider_error,
@@ -70,6 +69,84 @@ def _make_invoke(responses):
         return SimpleNamespace(content=r)
 
     return invoke_fn, calls
+
+
+class TestRateLimitHandling(unittest.TestCase):
+    """Daily-cap fast-fail and Retry-After honoring."""
+
+    def test_daily_cap_breaks_immediately_to_fallback(self) -> None:
+        """The account-wide daily cap must not trigger rotation.
+
+        Every extra request against a free-models-per-day-capped
+        account is wasted; the helper must stop after one attempt and
+        use the deterministic fallback.
+        """
+        err = RuntimeError(
+            "Error code: 429 - Rate limit exceeded: free-models-per-day."
+            " Add 10 credits to unlock 1000 free model requests per day"
+        )
+        invoke, calls = _make_invoke([err, '{"x": 1}'])
+        with mock.patch("src.llm_helpers.log_llm_call"):
+            out = llm_call_with_validation(
+                invoke_fn=invoke,
+                llm=SimpleNamespace(model_name="primary"),
+                fallback_llms=[SimpleNamespace(model_name="backup")],
+                prompt="p",
+                validator=lambda d: ValidationResult.good(),
+                fallback_factory=lambda: {"fb": True},
+            )
+        self.assertEqual(calls["n"], 1)  # no rotation, no retry
+        self.assertTrue(out.used_fallback)
+        self.assertIn("free-model quota exhausted", out.last_error)
+
+    def test_short_retry_after_sleeps_and_retries_same_model(self) -> None:
+        """A short Retry-After waits once instead of rotating."""
+        err = RuntimeError(
+            "Error code: 429 - temporarily rate-limited upstream,"
+            " 'retry_after_seconds': 29, 'Retry-After': '29'"
+        )
+        invoke, calls = _make_invoke([err, '{"x": 1}'])
+        sleeps: list = []
+        with (
+            mock.patch("src.llm_helpers.log_llm_call"),
+            mock.patch(
+                "src.llm_helpers.time.sleep", side_effect=sleeps.append
+            ),
+        ):
+            out = llm_call_with_validation(
+                invoke_fn=invoke,
+                llm=SimpleNamespace(model_name="primary"),
+                fallback_llms=[SimpleNamespace(model_name="backup")],
+                prompt="p",
+                validator=lambda d: ValidationResult.good(),
+            )
+        self.assertEqual(sleeps, [29])
+        self.assertEqual(out.data, {"x": 1})
+        self.assertEqual(calls["n"], 2)
+
+    def test_huge_retry_after_rotates_instead_of_sleeping(self) -> None:
+        """A daylong Retry-After must not be slept through."""
+        err = RuntimeError(
+            "Error code: 429 - Provider returned error,"
+            " 'Retry-After': '45091'"
+        )
+        invoke, calls = _make_invoke([err, '{"x": 1}'])
+        sleeps: list = []
+        with (
+            mock.patch("src.llm_helpers.log_llm_call"),
+            mock.patch(
+                "src.llm_helpers.time.sleep", side_effect=sleeps.append
+            ),
+        ):
+            out = llm_call_with_validation(
+                invoke_fn=invoke,
+                llm=SimpleNamespace(model_name="primary"),
+                fallback_llms=[SimpleNamespace(model_name="backup")],
+                prompt="p",
+                validator=lambda d: ValidationResult.good(),
+            )
+        self.assertEqual(sleeps, [])
+        self.assertEqual(out.data, {"x": 1})
 
 
 class TestLLMCallWithValidation(unittest.TestCase):
@@ -243,8 +320,7 @@ class TestHotAddedReplacementModel(unittest.TestCase):
 
     def test_hinted_slug_added_and_rotated_on_next_attempt(self) -> None:
         """When primary raises with a slug hint we swap and retry."""
-
-        # Track which model each call used
+        # Track which model each call used.
         seen_models: list = []
 
         def invoke(llm, messages, timeout=120):
@@ -266,9 +342,12 @@ class TestHotAddedReplacementModel(unittest.TestCase):
         replacement = mock.MagicMock()
         replacement.model_name = "replacement/free"
 
-        with mock.patch("src.llm_helpers.log_llm_call"), mock.patch(
-            "src.llm_helpers._build_replacement_llm",
-            return_value=replacement,
+        with (
+            mock.patch("src.llm_helpers.log_llm_call"),
+            mock.patch(
+                "src.llm_helpers._build_replacement_llm",
+                return_value=replacement,
+            ),
         ):
             out = llm_call_with_validation(
                 invoke_fn=invoke,
@@ -304,7 +383,7 @@ class TestEmptyResponseRotation(unittest.TestCase):
         self.assertEqual(calls["n"], 2)
 
     def test_whitespace_only_rotates_to_fallback(self) -> None:
-        """``"   \\n\\t "`` is treated the same as empty content."""
+        r"""Whitespace-only content is treated the same as empty."""
         invoke, calls = _make_invoke(["   \n\t ", '{"ok": true}'])
         with mock.patch("src.llm_helpers.log_llm_call"):
             out = llm_call_with_validation(

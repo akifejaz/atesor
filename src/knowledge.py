@@ -110,8 +110,9 @@ COMMON_PORTING_ISSUES = {
         "root_cause": "x86-specific GCC/Clang builtin functions",
         "solutions": [
             (
-                "Replace __rdtsc with __builtin_readcyclecounter() or"
-                " clock_gettime()"
+                "Replace __rdtsc with clock_gettime(CLOCK_MONOTONIC) —"
+                " portable and works with GCC (the"
+                " __builtin_readcyclecounter alternative is Clang-only)"
             ),
             "Replace __builtin_ia32_* with portable C equivalents",
             "Use C11 atomics instead of __sync_* builtins where possible",
@@ -152,8 +153,8 @@ COMMON_PORTING_ISSUES = {
             "Guard backtrace usage with #ifdef __GLIBC__",
             "Replace mallinfo with platform-independent memory tracking",
             (
-                "Install musl-compatible alternatives (e.g.,"
-                " libexecinfo-dev for backtrace)"
+                "Use libunwind for backtraces on musl (libexecinfo was"
+                " REMOVED from Alpine 3.17+ — do not suggest it)"
             ),
             "Use portable signal handling instead of x86 register names",
         ],
@@ -170,13 +171,14 @@ COMMON_PORTING_ISSUES = {
         ),
         "solutions": [
             (
-                "Update config.guess and config.sub: apk add"
-                " config-guess-wrapper || cp"
-                " /usr/share/automake-*/config.* ."
+                "Update config.guess and config.sub from the installed"
+                " automake: cp /usr/share/automake-*/config.* ."
+                " (or regenerate with autoreconf -fi)"
             ),
             (
-                "Specify --build/--host explicitly: ./configure"
-                " --build=riscv64-alpine-linux-musl"
+                "Specify --build explicitly: ./configure"
+                " --build=<native target triplet> (never --host — we"
+                " compile natively)"
             ),
             "For CMake: no action needed (CMake auto-detects RISC-V)",
         ],
@@ -197,12 +199,11 @@ COMMON_PORTING_ISSUES = {
             "For Makefile: LDFLAGS += -latomic",
         ],
     },
-    "linker_relaxation": {
+    "code_model": {
         "symptoms": [
             "relocation truncated to fit",
             "relocation R_RISCV_HI20",
             "relocation R_RISCV_CALL",
-            "relocation R_RISCV_JAL",
         ],
         "root_cause": (
             "RISC-V default code model (-mcmodel=medlow) limits code to"
@@ -213,12 +214,10 @@ COMMON_PORTING_ISSUES = {
                 "Compile with -mcmodel=medany (medium/any) which uses"
                 " PC-relative addressing up to 4 GiB"
             ),
-            (
-                "Add to CFLAGS/CXXFLAGS: -mcmodel=medany"
-            ),
+            ("Add to CFLAGS/CXXFLAGS: -mcmodel=medany"),
             (
                 "For CMake: set(CMAKE_C_FLAGS"
-                " \"${CMAKE_C_FLAGS} -mcmodel=medany\")"
+                ' "${CMAKE_C_FLAGS} -mcmodel=medany")'
             ),
         ],
     },
@@ -287,6 +286,10 @@ def get_system_knowledge_summary(
     lines.append("")
     lines.append("### Common Porting Issues")
     for issue_key, issue in COMMON_PORTING_ISSUES.items():
+        # musl-specific guidance is wrong (and actively misleading) in
+        # a glibc sandbox prompt — skip it there.
+        if issue_key == "musl_libc" and profile.libc != "musl":
+            continue
         lines.append(f"  **{issue_key}**: {issue['root_cause']}")
         lines.append(f"    Fix: {issue['solutions'][0]}")
 

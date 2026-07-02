@@ -1,6 +1,6 @@
 """Tests for the skip-already-released planner used by batch-port.
 
-Covers ``.github/scripts/plan-remaining.py``:
+Covers ``.github/scripts/plan_remaining.py``:
 * Regex parsing of release asset filenames (per-platform isolation).
 * Declared-order preservation.
 * Shard count math from the remaining set.
@@ -8,7 +8,7 @@ Covers ``.github/scripts/plan-remaining.py``:
   mixed platforms.
 
 Also covers the polymorphic loader in
-``.github/scripts/missing-pkgs.py``: it must accept BOTH the
+``.github/scripts/missing_pkgs.py``: it must accept BOTH the
 ``full.json`` schema (list of ``{name: ...}`` dicts) AND the
 ``remaining-<platform>.json`` schema (list of plain strings).
 """
@@ -33,15 +33,15 @@ def _load(rel_path: str, name: str):
 
 
 plan_remaining = _load(
-    ".github/scripts/plan-remaining.py",
+    ".github/scripts/plan_remaining.py",
     "plan_remaining_mod",
 )
 missing_pkgs = _load(
-    ".github/scripts/missing-pkgs.py",
+    ".github/scripts/missing_pkgs.py",
     "missing_pkgs_pr_mod",
 )
 slice_pkgs = _load(
-    ".github/scripts/slice-pkgs.py",
+    ".github/scripts/slice_pkgs.py",
     "slice_pkgs_mod",
 )
 
@@ -246,32 +246,37 @@ class TestMissingPkgsPolymorphicLoader(unittest.TestCase):
         return fh.name
 
     def test_loads_dict_schema(self) -> None:
-        """Dict package entries load by their name fields."""
-        # .github/packages/*.json shape.
+        """Dict package entries load as (name, url-derived-stem) pairs."""
+        # .github/packages/*.json shape. The zip stem comes from the
+        # URL basename, not the name field (they differ for 91/705
+        # full.json entries).
         path = self._write_json(
             {
                 "packages": [
-                    {"name": "a", "url": "..."},
-                    {"name": "b", "url": "..."},
+                    {"name": "a", "url": "https://github.com/x/a"},
+                    {"name": "b", "url": "https://github.com/x/b-repo.git"},
                 ],
             }
         )
         try:
             self.assertEqual(
-                missing_pkgs._load_package_names(path),
-                ["a", "b"],
+                missing_pkgs._load_packages(path),
+                [("a", "a"), ("b", "b-repo")],
             )
         finally:
             os.unlink(path)
 
     def test_loads_string_schema(self) -> None:
         """String package entries load unchanged from remaining files."""
-        # remaining-<platform>.json shape, written by plan-remaining.py.
-        path = self._write_json({"packages": ["x", "y", "z"]})
+        # remaining-<platform>.json shape, written by plan_remaining.py.
+        # The optional "stems" map overrides zip stems per name.
+        path = self._write_json(
+            {"packages": ["x", "y", "z"], "stems": {"y": "y-binaries"}}
+        )
         try:
             self.assertEqual(
-                missing_pkgs._load_package_names(path),
-                ["x", "y", "z"],
+                missing_pkgs._load_packages(path),
+                [("x", "x"), ("y", "y-binaries"), ("z", "z")],
             )
         finally:
             os.unlink(path)
@@ -290,8 +295,8 @@ class TestMissingPkgsPolymorphicLoader(unittest.TestCase):
         )
         try:
             self.assertEqual(
-                missing_pkgs._load_package_names(path),
-                ["ok", "also-ok"],
+                missing_pkgs._load_packages(path),
+                [("ok", "ok"), ("also-ok", "also-ok")],
             )
         finally:
             os.unlink(path)
@@ -304,14 +309,23 @@ class TestPlanRemainingWritesArtifact(unittest.TestCase):
         """Written remaining packages round-trip through the loader."""
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "remaining-alpine.json")
-            plan_remaining._write_remaining(out, ["a", "b", "c"])
+            plan_remaining._write_remaining(
+                out, ["a", "b", "c"], stem_of={"b": "b-binaries"}
+            )
             with open(out) as fh:
                 data = json.load(fh)
-            self.assertEqual(data, {"packages": ["a", "b", "c"]})
-            # And the loader missing-pkgs uses must see the same names.
             self.assertEqual(
-                missing_pkgs._load_package_names(out),
-                ["a", "b", "c"],
+                data,
+                {
+                    "packages": ["a", "b", "c"],
+                    "stems": {"b": "b-binaries"},
+                },
+            )
+            # And the loader missing-pkgs uses must see the same names
+            # plus the divergent stem for zip matching.
+            self.assertEqual(
+                missing_pkgs._load_packages(out),
+                [("a", "a"), ("b", "b-binaries"), ("c", "c")],
             )
 
 

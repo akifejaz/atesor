@@ -8,13 +8,14 @@ batch-port run and writes it to ``./debug-<id>/`` at the repo root.
 What it collects (and where each piece comes from):
 
 * **Run metadata** — ``gh run view --json …`` for the workflow run.
-* **Per-shard CI logs** — ``gh api repos/<owner>/<repo>/actions/jobs/<id>/logs``
+* **Per-shard CI logs** —
+  ``gh api repos/<owner>/<repo>/actions/jobs/<id>/logs``
   for every ``atesor-{alpine,debian}-full`` job. Each line for a built
   package looks like::
 
-      [12/47] ⏱ TIMEOUT cloudlist               1h 00m 10s  output/batch_logs/cloudlist.log
-      [37/47] ✘ FAIL    nginx                    3m 38s      output/batch_logs/nginx.log
-      [ 1/47] ✔ PASS    anew                     4m 37s      output/batch_logs/anew.log
+      [12/47] ⏱ TIMEOUT cloudlist  1h 00m 10s  output/batch_logs/cloudlist.log
+      [37/47] ✘ FAIL    nginx      3m 38s      output/batch_logs/nginx.log
+      [ 1/47] ✔ PASS    anew       4m 37s      output/batch_logs/anew.log
 
   We parse those lines to derive per-shard PASS/FAIL/TIMEOUT lists.
 * **Per-package log files** — the workflow's ``collect-full-shard-logs``
@@ -45,18 +46,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
-
 
 # ---------------------------------------------------------------------------
 # Parsing patterns (see module docstring for source examples).
@@ -85,7 +83,8 @@ BATCH_TOTALS_RE = re.compile(
 
 # "atesor-debian-full (shard 0/15)"  → platform=debian, shard=0, total=15
 SHARD_NAME_RE = re.compile(
-    r"atesor-(?P<platform>alpine|debian)-full\s+\(shard\s+(?P<shard>\d+)/(?P<total>\d+)\)"
+    r"atesor-(?P<platform>alpine|debian)-full"
+    r"\s+\(shard\s+(?P<shard>\d+)/(?P<total>\d+)\)"
 )
 
 # CI error markers we want to surface in the report.
@@ -95,9 +94,18 @@ CI_ERROR_RE = re.compile(r"##\[error\](.+)$")
 CI_FLAG_RES = [
     (re.compile(r"Unable to reserve cache key"), "Cache reserve conflict"),
     (re.compile(r"Cache restore failed"), "Cache restore failed"),
-    (re.compile(r"Node\.js 20.*deprecat", re.I), "Node.js 20 deprecation warning"),
-    (re.compile(r"The runner has received a shutdown signal"), "Runner shutdown signal"),
-    (re.compile(r"Process completed with exit code (\d+)"), "Batch step exit code"),
+    (
+        re.compile(r"Node\.js 20.*deprecat", re.I),
+        "Node.js 20 deprecation warning",
+    ),
+    (
+        re.compile(r"The runner has received a shutdown signal"),
+        "Runner shutdown signal",
+    ),
+    (
+        re.compile(r"Process completed with exit code (\d+)"),
+        "Batch step exit code",
+    ),
     (re.compile(r"The operation was canceled"), "Job cancelled"),
 ]
 
@@ -109,22 +117,26 @@ CI_FLAG_RES = [
 
 @dataclass
 class PackageResult:
+    """One package's outcome parsed from a shard's CI log."""
+
     idx: int
     total: int
-    status: str           # PASS / FAIL / TIMEOUT
+    status: str  # PASS / FAIL / TIMEOUT
     package: str
     duration: str
-    log_path: str         # output/batch_logs/<pkg>.log (relative path in CI)
+    log_path: str  # output/batch_logs/<pkg>.log (relative path in CI)
 
 
 @dataclass
 class ShardSummary:
+    """Aggregated results for one CI shard job."""
+
     job_id: int
     job_name: str
     platform: str
     shard: int
     shard_total: int
-    status: str           # queued/in_progress/completed
+    status: str  # queued/in_progress/completed
     conclusion: str | None  # success/failure/cancelled/...
     started_at: str | None
     completed_at: str | None
@@ -133,7 +145,7 @@ class ShardSummary:
     packages: list[PackageResult] = field(default_factory=list)
     ci_errors: list[str] = field(default_factory=list)
     ci_flags: list[str] = field(default_factory=list)
-    log_file: str = ""    # relative path to saved CI log
+    log_file: str = ""  # relative path to saved CI log
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +153,9 @@ class ShardSummary:
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], *, stdin: bytes | None = None, capture: bool = True) -> bytes:
+def _run(
+    cmd: list[str], *, stdin: bytes | None = None, capture: bool = True
+) -> bytes:
     """Run a subprocess command and return its stdout bytes.
 
     Raises CalledProcessError on non-zero exit. Stdout is captured;
@@ -156,11 +170,13 @@ def _run(cmd: list[str], *, stdin: bytes | None = None, capture: bool = True) ->
 
 
 def gh_json(args: list[str]) -> object:
+    """Run a ``gh`` command and parse its stdout as JSON."""
     out = _run(["gh", *args])
     return json.loads(out.decode("utf-8", errors="replace"))
 
 
 def gh_text(args: list[str]) -> str:
+    """Run a ``gh`` command and return its raw stdout."""
     out = _run(["gh", *args])
     return out.decode("utf-8", errors="replace")
 
@@ -175,31 +191,49 @@ def gh_repo_from_env(explicit: str | None) -> str:
 
 def resolve_pr_to_run_id(repo: str, pr: int, workflow_name: str | None) -> int:
     """Find the most recent workflow run associated with a PR's head SHA."""
-    pr_info = gh_json([
-        "pr", "view", str(pr),
-        "-R", repo,
-        "--json", "headRefOid,headRefName,number",
-    ])
+    pr_info = gh_json(
+        [
+            "pr",
+            "view",
+            str(pr),
+            "-R",
+            repo,
+            "--json",
+            "headRefOid,headRefName,number",
+        ]
+    )
     head_sha = pr_info["headRefOid"]
     head_ref = pr_info["headRefName"]
 
     # Filter runs by head SHA (most reliable), then optionally workflow name.
-    runs = gh_json([
-        "api", "--paginate",
-        f"repos/{repo}/actions/runs?head_sha={head_sha}&per_page=100",
-    ])
-    candidates = runs.get("workflow_runs", []) if isinstance(runs, dict) else []
+    runs = gh_json(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/actions/runs?head_sha={head_sha}&per_page=100",
+        ]
+    )
+    candidates = (
+        runs.get("workflow_runs", []) if isinstance(runs, dict) else []
+    )
     if workflow_name:
         candidates = [r for r in candidates if r.get("name") == workflow_name]
     if not candidates:
         # Fall back to head branch lookup.
-        runs2 = gh_json([
-            "api", "--paginate",
-            f"repos/{repo}/actions/runs?branch={head_ref}&per_page=100",
-        ])
-        candidates = runs2.get("workflow_runs", []) if isinstance(runs2, dict) else []
+        runs2 = gh_json(
+            [
+                "api",
+                "--paginate",
+                f"repos/{repo}/actions/runs?branch={head_ref}&per_page=100",
+            ]
+        )
+        candidates = (
+            runs2.get("workflow_runs", []) if isinstance(runs2, dict) else []
+        )
         if workflow_name:
-            candidates = [r for r in candidates if r.get("name") == workflow_name]
+            candidates = [
+                r for r in candidates if r.get("name") == workflow_name
+            ]
     if not candidates:
         sys.exit(
             f"error: no workflow runs found for PR #{pr} "
@@ -211,20 +245,30 @@ def resolve_pr_to_run_id(repo: str, pr: int, workflow_name: str | None) -> int:
 
 
 def fetch_run_metadata(repo: str, run_id: int) -> dict:
-    return gh_json([
-        "run", "view", str(run_id),
-        "-R", repo,
-        "--json",
-        "status,conclusion,headBranch,headSha,event,name,createdAt,updatedAt,url,databaseId",
-    ])
+    """Fetch workflow-run metadata via ``gh run view``."""
+    return gh_json(
+        [
+            "run",
+            "view",
+            str(run_id),
+            "-R",
+            repo,
+            "--json",
+            "status,conclusion,headBranch,headSha,event,name,"
+            "createdAt,updatedAt,url,databaseId",
+        ]
+    )
 
 
 def fetch_jobs(repo: str, run_id: int) -> list[dict]:
     """Return all jobs for a run, following pagination."""
-    data = gh_json([
-        "api", "--paginate",
-        f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100",
-    ])
+    data = gh_json(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100",
+        ]
+    )
     return data.get("jobs", []) if isinstance(data, dict) else []
 
 
@@ -233,16 +277,23 @@ def fetch_job_logs(repo: str, job_id: int) -> str:
     try:
         out = gh_text(["api", f"repos/{repo}/actions/jobs/{job_id}/logs"])
     except subprocess.CalledProcessError as exc:
-        print(f"  warn: failed to fetch logs for job {job_id}: {exc}", file=sys.stderr)
+        print(
+            f"  warn: failed to fetch logs for job {job_id}: {exc}",
+            file=sys.stderr,
+        )
         return ""
     return out
 
 
 def fetch_artifacts(repo: str, run_id: int) -> list[dict]:
-    data = gh_json([
-        "api", "--paginate",
-        f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
-    ])
+    """List the artifacts attached to a workflow run."""
+    data = gh_json(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
+        ]
+    )
     return data.get("artifacts", []) if isinstance(data, dict) else []
 
 
@@ -252,11 +303,14 @@ def download_artifact_zip(repo: str, artifact_id: int, dest_zip: Path) -> None:
     with open(dest_zip, "wb") as fh:
         subprocess.run(
             [
-                "gh", "api",
+                "gh",
+                "api",
                 f"repos/{repo}/actions/artifacts/{artifact_id}/zip",
-                "-H", "Accept: application/vnd.github+json",
+                "-H",
+                "Accept: application/vnd.github+json",
             ],
-            check=True, stdout=fh,
+            check=True,
+            stdout=fh,
         )
 
 
@@ -265,8 +319,9 @@ def download_artifact_zip(repo: str, artifact_id: int, dest_zip: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def parse_shard_log(log_text: str) -> tuple[list[PackageResult], dict | None,
-                                            list[str], list[str]]:
+def parse_shard_log(
+    log_text: str,
+) -> tuple[list[PackageResult], dict | None, list[str], list[str]]:
     """Parse a single shard's CI log.
 
     Returns (packages, batch_totals, ci_errors, ci_flag_labels).
@@ -288,14 +343,16 @@ def parse_shard_log(log_text: str) -> tuple[list[PackageResult], dict | None,
             if pkg in seen_pkgs:
                 continue
             seen_pkgs.add(pkg)
-            pkgs.append(PackageResult(
-                idx=int(m.group("idx")),
-                total=int(m.group("total")),
-                status=m.group("status"),
-                package=pkg,
-                duration=m.group("duration").strip(),
-                log_path=m.group("log"),
-            ))
+            pkgs.append(
+                PackageResult(
+                    idx=int(m.group("idx")),
+                    total=int(m.group("total")),
+                    status=m.group("status"),
+                    package=pkg,
+                    duration=m.group("duration").strip(),
+                    log_path=m.group("log"),
+                )
+            )
             continue
 
         m = BATCH_TOTALS_RE.search(stripped)
@@ -329,6 +386,7 @@ def parse_shard_log(log_text: str) -> tuple[list[PackageResult], dict | None,
 
 
 def extract_zip(zip_path: Path, dest_dir: Path) -> None:
+    """Extract a downloaded artifact zip into ``dest_dir``."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(dest_dir)
@@ -381,6 +439,7 @@ def _fmt_dur(start: str | None, end: str | None) -> str:
     if not (start and end):
         return "?"
     from datetime import datetime
+
     try:
         a = datetime.fromisoformat(start.replace("Z", "+00:00"))
         b = datetime.fromisoformat(end.replace("Z", "+00:00"))
@@ -401,6 +460,7 @@ def build_report(
     shards: list[ShardSummary],
     debug_root: Path,
 ) -> None:
+    """Write REPORT.md and failures.json into the bundle directory."""
     by_platform: dict[str, list[ShardSummary]] = defaultdict(list)
     for s in shards:
         by_platform[s.platform].append(s)
@@ -413,9 +473,15 @@ def build_report(
     md.append(f"- **Workflow**: {run_meta.get('name')}")
     md.append(f"- **URL**: {run_meta.get('url')}")
     md.append(f"- **Repo**: `{repo}`")
-    md.append(f"- **Status / Conclusion**: {run_meta.get('status')} / {run_meta.get('conclusion')}")
+    md.append(
+        f"- **Status / Conclusion**: {run_meta.get('status')} / "
+        f"{run_meta.get('conclusion')}"
+    )
     md.append(f"- **Event**: {run_meta.get('event')}")
-    md.append(f"- **Branch / SHA**: {run_meta.get('headBranch')} / `{run_meta.get('headSha','')[:12]}`")
+    md.append(
+        f"- **Branch / SHA**: {run_meta.get('headBranch')} / "
+        f"`{run_meta.get('headSha', '')[:12]}`"
+    )
     md.append(f"- **Created**: {run_meta.get('createdAt')}")
     md.append(f"- **Updated**: {run_meta.get('updatedAt')}")
     md.append("")
@@ -438,7 +504,10 @@ def build_report(
 
     md.append("## Aggregate totals (across all shards)")
     md.append("")
-    md.append(f"- TOTAL={total_total}  PASS={total_pass}  FAIL={total_fail}  TIMEOUT={total_timeout}")
+    md.append(
+        f"- TOTAL={total_total}  PASS={total_pass}  "
+        f"FAIL={total_fail}  TIMEOUT={total_timeout}"
+    )
     md.append("")
     for plat in sorted(by_platform):
         f = sorted({p for p, _ in fail_pkgs[plat]})
@@ -455,23 +524,35 @@ def build_report(
         for s in by_platform[platform]:
             f_pkgs = [p.package for p in s.packages if p.status == "FAIL"]
             t_pkgs = [p.package for p in s.packages if p.status == "TIMEOUT"]
-            md.append(f"### shard {s.shard}/{s.shard_total} — {s.conclusion or s.status}")
+            md.append(
+                f"### shard {s.shard}/{s.shard_total} — "
+                f"{s.conclusion or s.status}"
+            )
             md.append("")
             md.append(f"- **Job**: `{s.job_name}` (id={s.job_id})")
             md.append(f"- **Job URL**: {s.html_url}")
-            md.append(f"- **Duration**: {_fmt_dur(s.started_at, s.completed_at)} "
-                      f"(start={s.started_at}, end={s.completed_at})")
+            md.append(
+                f"- **Duration**: {_fmt_dur(s.started_at, s.completed_at)} "
+                f"(start={s.started_at}, end={s.completed_at})"
+            )
             if s.batch_totals:
                 bt = s.batch_totals
-                md.append(f"- **Batch totals**: TOTAL={bt['total']}  "
-                          f"PASS={bt['pass']}  FAIL={bt['fail']}  TIMEOUT={bt['timeout']}")
+                md.append(
+                    f"- **Batch totals**: TOTAL={bt['total']}  "
+                    f"PASS={bt['pass']}  FAIL={bt['fail']}  "
+                    f"TIMEOUT={bt['timeout']}"
+                )
             md.append(f"- **CI log**: `{s.log_file}`")
-            md.append(f"- **Failing packages ({len(f_pkgs)})**: "
-                      f"{', '.join(f_pkgs) if f_pkgs else '—'}")
-            md.append(f"- **Timeout packages ({len(t_pkgs)})**: "
-                      f"{', '.join(t_pkgs) if t_pkgs else '—'}")
+            md.append(
+                f"- **Failing packages ({len(f_pkgs)})**: "
+                f"{', '.join(f_pkgs) if f_pkgs else '—'}"
+            )
+            md.append(
+                f"- **Timeout packages ({len(t_pkgs)})**: "
+                f"{', '.join(t_pkgs) if t_pkgs else '—'}"
+            )
             if s.ci_errors:
-                md.append(f"- **CI errors**:")
+                md.append("- **CI errors**:")
                 for e in s.ci_errors[:8]:
                     md.append(f"    - {e}")
                 if len(s.ci_errors) > 8:
@@ -489,12 +570,19 @@ def build_report(
                     if local.exists():
                         rel = local.relative_to(debug_root)
                         log_files = sorted(local.glob("*.log"))
-                        files_str = ", ".join(
-                            f"`{f.relative_to(debug_root)}`" for f in log_files
-                        ) or f"`{rel}/`"
+                        files_str = (
+                            ", ".join(
+                                f"`{f.relative_to(debug_root)}`"
+                                for f in log_files
+                            )
+                            or f"`{rel}/`"
+                        )
                     else:
                         files_str = "(no log found)"
-                    md.append(f"  | `{p.package}` | {p.status} | {p.duration} | {files_str} |")
+                    md.append(
+                        f"  | `{p.package}` | {p.status} | "
+                        f"{p.duration} | {files_str} |"
+                    )
             md.append("")
 
     (debug_root / "REPORT.md").write_text("\n".join(md), encoding="utf-8")
@@ -506,19 +594,38 @@ def build_report(
 
 
 def main() -> int:
+    """Run the CLI entry point."""
     ap = argparse.ArgumentParser(
         description="Bundle CI debug data for an atesor batch-port run."
     )
     g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--run-id", type=int, help="GitHub Actions workflow run ID.")
-    g.add_argument("--pr", type=int, help="Pull request number (resolves latest run).")
-    ap.add_argument("-R", "--repo", help="OWNER/REPO (default: current `gh repo view`).")
-    ap.add_argument("--workflow", default="ATESOR AI Batch Porting Tests",
-                    help="Filter PR runs by workflow name (default: 'ATESOR AI Batch Porting Tests').")
-    ap.add_argument("--output-root", default=".",
-                    help="Parent dir for the debug-<id> bundle (default: CWD).")
-    ap.add_argument("--skip-artifacts", action="store_true",
-                    help="Don't download full-logs-* artifacts (CI-log parsing only).")
+    g.add_argument(
+        "--run-id", type=int, help="GitHub Actions workflow run ID."
+    )
+    g.add_argument(
+        "--pr", type=int, help="Pull request number (resolves latest run)."
+    )
+    ap.add_argument(
+        "-R", "--repo", help="OWNER/REPO (default: current `gh repo view`)."
+    )
+    ap.add_argument(
+        "--workflow",
+        default="ATESOR AI Batch Porting Tests",
+        help=(
+            "Filter PR runs by workflow name "
+            "(default: 'ATESOR AI Batch Porting Tests')."
+        ),
+    )
+    ap.add_argument(
+        "--output-root",
+        default=".",
+        help="Parent dir for the debug-<id> bundle (default: CWD).",
+    )
+    ap.add_argument(
+        "--skip-artifacts",
+        action="store_true",
+        help="Don't download full-logs-* artifacts (CI-log parsing only).",
+    )
     args = ap.parse_args()
 
     repo = gh_repo_from_env(args.repo)
@@ -542,14 +649,19 @@ def main() -> int:
     print(f"[2/5] Fetching run metadata for {run_id} on {repo} …")
     run_meta = fetch_run_metadata(repo, run_id)
     (debug_root / "run_metadata.json").write_text(
-        json.dumps(run_meta, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"      conclusion={run_meta.get('conclusion')} "
-          f"branch={run_meta.get('headBranch')} sha={run_meta.get('headSha','')[:12]}")
+        json.dumps(run_meta, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    print(
+        f"      conclusion={run_meta.get('conclusion')} "
+        f"branch={run_meta.get('headBranch')} "
+        f"sha={run_meta.get('headSha', '')[:12]}"
+    )
 
-    print(f"[3/5] Fetching jobs and per-shard CI logs …")
+    print("[3/5] Fetching jobs and per-shard CI logs …")
     jobs = fetch_jobs(repo, run_id)
     (debug_root / "jobs.json").write_text(
-        json.dumps(jobs, indent=2, sort_keys=True), encoding="utf-8")
+        json.dumps(jobs, indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(f"      {len(jobs)} job(s) total")
 
     shards: list[ShardSummary] = []
@@ -561,32 +673,38 @@ def main() -> int:
         shard_num = int(m.group("shard"))
         shard_total = int(m.group("total"))
         log_text = fetch_job_logs(repo, job["id"])
-        log_file = debug_root / "ci-logs" / f"{platform}-shard-{shard_num:02d}.log"
+        log_file = (
+            debug_root / "ci-logs" / f"{platform}-shard-{shard_num:02d}.log"
+        )
         log_file.write_text(log_text, encoding="utf-8")
         pkgs, totals, errors, flags = parse_shard_log(log_text)
-        shards.append(ShardSummary(
-            job_id=job["id"],
-            job_name=job.get("name", ""),
-            platform=platform,
-            shard=shard_num,
-            shard_total=shard_total,
-            status=job.get("status", ""),
-            conclusion=job.get("conclusion"),
-            started_at=job.get("started_at"),
-            completed_at=job.get("completed_at"),
-            html_url=job.get("html_url"),
-            batch_totals=totals,
-            packages=pkgs,
-            ci_errors=errors,
-            ci_flags=flags,
-            log_file=str(log_file.relative_to(debug_root)),
-        ))
-        print(f"      - {job['name']}: parsed {len(pkgs)} pkg result(s), "
-              f"totals={totals}")
+        shards.append(
+            ShardSummary(
+                job_id=job["id"],
+                job_name=job.get("name", ""),
+                platform=platform,
+                shard=shard_num,
+                shard_total=shard_total,
+                status=job.get("status", ""),
+                conclusion=job.get("conclusion"),
+                started_at=job.get("started_at"),
+                completed_at=job.get("completed_at"),
+                html_url=job.get("html_url"),
+                batch_totals=totals,
+                packages=pkgs,
+                ci_errors=errors,
+                ci_flags=flags,
+                log_file=str(log_file.relative_to(debug_root)),
+            )
+        )
+        print(
+            f"      - {job['name']}: parsed {len(pkgs)} pkg result(s), "
+            f"totals={totals}"
+        )
 
     shards.sort(key=lambda s: (s.platform, s.shard))
 
-    print(f"[4/5] Downloading full-logs-* artifacts …")
+    print("[4/5] Downloading full-logs-* artifacts …")
     artifacts = fetch_artifacts(repo, run_id)
     art_by_name = {a["name"]: a for a in artifacts}
     platform_log_roots: dict[str, Path] = {}
@@ -602,8 +720,10 @@ def main() -> int:
                 continue
             zip_path = debug_root / "artifacts" / f"{art_name}.zip"
             extract_dir = debug_root / "artifacts" / art_name
-            print(f"      - downloading {art_name} "
-                  f"({art.get('size_in_bytes', 0)/1024/1024:.1f} MB) …")
+            print(
+                f"      - downloading {art_name} "
+                f"({art.get('size_in_bytes', 0)/1024/1024:.1f} MB) …"
+            )
             try:
                 download_artifact_zip(repo, art["id"], zip_path)
                 extract_zip(zip_path, extract_dir)
@@ -613,8 +733,10 @@ def main() -> int:
                 print(f"        warn: download failed: {exc}")
 
     # Index log files per platform; copy logs for each failing/timeout pkg.
-    indexes = {plat: index_log_files([root])
-               for plat, root in platform_log_roots.items()}
+    indexes = {
+        plat: index_log_files([root])
+        for plat, root in platform_log_roots.items()
+    }
 
     failures_index: list[dict] = []
     for s in shards:
@@ -636,27 +758,31 @@ def main() -> int:
                     copied.append(str(dst.relative_to(debug_root)))
                 except OSError as exc:
                     print(f"        warn: copy {src} → {dst} failed: {exc}")
-            failures_index.append({
-                "platform": s.platform,
-                "shard": s.shard,
-                "package": p.package,
-                "status": p.status,
-                "duration": p.duration,
-                "ci_log": s.log_file,
-                "package_logs": copied,
-                "job_url": s.html_url,
-            })
+            failures_index.append(
+                {
+                    "platform": s.platform,
+                    "shard": s.shard,
+                    "package": p.package,
+                    "status": p.status,
+                    "duration": p.duration,
+                    "ci_log": s.log_file,
+                    "package_logs": copied,
+                    "job_url": s.html_url,
+                }
+            )
 
     (debug_root / "failures.json").write_text(
-        json.dumps(failures_index, indent=2, sort_keys=True), encoding="utf-8")
+        json.dumps(failures_index, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     # Per-shard summary for machine consumption
     shards_dump = [asdict(s) for s in shards]
     (debug_root / "shards.json").write_text(
         json.dumps(shards_dump, indent=2, sort_keys=True, default=str),
-        encoding="utf-8")
+        encoding="utf-8",
+    )
 
-    print(f"[5/5] Building REPORT.md …")
+    print("[5/5] Building REPORT.md …")
     build_report(run_meta, repo, run_id, shards, debug_root)
 
     n_fail = sum(1 for f in failures_index if f["status"] == "FAIL")

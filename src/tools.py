@@ -208,10 +208,7 @@ class CommandValidator:
             r"(?:>|>>|tee(?:\s+-a)?\s+)"
             r"\s*/etc/apt/(?:sources\.list|sources\.list\.d/)"
         ),
-        (
-            r"(?:>|>>|tee(?:\s+-a)?\s+)"
-            r"\s*/etc/apk/repositories(?:\.d/)?"
-        ),
+        (r"(?:>|>>|tee(?:\s+-a)?\s+)" r"\s*/etc/apk/repositories(?:\.d/)?"),
         # ``add-apt-repository`` and ``apt-key adv`` both mutate the
         # repo list and can wedge apt if the URL is bad. There's no
         # legitimate need for either inside our sandbox.
@@ -415,10 +412,16 @@ def execute_command(
             # across concurrent agents.
             exec_command = command
             if _is_pkg_command(command):
+                import shlex as _shlex
+
                 from src.platforms import get_active_profile
 
                 lock = get_active_profile().pkg_lock_file
-                exec_command = f"flock -w 120 {lock} sh -c '{command}'"
+                # shlex.quote so a command containing single quotes
+                # cannot break out of the sh -c wrapper.
+                exec_command = (
+                    f"flock -w 120 {lock} sh -c {_shlex.quote(command)}"
+                )
 
             # Wrap with in-container `timeout` so a runaway process gets
             # SIGKILLed by the container kernel even if the python-side
@@ -459,9 +462,7 @@ def execute_command(
             host_env = None
             if extra_env:
                 host_env = os.environ.copy()
-                host_env.update(
-                    {str(k): str(v) for k, v in extra_env.items()}
-                )
+                host_env.update({str(k): str(v) for k, v in extra_env.items()})
 
             result = subprocess.run(
                 command,
@@ -768,9 +769,12 @@ def read_file(
         File content (truncated if needed)
     """
     if use_docker:
-        # Read from Docker container
+        # Read from Docker container. Quote: file names come from
+        # cloned repos and may contain spaces/metacharacters.
+        import shlex
+
         result = execute_command(
-            f"head -n {max_lines} {filepath}", use_docker=True
+            f"head -n {max_lines} {shlex.quote(filepath)}", use_docker=True
         )
         if result.success:
             return result.stdout
@@ -812,16 +816,20 @@ def write_file(filepath: str, content: str, use_docker: bool = True) -> bool:
     if use_docker:
         # Write to Docker container using base64 for robustness
         import base64
+        import shlex
 
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
         # Ensure directory exists
         dir_path = "/".join(filepath.split("/")[:-1])
         if dir_path:
-            execute_command(f"mkdir -p {dir_path}", use_docker=True)
+            execute_command(
+                f"mkdir -p {shlex.quote(dir_path)}", use_docker=True
+            )
 
         result = execute_command(
-            f"echo '{encoded}' | base64 -d > {filepath}", use_docker=True
+            f"echo '{encoded}' | base64 -d > {shlex.quote(filepath)}",
+            use_docker=True,
         )
         return result.success
     else:
@@ -847,7 +855,11 @@ def file_exists(filepath: str, use_docker: bool = True) -> bool:
         True if file exists
     """
     if use_docker:
-        result = execute_command(f"test -e {filepath}", use_docker=True)
+        import shlex
+
+        result = execute_command(
+            f"test -e {shlex.quote(filepath)}", use_docker=True
+        )
         return result.success
     else:
         return os.path.exists(filepath)
@@ -1025,14 +1037,17 @@ def apply_patch(
             return False
 
         try:
+            import shlex
+
+            quoted_fp = shlex.quote(filepath) if filepath else ""
             if filepath:
                 # Apply to a specific file - always try as a diff,
                 # never raw append.
                 if "--- " in patch_content and "+++ " in patch_content:
-                    cmd = f"patch {filepath} < {patch_filename}"
+                    cmd = f"patch {quoted_fp} < {patch_filename}"
                 elif "@@ " in patch_content:
                     # Has diff hunks but missing headers - try patch -p0
-                    cmd = f"patch -p0 {filepath} < {patch_filename}"
+                    cmd = f"patch -p0 {quoted_fp} < {patch_filename}"
                 else:
                     # Not a valid diff format - reject to avoid
                     # corrupting the file.

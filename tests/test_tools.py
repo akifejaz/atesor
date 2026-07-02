@@ -153,7 +153,7 @@ class TestCommandValidatorDangerous(unittest.TestCase):
         self.assertEqual(reason, "Unknown command pattern (not in whitelist)")
 
     def test_rm_rf_subpath_allowed(self) -> None:
-        """rm -rf on a real subdirectory is allowed."""
+        """Verify rm -rf on a real subdirectory is allowed."""
         for cmd in [
             "rm -rf /workspace/repos/foo",
             "rm -rf /tmp/x",
@@ -681,8 +681,9 @@ class TestCodexEnvelopePatch(unittest.TestCase):
                 success=True, stdout="", stderr="", exit_code=0
             )
 
-        with mock.patch("src.tools.write_file", return_value=True), mock.patch(
-            "src.tools.execute_command", side_effect=fake_exec
+        with (
+            mock.patch("src.tools.write_file", return_value=True),
+            mock.patch("src.tools.execute_command", side_effect=fake_exec),
         ):
             ok = apply_patch(
                 self.SAMPLE_ENVELOPE,

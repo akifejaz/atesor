@@ -350,9 +350,7 @@ class TestResolveHomepageToGitUrls:
 class TestEnsureContainerHealthy:
     """Tests for ScriptedOperations._ensure_container_healthy."""
 
-    def test_git_missing_triggers_install(
-        self, stub_execute_command
-    ) -> None:
+    def test_git_missing_triggers_install(self, stub_execute_command) -> None:
         """Missing git in container -> profile.install_cmd(['git']) runs."""
         from src.state import CommandResult
 
@@ -374,12 +372,8 @@ class TestEnsureContainerHealthy:
 
         # The install command should reference git and use the active
         # profile's package manager (alpine → apk).
-        install_calls = [
-            c for c in calls if isinstance(c, str) and "git" in c
-        ]
-        assert any(
-            "apk" in c or "apt-get" in c for c in install_calls
-        ), calls
+        install_calls = [c for c in calls if isinstance(c, str) and "git" in c]
+        assert any("apk" in c or "apt-get" in c for c in install_calls), calls
 
     def test_healthy_container_makes_only_probes(
         self, stub_execute_command
@@ -404,9 +398,7 @@ class TestEnsureContainerHealthy:
             for c in calls
         )
         # No install command
-        assert not any(
-            isinstance(c, str) and "install" in c for c in calls
-        )
+        assert not any(isinstance(c, str) and "install" in c for c in calls)
 
 
 # ---------- Submodule init after clone ----------
@@ -435,9 +427,7 @@ class TestInitSubmodulesIfPresent:
         )
 
         # test -f check ran, but no submodule command should follow.
-        assert any(
-            isinstance(c, str) and "test -f" in c for c in calls
-        )
+        assert any(isinstance(c, str) and "test -f" in c for c in calls)
         assert not any(
             isinstance(c, str) and "submodule update" in c for c in calls
         )
@@ -486,8 +476,7 @@ class TestCloneResetsExistingRepo:
         monkeypatch.setattr("os.path.exists", lambda _p: True)
         # Suppress side effects from health check and submodule init.
         monkeypatch.setattr(
-            "src.scripted_ops.ScriptedOperations."
-            "_ensure_container_healthy",
+            "src.scripted_ops.ScriptedOperations." "_ensure_container_healthy",
             lambda _self: None,
         )
         monkeypatch.setattr(

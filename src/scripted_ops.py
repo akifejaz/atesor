@@ -19,8 +19,7 @@ import json
 import logging
 import os
 import re
-import stat
-import tempfile
+import shlex
 from typing import Any, Dict, List, Optional
 
 from src.state import (
@@ -39,6 +38,17 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # SCRIPTED OPERATIONS CLASS
 # ============================================================================
+
+
+def _walk_root_is_excluded(root: str, *names: str) -> bool:
+    """True when any path COMPONENT of ``root`` equals one of ``names``.
+
+    Substring checks like ``".git" in root`` misfire for repos whose
+    own name contains the token (``user.github.io`` contains ``.git``),
+    silently disabling the whole walk.
+    """
+    parts = root.split(os.sep)
+    return any(part in names for part in parts)
 
 
 class ScriptedOperations:
@@ -63,56 +73,36 @@ class ScriptedOperations:
 
         logger.info(f"ScriptedOperations initialized: {self.workspace_root}")
 
-
-    def _setup_git_askpass(self) -> None:
-        token = os.environ.get("GIT_TOKEN", "") or os.environ.get("GH_TOKEN", "")
-        if not token:
-            return
-
-        # Write script via Python file I/O — no shell interpolation of the token
-        fd, path = tempfile.mkstemp(prefix="git-askpass-")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write("#!/bin/sh\n")
-                f.write(f"echo \"$_GIT_TOKEN\"\n")  # read from env, never inline
-            os.chmod(path, stat.S_IRWXU)  # 700 — owner only
-        except Exception:
-            os.unlink(path)
-            raise
-
-        # Pass token through env var, not embedded in the script text
-        execute_command(
-            ["git", "config", "--global", "core.askPass", path],
-            use_docker=True,
-            extra_env={"GIT_ASKPASS": path, "_GIT_TOKEN": token},
-        )
-        self._askpass_path = path  # store for cleanup later
-
-
     def _build_auth_clone_cmd(self, url: str, container_repo_path: str) -> str:
-        """
-        Return a shell-safe clone command with auth via git config.
+        """Return a shell-safe clone command, configuring auth if needed.
 
-        Sets http.extraHeader globally before cloning so the token never
-        appears in the process argument list. Uses ``git config --global``
-        so the credential persists for the process lifetime without
-        exposure in argv.
+        When a ``GIT_TOKEN``/``GH_TOKEN`` is present, the bearer header
+        is scoped to ``https://github.com/`` ONLY (via git's
+        URL-matched ``http.<url>.extraHeader``). A global unscoped
+        extraHeader would attach the token to every git request to
+        ANY host — a clone of an attacker-controlled homepage URL from
+        the package list would then receive the token verbatim.
         """
-        token = os.environ.get("GIT_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+        token = os.environ.get("GIT_TOKEN", "") or os.environ.get(
+            "GH_TOKEN", ""
+        )
 
         if not url.startswith(("https://", "http://")):
             raise ValueError(f"Refusing non-http URL: {url!r}")
 
-        if token:
+        if token and url.startswith("https://github.com/"):
             escaped_token = token.replace("'", "'\"'\"'")
             configure_cmd = (
-                'git config --global http.extraHeader '
+                "git config --global "
+                "http.https://github.com/.extraHeader "
                 f"'Authorization: bearer {escaped_token}'"
             )
             execute_command(configure_cmd, use_docker=True)
 
-        return f"git clone --depth 1 {url} {container_repo_path}"
-
+        return (
+            f"git clone --depth 1 {shlex.quote(url)} "
+            f"{shlex.quote(container_repo_path)}"
+        )
 
     def _is_auth_error(self, result: CommandResult) -> bool:
         err = (result.stderr or "").lower()
@@ -128,7 +118,6 @@ class ScriptedOperations:
                 "no such device or address",
             ]
         )
-
 
     # ------------------------------------------------------------------
     # Fail-fast git environment: apply on every git subprocess so a
@@ -168,9 +157,7 @@ class ScriptedOperations:
         ),
         # `https://<name>.savannah.gnu.org/` → git.savannah.gnu.org/git
         (
-            re.compile(
-                r"^https?://([A-Za-z0-9_.\-]+)\.savannah\.gnu\.org/?$"
-            ),
+            re.compile(r"^https?://([A-Za-z0-9_.\-]+)\.savannah\.gnu\.org/?$"),
             r"https://git.savannah.gnu.org/git/\1.git",
         ),
         # `https://dev.yorhel.nl` → code.blicky.net/yorhel/<name>
@@ -251,31 +238,38 @@ class ScriptedOperations:
                 ["rm", "-rf", container_repo_path], use_docker=True
             )
             cmd = [
-                "git", "clone", "--depth", "1",
-                variant, container_repo_path,
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                variant,
+                container_repo_path,
             ]
             result = execute_command(
                 cmd, use_docker=True, extra_env=self._GIT_FAIL_FAST_ENV
             )
             if result.success:
                 # No f-string in logger call: cheaper when log is off
-                logger.info(
-                    "Clone succeeded via URL variant: %s", variant
-                )
+                logger.info("Clone succeeded via URL variant: %s", variant)
                 return result
 
         return None
-    
+
     def _to_host_path(self, path: str) -> str:
-        """Translate container path to host path if necessary."""
+        """Translate container path to host path if necessary.
+
+        Only the leading ``/workspace`` prefix is rewritten — a plain
+        ``str.replace`` would also mangle any later ``workspace``
+        segment inside the path.
+        """
         if path.startswith("/workspace") and not os.path.exists("/workspace"):
-            return path.replace("/workspace", self.workspace_root)
+            return self.workspace_root + path[len("/workspace") :]
         return path
 
     def _to_container_path(self, path: str) -> str:
         """Translate host path to container path if necessary."""
         if path.startswith(self.workspace_root):
-            return path.replace(self.workspace_root, "/workspace")
+            return "/workspace" + path[len(self.workspace_root) :]
         return path
 
     # ------------------------------------------------------------------
@@ -385,9 +379,7 @@ class ScriptedOperations:
         )
         if not check.success:
             return
-        logger.info(
-            "Repository declares submodules; initializing recursively"
-        )
+        logger.info("Repository declares submodules; initializing recursively")
         result = execute_command(
             f"cd {container_repo_path} && "
             f"git submodule update --init --recursive",
@@ -415,6 +407,13 @@ class ScriptedOperations:
         Returns:
             The ``CommandResult`` of the clone or update operation.
         """
+        # Validate inputs once, up front: both are interpolated into
+        # in-container shell strings below (rm -rf, git clone, cd).
+        if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name) or name.startswith("."):
+            raise ValueError(f"Unsafe repo name: {name!r}")
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
         # Use container path
         container_repo_path = f"/workspace/repos/{name}"
         host_repo_path = os.path.join(self.repos_dir, name)
@@ -436,12 +435,15 @@ class ScriptedOperations:
             # same failure. Always reset to pristine upstream state
             # before touching the working tree; this keeps every run
             # idempotent and preserves the self-healing contract.
+            # Reset to FETCH_HEAD rather than a command-substituted
+            # `origin/<branch>`: if `git remote show origin` fails
+            # (network / non-English locale) the substitution is empty
+            # and `git reset --hard` silently resets to the poisoned
+            # LOCAL head — exactly the state this hardening removes.
             reset_cmd = (
                 f"cd {container_repo_path} && "
                 f"git fetch --depth 1 origin && "
-                f"git reset --hard $(git remote show origin | "
-                f"grep 'HEAD branch' | awk '{{print $NF}}' | "
-                f"xargs -I% echo origin/%) && "
+                f"git reset --hard FETCH_HEAD && "
                 f"git clean -fdx"
             )
             result = execute_command(
@@ -458,10 +460,12 @@ class ScriptedOperations:
                     f"(stderr={result.stderr[:200]!r}); "
                     f"re-cloning from scratch..."
                 )
-                rm_cmd = f"rm -rf {container_repo_path}"
-                execute_command(rm_cmd, use_docker=True)
+                execute_command(
+                    ["rm", "-rf", container_repo_path], use_docker=True
+                )
                 clone_cmd = (
-                    f"git clone --depth 1 {url} {container_repo_path}"
+                    f"git clone --depth 1 {shlex.quote(url)} "
+                    f"{shlex.quote(container_repo_path)}"
                 )
                 result = execute_command(
                     clone_cmd,
@@ -469,10 +473,9 @@ class ScriptedOperations:
                     extra_env=self._GIT_FAIL_FAST_ENV,
                 )
         else:
-            rm_cmd = f"rm -rf {container_repo_path}"
-            execute_command(rm_cmd, use_docker=True)
-
-            self._setup_git_askpass()
+            execute_command(
+                ["rm", "-rf", container_repo_path], use_docker=True
+            )
 
             logger.info(f"Cloning repository {url}...")
             cmd = self._build_auth_clone_cmd(url, container_repo_path)
@@ -486,9 +489,13 @@ class ScriptedOperations:
                 logger.warning(
                     f"Auth failure for {name}, retrying without token..."
                 )
-                rm_cmd = f"rm -rf {container_repo_path}"
-                execute_command(rm_cmd, use_docker=True)
-                cmd = f"git clone --depth 1 {url} {container_repo_path}"
+                execute_command(
+                    ["rm", "-rf", container_repo_path], use_docker=True
+                )
+                cmd = (
+                    f"git clone --depth 1 {shlex.quote(url)} "
+                    f"{shlex.quote(container_repo_path)}"
+                )
                 result = execute_command(
                     cmd,
                     use_docker=True,
@@ -575,7 +582,8 @@ class ScriptedOperations:
         return False
 
     def _score_go_subdir(self, root: str, repo_path: str) -> int:
-        """Score a Go module root based on main package and cmd/ dir.
+        """Score a Go module root by main-package/cmd markers.
+
         Higher = more likely to be the primary build target.
         """
         score = 0
@@ -587,8 +595,9 @@ class ScriptedOperations:
         for entry in os.scandir(root):
             if entry.is_file() and entry.name.endswith(".go"):
                 try:
-                    with open(entry.path, "r", encoding="utf-8",
-                              errors="ignore") as f:
+                    with open(
+                        entry.path, "r", encoding="utf-8", errors="ignore"
+                    ) as f:
                         if "package main" in f.read(2048):
                             score += 5
                             break
@@ -629,7 +638,8 @@ class ScriptedOperations:
             for file in files:
                 filepath = os.path.join(repo_path, file)
                 if os.path.exists(filepath):
-                    # npm requires stricter detection: need lockfile or build script
+                    # npm requires stricter detection: need a
+                    # lockfile or a build script
                     if build_sys == "npm":
                         has_lock = os.path.exists(
                             os.path.join(repo_path, "package-lock.json")
@@ -638,32 +648,32 @@ class ScriptedOperations:
                         if not has_lock and not has_build:
                             continue
                     detected.append((build_sys, file))
+                    # Never let a weaker marker clobber a stronger one
+                    # (e.g. `configure` at 0.85 must not overwrite the
+                    # 0.95 set by `configure.ac` a moment earlier).
+                    prev = confidence_scores.get(build_sys, 0)
                     if file in [
                         "CMakeLists.txt",
                         "Cargo.toml",
                         "configure.ac",
                         "go.mod",
                     ]:
-                        confidence_scores[build_sys] = 0.95
+                        confidence_scores[build_sys] = max(prev, 0.95)
                     elif file == "configure":
-                        confidence_scores[build_sys] = 0.85
+                        confidence_scores[build_sys] = max(prev, 0.85)
                     else:
-                        confidence_scores[build_sys] = (
-                            confidence_scores.get(build_sys, 0) + 0.3
-                        )
+                        confidence_scores[build_sys] = min(prev + 0.3, 0.9)
 
         if not detected:
             go_subdir_candidates = []
             cargo_found = None
             for root, dirs, files in os.walk(repo_path):
-                if ".git" in root:
+                if _walk_root_is_excluded(root, ".git"):
                     continue
                 if "go.mod" in files:
                     module_dir = root.replace(repo_path, "").lstrip("/")
                     score = self._score_go_subdir(root, repo_path)
-                    go_subdir_candidates.append(
-                        (root, module_dir, score)
-                    )
+                    go_subdir_candidates.append((root, module_dir, score))
                 if "Cargo.toml" in files and cargo_found is None:
                     module_dir = root.replace(repo_path, "").lstrip("/")
                     cargo_found = (root, module_dir)
@@ -885,8 +895,25 @@ class ScriptedOperations:
         with open(go_mod, "r") as f:
             content = f.read()
 
-        require_pattern = r"require\s+([^\s]+)"
-        deps.libraries = re.findall(require_pattern, content)
+        # go.mod uses two require forms; handle both:
+        #   require example.com/pkg v1.2.3          (single line)
+        #   require (                                (block)
+        #       example.com/pkg v1.2.3
+        #   )
+        # The old single-line-only regex captured a literal "(" for
+        # block form — i.e. for most real go.mod files.
+        libraries: List[str] = []
+        for match in re.finditer(r"require\s+\(([^)]*)\)", content, re.DOTALL):
+            for line in match.group(1).splitlines():
+                line = line.strip()
+                if not line or line.startswith("//"):
+                    continue
+                libraries.append(line.split()[0])
+        for match in re.finditer(
+            r"^require\s+([^\s(]+)", content, re.MULTILINE
+        ):
+            libraries.append(match.group(1))
+        deps.libraries = list(dict.fromkeys(libraries))
 
         deps.build_tools = ["go"]
         return deps
@@ -917,7 +944,7 @@ class ScriptedOperations:
         go_mod_files = []
         has_go_files = False
         for root, dirs, files in os.walk(repo_path):
-            if ".git" in root:
+            if _walk_root_is_excluded(root, ".git"):
                 continue
             if "go.mod" in files:
                 module_dir = root.replace(repo_path, "").lstrip("/")
@@ -932,7 +959,7 @@ class ScriptedOperations:
                 result["has_go_files"] = True
                 # Try to find main package anyway
                 for root, dirs, files in os.walk(repo_path):
-                    if ".git" in root or "vendor" in root:
+                    if _walk_root_is_excluded(root, ".git", "vendor"):
                         continue
                     for f in files:
                         if f.endswith(".go"):
@@ -976,7 +1003,7 @@ class ScriptedOperations:
 
         main_files = []
         for root, dirs, files in os.walk(go_mod_path):
-            if ".git" in root or "vendor" in root:
+            if _walk_root_is_excluded(root, ".git", "vendor"):
                 continue
             for f in files:
                 if f.endswith(".go"):
@@ -1500,10 +1527,15 @@ class ScriptedOperations:
         ]
 
         for arch, pattern in arch_patterns:
+            # Use the arch-specific REGEX (not the bare arch token —
+            # a Makefile comment mentioning "riscv" must not count as
+            # existing RISC-V support) and parenthesize the -name
+            # alternation so -type f applies to both suffixes.
             cmd = (
-                f"find {target_path} -type f -name '*.mak' "
-                f"-o -name '*.mk' 2>/dev/null "
-                f"| xargs grep -l '{arch}' 2>/dev/null | head -20"
+                f"find {shlex.quote(target_path)} -type f "
+                f"\\( -name '*.mak' -o -name '*.mk' \\) 2>/dev/null "
+                f"| xargs grep -liE {shlex.quote(pattern)} "
+                f"2>/dev/null | head -20"
             )
             find_result = execute_command(cmd, use_docker=True)
 

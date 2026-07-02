@@ -468,13 +468,18 @@ class AgentMemory:
             )
             return False
 
-        auto_ids = [
-            ex.id
-            for ex in self.examples
-            if ex.id.startswith(f"{self.agent_type}-auto-")
-        ]
-        next_num = len(auto_ids) + 1
-        example_data["id"] = f"{self.agent_type}-auto-{next_num:03d}"
+        # Use max existing suffix + 1, not count + 1: after pruning
+        # removes old auto examples, a count-based id would collide
+        # with a surviving one.
+        prefix = f"{self.agent_type}-auto-"
+        max_num = 0
+        for ex in self.examples:
+            if ex.id.startswith(prefix):
+                try:
+                    max_num = max(max_num, int(ex.id[len(prefix) :]))
+                except ValueError:
+                    continue
+        example_data["id"] = f"{prefix}{max_num + 1:03d}"
         example_data["source"] = "auto"
         example_data["timestamp"] = datetime.now().strftime("%Y-%m-%d")
         if not example_data.get("sandbox"):

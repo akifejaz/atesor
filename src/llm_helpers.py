@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -187,6 +188,9 @@ def llm_call_with_validation(
     active_llm = llm_pool[0]
     critique_retries_used = 0
     max_total_attempts = (max_retries + 1) + len(llm_pool)
+    # Pool indices that already spent their one Retry-After wait, so an
+    # upstream that keeps 429ing can't trap us in a sleep loop.
+    waited_pool_indices: set = set()
 
     while attempts < max_total_attempts:
         attempts += 1
@@ -202,6 +206,36 @@ def llm_call_with_validation(
                 f"[{role}] attempt {attempts} "
                 f"(model={_model_id(active_llm)}): {last_reason}"
             )
+            # Account-level daily cap ("free-models-per-day"): rotation
+            # cannot help — the cap covers EVERY free model on the
+            # account, and each further attempt is a wasted request.
+            # Bail straight to the deterministic fallback.
+            if _is_daily_cap_error(exc):
+                last_reason = (
+                    "OpenRouter daily free-model quota exhausted "
+                    "(free-models-per-day). Rotation cannot help; "
+                    "add $10 lifetime credits to raise the cap from "
+                    "50 to 1000 requests/day."
+                )
+                logger.error(f"[{role}] {last_reason}")
+                break
+            # Honor the upstream's advisory Retry-After when it is
+            # short: one quiet wait on the same model costs zero extra
+            # requests, while rotating immediately burns another
+            # daily-quota request per model tried.
+            retry_after = _extract_retry_after(exc)
+            if (
+                retry_after is not None
+                and 0 < retry_after <= _MAX_RETRY_AFTER_WAIT
+                and pool_idx not in waited_pool_indices
+            ):
+                waited_pool_indices.add(pool_idx)
+                logger.warning(
+                    f"[{role}] honoring Retry-After={retry_after}s on "
+                    f"{_model_id(active_llm)} before retrying"
+                )
+                time.sleep(retry_after)
+                continue
             # OpenRouter free-tier self-heal: HTTP 402 responses embed
             # the exact affordable token count ("can only afford N").
             # Shrinking every LLM in the pool to that cap lets the same
@@ -430,6 +464,26 @@ _TOKEN_AFFORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# OpenRouter 429 bodies carry the upstream's advisory wait, e.g.
+#   'retry_after_seconds': 29   /   'Retry-After': '29'
+# Honoring a short wait beats instant rotation on the free tier:
+# every request — successful or failed — counts against the daily
+# free-models cap.
+_RETRY_AFTER_RE = re.compile(
+    r"retry[_-]after[_a-z]*'?\"?\s*[:=]\s*'?\"?(\d+)",
+    re.IGNORECASE,
+)
+
+# Account-level daily cap marker ("Rate limit exceeded:
+# free-models-per-day"). Applies to the whole account, so model
+# rotation cannot recover from it.
+_DAILY_CAP_NEEDLE = "free-models-per-day"
+
+# Longest advisory wait worth sleeping through. Daily-cap errors carry
+# Retry-After values in the tens of thousands of seconds — treat those
+# as unavailable rather than sleeping.
+_MAX_RETRY_AFTER_WAIT = 65
+
 
 def _is_provider_error(exc: Exception) -> bool:
     """Return True when ``exc`` looks like a provider-side failure."""
@@ -444,6 +498,22 @@ def _extract_slug_hint(exc: Exception) -> Optional[str]:
     """
     match = _SLUG_HINT_RE.search(str(exc))
     return match.group(1) if match else None
+
+
+def _extract_retry_after(exc: Exception) -> Optional[int]:
+    """Return the advisory Retry-After seconds embedded in ``exc``.
+
+    Parses both the OpenRouter JSON body form
+    (``'retry_after_seconds': 29``) and the raw header form
+    (``'Retry-After': '29'``). Returns ``None`` when absent.
+    """
+    match = _RETRY_AFTER_RE.search(str(exc))
+    return int(match.group(1)) if match else None
+
+
+def _is_daily_cap_error(exc: Exception) -> bool:
+    """Return True when ``exc`` is the account-wide daily free cap."""
+    return _DAILY_CAP_NEEDLE in str(exc).lower()
 
 
 def _extract_affordable_tokens(exc: Exception) -> Optional[int]:
@@ -527,9 +597,7 @@ def _build_replacement_llm(reference: Any, model_id: str) -> Optional[Any]:
                 init_kwargs[attr] = value
         return cls(**init_kwargs)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            f"Cannot build replacement LLM for {model_id!r}: {exc}"
-        )
+        logger.warning(f"Cannot build replacement LLM for {model_id!r}: {exc}")
         return None
 
 

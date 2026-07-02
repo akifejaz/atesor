@@ -234,7 +234,7 @@ ALPINE_RISCV = PlatformProfile(
             " are pre-set."
         ),
         (
-            "If `git` is not installed (\"git: command not found\"),"
+            'If `git` is not installed ("git: command not found"),'
             " install it via the package manager first."
         ),
         (
@@ -377,8 +377,6 @@ DEBIAN_RISCV = PlatformProfile(
         "libcurl-openssl-dev": "libcurl4-openssl-dev",
         "libcares-dev": "libc-ares-dev",
         "libnettle-dev": "nettle-dev",
-        "libev-dev": "libev-dev",  # correct, just confirm canonical
-        "libjpeg-turbo-dev": "libjpeg-turbo8-dev",
         "libabseil-dev": "libabsl-dev",
         # Frequent typo/hallucination repairs seen in batch logs.
         "libz1g-dev": "zlib1g-dev",
@@ -412,7 +410,7 @@ DEBIAN_RISCV = PlatformProfile(
             " install."
         ),
         (
-            "If `git` is not installed (\"git: command not found\"),"
+            'If `git` is not installed ("git: command not found"),'
             " install it via the package manager first."
         ),
         (

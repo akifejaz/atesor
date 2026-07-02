@@ -52,7 +52,9 @@ def _merge_recipe_cache(
     base: dict[str, Any], incoming: dict[str, Any]
 ) -> dict[str, Any]:
     out = dict(base)
-    out.setdefault("version", incoming.get("version", base.get("version", "2.0")))
+    out.setdefault(
+        "version", incoming.get("version", base.get("version", "2.0"))
+    )
     out.setdefault("packages", {})
 
     base_pkgs = out["packages"]
@@ -118,7 +120,9 @@ def _merge_examples_file(
             merged[ex_id] = _prefer_example(existing, ex)
 
     out["examples"] = [merged[k] for k in sorted(merged.keys())]
-    out.setdefault("version", incoming.get("version", base.get("version", "2.0")))
+    out.setdefault(
+        "version", incoming.get("version", base.get("version", "2.0"))
+    )
     return out
 
 
@@ -171,6 +175,7 @@ def _merge_examples_files(repo_data_dir: Path, artifact_root: Path) -> bool:
 
 
 def main() -> int:
+    """Run the CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--artifacts-root",

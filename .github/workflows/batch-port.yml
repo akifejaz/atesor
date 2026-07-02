@@ -186,7 +186,7 @@ jobs:
           echo "tag=$tag_prefix" >> "$GITHUB_OUTPUT"
           : > released-assets.txt
           # force_all bypasses the release skip entirely: an empty
-          # released-assets list makes plan-remaining.py treat every
+          # released-assets list makes plan_remaining.py treat every
           # package as "remaining", so the full sweep rebuilds all.
           if [[ "$FORCE_ALL" == "true" ]]; then
             echo "::notice::force_all=true; ignoring releases ${tag_prefix}* and rebuilding ALL packages."
@@ -215,7 +215,7 @@ jobs:
           set -euo pipefail
           mkdir -p remaining
           for platform in debian alpine; do
-            python3 .github/scripts/plan-remaining.py \
+            python3 .github/scripts/plan_remaining.py \
               --list full \
               --released-assets released-assets.txt \
               --platform "$platform" \
@@ -296,7 +296,7 @@ jobs:
       - name: Resolve this shard's package slice
         id: slice
         run: |
-          python3 .github/scripts/slice-pkgs.py \
+          python3 .github/scripts/slice_pkgs.py \
             --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
             --shard-index "$SHARD_INDEX" \
             --shard-total "$SHARD_TOTAL" \
@@ -489,7 +489,7 @@ jobs:
       - name: Resolve this shard's package slice
         id: slice
         run: |
-          python3 .github/scripts/slice-pkgs.py \
+          python3 .github/scripts/slice_pkgs.py \
             --from "remaining/remaining-${ATESOR_PLATFORM}.json" \
             --shard-index "$SHARD_INDEX" \
             --shard-total "$SHARD_TOTAL" \
