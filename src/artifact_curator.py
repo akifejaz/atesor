@@ -282,15 +282,28 @@ def curate_artifacts(
 
     try:
         # Lazy import so this module has no hard dependency on langchain when
-        # running in pure rule-based mode (e.g. unit tests).
+        # running in pure rule-based mode (e.g. unit tests). Route through
+        # invoke_llm (hard timeout — a hung provider must not stall the
+        # finish path) and log_llm_call (audit trail), per project rules.
         from langchain_core.messages import HumanMessage
 
-        response = llm.invoke([HumanMessage(content=prompt)])
+        from .graph import invoke_llm
+        from .llm_logger import log_llm_call
+
+        response = invoke_llm(llm, [HumanMessage(content=prompt)], timeout=60)
         text = (
             response.content if hasattr(response, "content") else str(response)
         )
         if isinstance(text, list):  # some providers return list of parts
             text = "".join(str(p) for p in text)
+        log_llm_call(
+            agent_role="curator",
+            prompt=prompt,
+            response=text,
+            model=getattr(llm, "model_name", "unknown"),
+            cost_usd=0.002,
+            metadata={"repo": repo_name, "phase": "curate_artifacts"},
+        )
     except Exception as e:
         logger.warning(
             "Artifact curator: LLM call failed (%s); falling back to rules.", e

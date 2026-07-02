@@ -23,7 +23,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -46,6 +46,7 @@ from .state import (
     BuildPhase,
     BuildPlan,
     BuildStatus,
+    CommandResult,
     ErrorCategory,
     FailureSeverity,
     FixAttempt,
@@ -53,7 +54,6 @@ from .state import (
     TaskPlan,
     classify_error,
     create_error_record,
-    get_next_action_recommendation,
     should_escalate,
 )
 from .tools import apply_patch, execute_command
@@ -228,6 +228,82 @@ def _build_command_error_message(result, fallback: str) -> str:
     return f"{fallback} (exit {result.exit_code}) - {detail}"
 
 
+def _try_clone_recovery(
+    state: AgentState, url: str, name: str
+) -> Optional[CommandResult]:
+    """Try additional URL-level recovery when the initial clone fails.
+
+    Delegates to :meth:`ScriptedOperations._try_url_variants` so both
+    the initial clone path (in scripted_ops) and the supervisor-level
+    recovery path (here) apply the same set of transformations:
+    ``/cgit/`` → ``/git/``, appending ``.git``, and the homepage → git
+    rules (GNU savannah, blicky, ...).
+
+    Args:
+        state: Agent state (used to record which variants were tried).
+        url: The original clone URL.
+        name: The canonical repo name.
+
+    Returns:
+        The successful ``CommandResult`` if a variant clones cleanly,
+        or ``None`` if every attempt fails.
+    """
+    tried: List[str] = [url]
+    result = scripted_ops._try_url_variants(url, name)
+
+    # Reflect the attempts the variant helper made into audit state.
+    # We don't have direct access to the internal list, so replay the
+    # deterministic rules to record accurate telemetry.
+    stripped = url.rstrip("/")
+    variants: List[str] = []
+    if "/cgit/" in url:
+        variants.append(url.replace("/cgit/", "/git/"))
+    if not url.endswith(".git"):
+        variants.append(stripped + ".git")
+    for cand in scripted_ops._resolve_homepage_to_git_urls(url, name):
+        if cand not in variants:
+            variants.append(cand)
+    tried.extend(variants)
+
+    if result is not None:
+        state.context_cache["clone_recovery"] = {
+            "original_url": url,
+            "success_url": result.command,
+            "attempted": tried,
+        }
+        return result
+
+    state.context_cache["clone_recovery"] = {
+        "original_url": url,
+        "attempted": tried,
+        "success_url": None,
+    }
+    return None
+
+
+def _classify_clone_failure(message: str) -> ErrorCategory:
+    """Classify a clone failure into a specific error category."""
+    msg = message.lower()
+    if any(
+        pat in msg
+        for pat in [
+            "could not read username",
+            "could not read password",
+            "no such device or address",
+            "authentication failed",
+        ]
+    ):
+        return ErrorCategory.NETWORK
+    if re.search(r"repository\s+not\s+found", msg):
+        return ErrorCategory.CONFIGURATION
+    if any(
+        pat in msg
+        for pat in ["could not resolve", "name or service not known"]
+    ):
+        return ErrorCategory.NETWORK
+    return ErrorCategory.CONFIGURATION
+
+
 def is_toolchain_version_mismatch(error_message: str) -> bool:
     """Return True if an error indicates an outdated compiler toolchain."""
     err = (error_message or "").lower()
@@ -372,22 +448,42 @@ def init_node(state: AgentState) -> AgentState:
         message = _build_command_error_message(
             result, f"Repository clone/update failed for {state.repo_url}"
         )
-        error = create_error_record(
-            message=message,
-            category=classify_error(message),
-            severity=FailureSeverity.HIGH,
-            command=result.command,
+
+        recovery_result = _try_clone_recovery(
+            state, state.repo_url, state.repo_name
         )
-        state.add_error(error)
-        state.build_status = BuildStatus.FAILED
-        state.current_phase = "escalate"
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "ESCALATE",
-            f"Critical init failure ({error.severity.value}): "
-            f"{error.message[:200]}",
-        )
-        return state
+        if recovery_result is not None:
+            logger.info(
+                f"Clone recovery succeeded for {state.repo_name} "
+                f"via URL variant"
+            )
+            result = recovery_result
+            state.log_scripted_op("clone_recovery")
+        else:
+            recovery_data = state.context_cache.get("clone_recovery", {})
+            if recovery_data.get("attempted"):
+                message += (
+                    f" | Tried variants: "
+                    f"{', '.join(recovery_data['attempted'])}"
+                )
+
+            category = _classify_clone_failure(message)
+            error = create_error_record(
+                message=message,
+                category=category,
+                severity=FailureSeverity.HIGH,
+                command=result.command,
+            )
+            state.add_error(error)
+            state.build_status = BuildStatus.FAILED
+            state.current_phase = "escalate"
+            state.log_agent_decision(
+                AgentRole.SUPERVISOR,
+                "ESCALATE",
+                f"Critical init failure ({error.category.value}): "
+                f"{error.message[:200]}",
+            )
+            return state
 
     logger.info("Performing quick analysis with scripted operations...")
     try:
@@ -824,304 +920,36 @@ def create_default_plan() -> TaskPlan:
 # NODE: SUPERVISOR (Orchestration)
 # ============================================================================
 
-SUPERVISOR_PROMPT = (
-    "You are the routing supervisor for a RISC-V porting agent. The\n"
-    "heuristic router already produced a recommendation; you decide whet"
-    "her to\n"
-    "follow it or override.\n"
-    "\n"
-    "## State snapshot\n"
-    "- Phase: {current_phase} | Build status: {build_status}\n"
-    "- Attempt {attempt_count}/{max_attempts} | Last agent: {current_age"
-    "nt}\n"
-    "- Stats: scripted ops={scripted_ops_count}, API calls={api_calls}, "
-    "cost=${cost:.4f}\n"
-    "\n"
-    "### Build plan\n"
-    "{build_plan_summary}\n"
-    "\n"
-    "### Recent agent history\n"
-    "{agent_history}\n"
-    "\n"
-    "### Architecture issues\n"
-    "{arch_issues_summary}\n"
-    "\n"
-    "### Recent errors\n"
-    "{error_summary}\n"
-    "\n"
-    "### Extra context\n"
-    "{additional_context}\n"
-    "\n"
-    "## Verification step (do this before answering)\n"
-    "1. Has the same error category fired 3+ times in a row? → ESCALATE\n"
-    "2. Is the build green and verified? → FINISH\n"
-    "3. Is there no build plan yet? → SCOUT\n"
-    "4. Has the last build failed with a fixable error? → FIX\n"
-    "5. Otherwise → BUILD\n"
-    "\n"
-    "## Output schema (JSON only, no prose)\n"
-    "{{\n"
-    '  "next_agent": "SCOUT|BUILD|FIX|FINISH|ESCALATE",\n'
-    '  "reasoning": "<2 sentences max>",\n'
-    '  "confidence": "high|medium|low"\n'
-    "}}"
-)
-
 
 @agent_node(AgentRole.SUPERVISOR)
 def supervisor_node(state: AgentState) -> AgentState:
-    """Make a routing decision with cost-aware heuristics."""
+    """Supervisor evaluation node.
+
+    Routing is handled by ``route_supervisor_to_next`` at the graph-edge
+    level. This node exists as a lightweight audit/logging pass-through
+    so the graph topology is preserved.
+    """
     bp_state = "Exists" if state.build_plan else "Missing"
     logger.info(
-        f"Supervisor making routing decision... (BuildPlan: {bp_state})"
+        f"Supervisor evaluating state... (phase={state.current_phase}, "
+        f"status={state.build_status.value}, BuildPlan: {bp_state}, "
+        f"attempts={state.attempt_count}/{state.max_attempts})"
     )
 
-    should_esc, esc_reason = should_escalate(state)
-    if should_esc:
-        logger.warning(f"Automatic escalation: {esc_reason}")
-        state.current_phase = "escalate"
-        return state
+    # The LLM-based supervisor routing has been removed.
+    # All routing decisions are now made by the ``route_supervisor_to_next``
+    # conditional edge function, which is purely heuristic and requires
+    # no LLM call. This eliminates the redundant LLM call that always
+    # agreed with the heuristic anyway.
 
-    recommended_action = get_next_action_recommendation(state)
-    state.log_scripted_op("supervisor_routing")
-
-    if state.api_calls_made > 8 or state.api_cost_usd > 0.08:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            recommended_action.value,
-            "Cost optimization heuristic (API calls > 8 or cost > $0.08)",
-        )
-        logger.info(
-            f"Using cost-optimized routing: {recommended_action.value}"
-        )
-        state.current_phase = recommended_action.value.lower()
-        return state
-
-    if state.build_status == BuildStatus.SUCCESS:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "FINISH",
-            "Build succeeded, moving to final documentation.",
-        )
-        state.current_phase = "finish"
-        return state
-
-    if state.attempt_count >= state.max_attempts:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "ESCALATE",
-            f"Max attempts ({state.max_attempts}) reached.",
-        )
-        state.current_phase = "escalate"
-        return state
-
-    if state.attempt_count >= 3 and state.is_in_error_loop():
-        logger.warning("Detected error loop - switching to escalation")
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "ESCALATE", "Stuck in error loop"
-        )
-        state.current_phase = "escalate"
-        return state
-
-    if not state.task_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "PLAN", "No task plan exists."
-        )
-        state.current_phase = "planner"
-        return state
-
-    if not state.build_plan and state.task_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            "SCOUT",
-            "Build plan missing but task plan exists.",
-        )
-        state.current_phase = "scout"
-        return state
-
-    if state.build_status == BuildStatus.FAILED:
-        if _should_force_replan(state):
-            sig = _replan_signature(state.last_error or "") or "unknown"
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "SCOUT",
-                f"Failure signature '{sig}' indicates plan-level issue; "
-                "requesting one bounded replan.",
-            )
-            state.current_phase = "scout"
-            return state
-
-        # MISSING_TOOLS / DEPENDENCY need an updated build plan from
-        # scout (add packages, change steps).
-        # CONFIGURATION, COMPILATION, LINKING, ARCHITECTURE -> send to
-        # fixer to patch in-place.
-        if state.last_error_category in (
-            ErrorCategory.MISSING_TOOLS,
-            ErrorCategory.DEPENDENCY,
-            ErrorCategory.UNKNOWN,
-        ):
-            if (
-                state.last_error_category == ErrorCategory.MISSING_TOOLS
-                and is_toolchain_version_mismatch(state.last_error)
-            ):
-                state.log_agent_decision(
-                    AgentRole.SUPERVISOR,
-                    "ESCALATE",
-                    "Sandbox toolchain is too old for this repository.",
-                )
-                state.current_phase = "escalate"
-                return state
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "SCOUT",
-                f"{state.last_error_category.value} - need updated "
-                f"build plan.",
-            )
-            state.current_phase = "scout"
-            return state
-        else:
-            err_cat = state.last_error_category
-            err_val = err_cat.value if err_cat else "Unknown"
-            state.log_agent_decision(
-                AgentRole.SUPERVISOR,
-                "FIXER",
-                f"Error: {err_val}",
-            )
-            state.current_phase = "fixer"
-            return state
-
-    if state.build_status == BuildStatus.PENDING and state.build_plan:
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR, "BUILDER", "Build plan ready, executing."
-        )
-        state.current_phase = "builder"
-        return state
-
-    decision_context = ""
-    if state.build_status == BuildStatus.FAILED:
-        decision_context = (
-            f"Last build failed with {state.last_error_category}. "
-            f"Consider if FIXER can handle it, or if SCOUT needs more info."
-        )
-    elif not state.build_plan:
-        decision_context = "No build plan exists. SCOUT must create one."
-    elif state.build_status == BuildStatus.PENDING:
-        decision_context = (
-            "A build plan exists. BUILDER should now execute the build phases."
-        )
-    elif state.build_status == BuildStatus.SUCCESS:
-        decision_context = "Build succeeded. FINISH or run tests if not done."
-
-    # Build context for supervisor prompt
-    build_plan_summary = "No build plan yet"
-    if state.build_plan:
-        phase_names = [p.name for p in state.build_plan.phases]
-        build_plan_summary = (
-            f"Build System: {state.build_plan.build_system}, "
-            f"Phases: {', '.join(phase_names)}, "
-            f"Last completed: {state.last_successful_phase}"
-        )
-
-    agent_history = ""
-    if state.audit_trail:
-        recent = state.audit_trail[-5:]
-        agent_history = "\n".join(
-            [
-                f"- {entry.get('agent', 'unknown')}: "
-                f"{entry.get('event', 'unknown')} - "
-                f"{str(entry.get('data', ''))[:100]}"
-                for entry in recent
-            ]
-        )
-    else:
-        agent_history = "No previous agent actions"
-
-    arch_issues_summary = "None detected"
-    if state.arch_specific_code:
-        arch_issues_summary = (
-            f"{len(state.arch_specific_code)} "
-            f"architecture-specific code instances found"
-        )
-
-    error_summary = "No errors"
-    if state.error_history:
-        recent_errors = state.error_history[-3:]
-        error_summary = "\n".join(
-            [
-                f"- [{e.category.value}] {e.message[:150]}"
-                for e in recent_errors
-            ]
-        )
-
-    prompt = SUPERVISOR_PROMPT.format(
-        current_phase=state.current_phase,
-        build_status=state.build_status.value,
-        attempt_count=state.attempt_count,
-        max_attempts=state.max_attempts,
-        current_agent=(
-            state.current_agent.value if state.current_agent else "none"
-        ),
-        build_plan_summary=build_plan_summary,
-        scripted_ops_count=state.scripted_ops_count,
-        api_calls=state.api_calls_made,
-        cost=state.api_cost_usd,
-        agent_history=agent_history,
-        arch_issues_summary=arch_issues_summary,
-        error_summary=error_summary,
-        additional_context=decision_context,
+    summary = (
+        f"build_status={state.build_status.value}, "
+        f"errors={len(state.error_history)}, "
+        f"fixes={len(state.fixes_attempted)}, "
+        f"cost=${state.api_cost_usd:.4f}"
     )
-
-    try:
-        messages = [HumanMessage(content=prompt)]
-        llm = get_model_for_role(AgentRole.SUPERVISOR)
-        response = invoke_llm(llm, messages)
-        state.log_api_call(cost=0.002)
-
-        content = extract_content(response.content)
-
-        # Log LLM call for debugging
-        log_llm_call(
-            agent_role=AgentRole.SUPERVISOR.value,
-            prompt=prompt,
-            response=content,
-            model=llm.model_name if hasattr(llm, "model_name") else "unknown",
-            cost_usd=0.002,
-            metadata={
-                "repo": state.repo_name,
-                "phase": "supervisor",
-                "status": state.build_status.value,
-            },
-        )
-
-        # Try to parse JSON response
-        json_match = extract_json_block(content)
-        decision = json.loads(json_match)
-
-        action_str = decision.get("next_agent", "").strip().upper()
-
-        action_map = {
-            "SCOUT": "scout",
-            "BUILD": "builder",
-            "BUILDER": "builder",
-            "FIX": "fixer",
-            "FIXER": "fixer",
-            "ESCALATE": "escalate",
-            "FINISH": "finish",
-        }
-
-        state.log_agent_decision(
-            AgentRole.SUPERVISOR,
-            action_str,
-            decision.get("reasoning", "LLM decision"),
-        )
-        state.current_phase = action_map.get(action_str, "scout")
-
-        logger.info(f"Supervisor decision: {action_str}")
-
-    except Exception as e:
-        logger.error(f"Supervisor failed: {e}, using fallback")
-        state.current_phase = recommended_action.value.lower()
-
+    logger.info(f"Supervisor summary: {summary}")
+    state.log_scripted_op("supervisor_eval")
     return state
 
 
@@ -1162,6 +990,9 @@ SCOUT_PROMPT = (
     "\n"
     "### Sandbox tools available\n"
     "{system_info}\n"
+    "\n"
+    "### Previous failure (if re-scouting after a failed build)\n"
+    "{previous_failure}\n"
     "\n"
     "### Documentation excerpts\n"
     "{documentation}\n"
@@ -1381,6 +1212,23 @@ def scout_node(state: AgentState) -> AgentState:
         "scout", few_shot_context, max_examples=2, max_chars=2000
     )
 
+    # When the supervisor re-scouts after a failure, the new plan must
+    # actually address the failure — otherwise the scout regenerates
+    # the same plan and the loop burns attempts until escalation.
+    previous_failure = "None — first scouting pass."
+    if state.last_error:
+        failed_cmd = ""
+        if state.error_history and state.error_history[-1].command:
+            failed_cmd = (
+                f"Failed command: `{state.error_history[-1].command}`\n"
+            )
+        previous_failure = (
+            f"{failed_cmd}Error: {state.last_error[:800]}\n"
+            "Your new plan MUST avoid repeating the cause of this "
+            "failure (e.g. install the missing package, pick a "
+            "different build path)."
+        )
+
     # Build architecture patterns info
     arch_patterns_str = "No architecture-specific patterns detected"
     if state.arch_specific_code:
@@ -1420,6 +1268,9 @@ def scout_node(state: AgentState) -> AgentState:
         dependencies=dependencies.replace("{", "{{").replace("}", "}}"),
         repo_path=state.repo_path.replace("{", "{{").replace("}", "}}"),
         system_info=system_info.replace("{", "{{").replace("}", "}}"),
+        previous_failure=previous_failure.replace("{", "{{").replace(
+            "}", "}}"
+        ),
         system_knowledge=get_system_knowledge_summary()
         .replace("{", "{{")
         .replace("}", "}}"),
@@ -1711,19 +1562,43 @@ def create_fallback_build_plan(state: AgentState) -> BuildPlan:
         )
     else:
         logger.warning(
-            f"Unknown build system '{build_type}', using generic fallback"
+            f"Unknown build system '{build_type}', using discovery fallback"
         )
+        repo_host = _to_host_path(state.repo_path)
+        discovery_cmds = []
+        for probe, label in [
+            ("configure", "autotools"),
+            ("CMakeLists.txt", "cmake"),
+            ("Makefile", "make"),
+            ("meson.build", "meson"),
+            ("go.mod", "go"),
+            ("Cargo.toml", "cargo"),
+            ("setup.py", "python"),
+        ]:
+            if os.path.isfile(os.path.join(repo_host, probe)):
+                discovery_cmds.append(f"ls -la {probe} 2>/dev/null")
+        if not discovery_cmds:
+            # Commands run INSIDE the container with cwd already set to
+            # the repo — never emit a host path here (a translated
+            # /home/... path does not exist in the sandbox and fails
+            # with exit 2; observed on assetfinder, run 2026-07-02).
+            discovery_cmds = [
+                "ls -la",
+                "find . -maxdepth 2 -name 'Makefile' -o "
+                "-name 'configure' -o -name 'CMakeLists.txt' "
+                "-o -name '*.mk' 2>/dev/null | head -20",
+            ]
         return BuildPlan(
             build_system=build_type,
             build_system_confidence=0.3,
             phases=[
-                BuildPhase(1, "setup", [_setup(["gcc"])], False, "30s"),
+                BuildPhase(1, "discover", discovery_cmds, False, "15s"),
                 BuildPhase(2, "build", ["make -j$(nproc)"], False, "5m"),
             ],
             total_estimated_duration="6m",
             notes=[
-                f"Generic fallback - build system not recognized "
-                f"({profile.name})"
+                f"Discovery fallback - build system not recognized; "
+                f"probing repo for build files ({profile.name})"
             ],
         )
 
@@ -1898,20 +1773,40 @@ def _resolve_header_to_packages(stderr: str, profile) -> List[str]:
 
 
 def _is_suspected_oom(result, command: str) -> bool:
-    """Detect a likely QEMU OOM-kill on a parallel build command.
+    """Detect a likely QEMU OOM-kill under emulated riscv64.
 
-    Restricted to known parallel build commands to avoid misclassifying
-    other silent failures. Triggers on exit 137 (SIGKILL) or a non-zero
-    exit with no captured output at all.
+    Under QEMU emulation, parallel builds and even a single-thread
+    ``cargo fetch`` or ``pip install`` occasionally OOM-kill (exit 137
+    / SIGKILL). The heuristic:
+
+    * Exit ``137`` (SIGKILL) is *always* treated as OOM regardless of
+      the command — QEMU's mmap OOM path is by far the most common
+      cause of that exit code inside the sandbox.
+    * For known-parallel build commands, a non-zero exit with *no*
+      captured output at all is also treated as OOM (build was killed
+      before it could log anything).
+
+    Args:
+        result: The completed ``CommandResult``.
+        command: The shell command that was executed.
+
+    Returns:
+        ``True`` if the failure looks like an OOM kill worth retrying
+        serially, otherwise ``False``.
     """
+    # Universal signal — always trust exit 137 as OOM. Broadened from
+    # build-only in run 28020958388 because cargo fetch / pip install /
+    # dependency downloads also OOM'd for 58 packages.
+    if result.exit_code == 137:
+        return True
+    # Known parallel builds with an empty-output silent kill.
     if not re.search(
         r"\b(go\s+(build|install|test)|make|ninja"
-        r"|cargo\s+(build|install|test))\b",
+        r"|cargo\s+(build|install|test|fetch|update)"
+        r"|pip\s+install|npm\s+(install|ci|run))\b",
         command,
     ):
         return False
-    if result.exit_code == 137:
-        return True
     no_output = (
         not (result.stdout or "").strip() and not (result.stderr or "").strip()
     )
@@ -1944,15 +1839,38 @@ def _serialize_build_command(command: str) -> str:
     if re.search(r"\bninja\b", body) and "-j" not in body:
         body = re.sub(r"\bninja\b", "ninja -j1", body, count=1)
         return prefix + body
-    if re.search(r"\bcargo\s+(build|install|test)\b", body) and (
-        "-j" not in body
-    ):
-        body = re.sub(
-            r"\bcargo\s+(build|install|test)\b",
-            r"cargo \1 -j 1",
-            body,
-            count=1,
-        )
+    if re.search(r"\bcargo\s+(build|install|test|fetch|update)\b", body):
+        # Cargo network commands (fetch/update) don't accept -j, so we
+        # only add the flag for build variants that support it.
+        if re.search(r"\bcargo\s+(build|install|test)\b", body) and (
+            "-j" not in body
+        ):
+            body = re.sub(
+                r"\bcargo\s+(build|install|test)\b",
+                r"cargo \1 -j 1",
+                body,
+                count=1,
+            )
+        if "cargo_build_jobs" not in body.lower():
+            body = "env CARGO_BUILD_JOBS=1 " + body
+        return prefix + body
+    if re.search(r"\bpip\s+install\b", body):
+        # `pip install` has no jobs flag; the OOM comes from wheel
+        # builds (setup.py compilations). Serialize via MAKEFLAGS,
+        # which pip forwards to setup.py invocations.
+        if "makeflags" not in body.lower():
+            body = "env MAKEFLAGS=-j1 " + body
+        return prefix + body
+    if re.search(r"\bnpm\s+(install|ci|run)\b", body):
+        # NPM's own worker pool is bounded by --jobs; back-compat flag
+        # supported since npm 7.
+        if "--jobs" not in body:
+            body = re.sub(
+                r"\bnpm\s+(install|ci|run)\b",
+                r"npm \1 --jobs 1",
+                body,
+                count=1,
+            )
         return prefix + body
     return command
 
@@ -1993,6 +1911,70 @@ def _resolve_missing_python_modules(stderr: str) -> List[str]:
             seen.add(pip_name)
             pkgs.append(pip_name)
     return pkgs
+
+
+def _download_go_toolchain_cmd(version: str) -> str:
+    """Return a shell command that installs a Go toolchain from go.dev.
+
+    The previous ``go install golang.org/dl/goX.Y.Z@latest`` path does
+    not work on Alpine musl (the ``dl`` helper links against glibc) and
+    also OOM-kills under QEMU during the ``goX.Y.Z download`` step
+    (observed root cause for 25+ Go packages in run 28020958388).
+    Downloading the official riscv64 tarball into ``/usr/local`` is
+    what our sandbox images already do at build time; replicating that
+    at runtime is fast, deterministic, and works on every distro.
+
+    Args:
+        version: The Go version string to install, e.g. ``"1.25.0"``.
+
+    Returns:
+        A shell command string that, when executed inside the sandbox,
+        replaces ``/usr/local/go`` with the requested version. Includes
+        a sanity check (``go version``) so a partial download is
+        surfaced as a non-zero exit.
+    """
+    tarball = f"go{version}.linux-riscv64.tar.gz"
+    url = f"https://go.dev/dl/{tarball}"
+    tmp = f"/tmp/{tarball}"
+    return (
+        f"set -e && "
+        f"curl -fsSL -o {tmp} {url} && "
+        f"rm -rf /usr/local/go && "
+        f"tar -xzf {tmp} -C /usr/local && "
+        f"rm -f {tmp} && "
+        f"/usr/local/go/bin/go version"
+    )
+
+
+def _repo_has_gitmodules(repo_path: str) -> bool:
+    """Return True when ``repo_path`` contains a ``.gitmodules`` file."""
+    try:
+        return os.path.isfile(os.path.join(repo_path, ".gitmodules"))
+    except (OSError, TypeError):
+        return False
+
+
+def _npm_scripts(repo_path: str) -> List[str]:
+    """Return the list of npm scripts declared in ``package.json``.
+
+    Empty list when ``package.json`` is missing or unparseable. Used
+    to detect the ``npm run build`` guard case: the LLM sometimes
+    invents a ``build`` script that the project never defined.
+    """
+    pkg_path = os.path.join(repo_path, "package.json")
+    if not os.path.isfile(pkg_path):
+        return []
+    try:
+        import json as _json
+
+        with open(pkg_path, "r", encoding="utf-8", errors="ignore") as fp:
+            data = _json.load(fp)
+    except Exception:
+        return []
+    scripts = data.get("scripts") if isinstance(data, dict) else None
+    if not isinstance(scripts, dict):
+        return []
+    return list(scripts.keys())
 
 
 @agent_node(AgentRole.BUILDER)
@@ -2049,6 +2031,25 @@ def builder_node(state: AgentState) -> AgentState:
                         )
                         break
 
+            # Defensive strip: -buildvcs=false is only valid for
+            # go build / go install, not go mod tidy / go mod init /
+            # go test / go run etc. The scout prompt says "pass
+            # -buildvcs=false to go build" but LLMs often inject it
+            # into every Go command.
+            if (
+                "-buildvcs=false" in optimized_cmd
+                and not _is_go_build_command(optimized_cmd)
+            ):
+                stripped = optimized_cmd.replace("-buildvcs=false", "").strip()
+                # Clean up double spaces from the removal
+                while "  " in stripped:
+                    stripped = stripped.replace("  ", " ")
+                logger.info(
+                    f"Stripped -buildvcs=false from non-build Go command: "
+                    f"{optimized_cmd[:80]} → {stripped[:80]}"
+                )
+                optimized_cmd = stripped
+
             # Rewrite autoreconf to copy-first sequence when the repo
             # has m4/gettext.m4. autoreconf calls autopoint internally
             # which reverts any gettext.m4 fix. Only rewrite when
@@ -2075,6 +2076,49 @@ def builder_node(state: AgentState) -> AgentState:
             # post-configure hook wouldn't have fired yet.
             if re.match(r"\bmake\b", optimized_cmd.lstrip()):
                 _fixup_top_builddir_in_submakefiles(state.repo_path)
+
+            # ``npm run <script>`` guard: the fixer/scout frequently
+            # invents an ``npm run build`` even when package.json does
+            # not declare a ``build`` script (root cause: the scout
+            # prompt encourages "run the standard build command"). If
+            # the requested script does not exist, downgrade to the
+            # only script present when there's one obvious choice, or
+            # skip the command otherwise so the phase can proceed.
+            _npm_run_match = re.match(
+                r"^\s*npm\s+run\s+([A-Za-z0-9_.:\-]+)\b(.*)$",
+                optimized_cmd,
+            )
+            if _npm_run_match:
+                wanted = _npm_run_match.group(1)
+                tail = _npm_run_match.group(2)
+                scripts = _npm_scripts(_to_host_path(state.repo_path))
+                if scripts and wanted not in scripts:
+                    replacement = None
+                    # Prefer well-known aliases in this order; skip
+                    # otherwise so we do not blindly execute arbitrary
+                    # scripts the project happens to declare.
+                    for alias in ("build", "prod", "compile", "dist"):
+                        if alias in scripts:
+                            replacement = alias
+                            break
+                    if replacement and replacement != wanted:
+                        rewritten = f"npm run {replacement}{tail}"
+                        logger.warning(
+                            "npm script %r not declared; "
+                            "substituting %r (available: %s)",
+                            wanted,
+                            replacement,
+                            ", ".join(scripts),
+                        )
+                        optimized_cmd = rewritten
+                    else:
+                        logger.warning(
+                            "npm script %r not declared and no safe "
+                            "alias available (scripts=%s); skipping",
+                            wanted,
+                            scripts,
+                        )
+                        continue
 
             result = execute_command(optimized_cmd, cwd=state.repo_path)
             state.cache_command_result(command, result)
@@ -2342,6 +2386,88 @@ def builder_node(state: AgentState) -> AgentState:
                             continue
                         result = retry_result
 
+                # CMake cached a stale compiler path -> delete the
+                # build dir and retry
+                # with explicit CMAKE_C_COMPILER. This happens on Alpine when
+                # cmake was built with ccache support and /usr/lib/ccache/gcc
+                # doesn't exist on the riscv64 image.
+                if (
+                    "cmake" in (optimized_cmd or "").lower()
+                    and "not a full path to an existing compiler tool"
+                    in (result.stderr or "")
+                    and _builder_retry_allowed(
+                        state, f"cmake-cache:{command[:80]}"
+                    )
+                ):
+                    build_dir = None
+                    for marker in (
+                        "mkdir -p build && cd build",
+                        "mkdir build && cd build",
+                        "cd build && cmake",
+                        "cmake -S . -B build",
+                    ):
+                        if marker in optimized_cmd:
+                            build_dir = os.path.join(
+                                _to_host_path(state.repo_path), "build"
+                            )
+                            break
+                    if build_dir and os.path.isdir(build_dir):
+                        logger.warning(
+                            "CMake compiler-cache conflict detected; "
+                            "deleting build/ and retrying with explicit "
+                            "CMAKE_C_COMPILER"
+                        )
+                        rm_cmd = f"rm -rf {build_dir}"
+                        execute_command(
+                            rm_cmd, cwd=state.repo_path, use_docker=True
+                        )
+                        # Rebuild the command with explicit compiler paths
+                        retry_cmd = optimized_cmd.replace(
+                            "cmake ..",
+                            "cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc"
+                            " -DCMAKE_CXX_COMPILER=/usr/bin/g++",
+                        )
+                        retry_cmd = retry_cmd.replace(
+                            "cmake -S . -B build",
+                            "cmake -S . -B build"
+                            " -DCMAKE_C_COMPILER=/usr/bin/gcc"
+                            " -DCMAKE_CXX_COMPILER=/usr/bin/g++",
+                        )
+                        retry_result = execute_command(
+                            retry_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_cmd, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            logger.info(
+                                "Resolved CMake compiler-cache conflict by "
+                                "deleting build/ and setting compiler paths"
+                            )
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_cmd
+                            )
+                            continue
+                        result = retry_result
+                    else:
+                        logger.warning(
+                            "CMake compiler-cache conflict but no build/ "
+                            "directory found — retrying with env CC/CXX"
+                        )
+                        retry_cmd = (
+                            "CC=/usr/bin/gcc CXX=/usr/bin/g++ " + optimized_cmd
+                        )
+                        retry_result = execute_command(
+                            retry_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(retry_cmd, retry_result)
+                        state.log_scripted_op("retry_build_command")
+                        if retry_result.success:
+                            phase.commands[phase.commands.index(command)] = (
+                                retry_cmd
+                            )
+                            continue
+                        result = retry_result
+
                 # Build-time Python module missing (codegen scripts) -> pip
                 # install it and retry. General, LLM-free recovery.
                 if not result.success:
@@ -2400,6 +2526,180 @@ def builder_node(state: AgentState) -> AgentState:
                             )
                             continue
                         result = retry_result
+
+                # Go says "no required module provides package X" AND the
+                # repo declares submodules -> init and retry. Common with
+                # vendored, dot-slash-relative go.mod trees (aliyun-cli).
+                _need_submod = (
+                    "no required module provides package"
+                    in (result.stderr or "").lower()
+                )
+                if (
+                    _need_submod
+                    and _repo_has_gitmodules(state.repo_path)
+                    and _builder_retry_allowed(state, f"submod-init:{command}")
+                ):
+                    logger.warning(
+                        "Missing Go module + .gitmodules present -> "
+                        "running submodule update --init --recursive"
+                    )
+                    _sm_cmd = (
+                        f"cd {state.repo_path} && "
+                        "git submodule update --init --recursive"
+                    )
+                    _sm_res = execute_command(_sm_cmd, cwd=state.repo_path)
+                    state.log_scripted_op("init_submodules")
+                    if _sm_res.success:
+                        _sm_retry = execute_command(
+                            optimized_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(optimized_cmd, _sm_retry)
+                        state.log_scripted_op("retry_build_command")
+                        if _sm_retry.success:
+                            logger.info(
+                                "Resolved missing Go module by "
+                                "initializing submodules"
+                            )
+                            continue
+                        result = _sm_retry
+
+                # Missing git in Debian sandbox -> install and retry
+                if (
+                    "command not found" in (result.stderr or "").lower()
+                    and "git" in command
+                    and _builder_retry_allowed(state, f"missing-git:{command}")
+                ):
+                    _gtool = get_active_profile()
+                    _gtool_install = _gtool.install_cmd(["git"])
+                    execute_command(_gtool_install, cwd=state.repo_path)
+                    _gtool_retry = execute_command(
+                        optimized_cmd, cwd=state.repo_path
+                    )
+                    state.cache_command_result(optimized_cmd, _gtool_retry)
+                    state.log_scripted_op("retry_build_command")
+                    if _gtool_retry.success:
+                        logger.info("Installed git and retried successfully")
+                        continue
+                    result = _gtool_retry
+
+                # Go version too old -> install newer Go via go.dev tarball
+                if is_toolchain_version_mismatch(result.stderr or ""):
+                    _gv_match = re.search(
+                        r"go\.mod requires go (>=?\s*)?(\d+\.\d+(?:\.\d+)?)",
+                        result.stderr or "",
+                    )
+                    if _gv_match and _builder_retry_allowed(
+                        state, f"go-version:{command}"
+                    ):
+                        _gv_needed = _gv_match.group(2)
+                        # Normalise short "1.25" → "1.25.0" so the
+                        # go.dev tarball URL is always valid.
+                        if _gv_needed.count(".") == 1:
+                            _gv_needed = f"{_gv_needed}.0"
+                        logger.warning(
+                            "Go version too old, downloading Go "
+                            f"{_gv_needed} tarball into /usr/local"
+                        )
+                        _gv_cmd = _download_go_toolchain_cmd(_gv_needed)
+                        _gv_inst = execute_command(
+                            _gv_cmd, cwd=state.repo_path
+                        )
+                        state.log_scripted_op("install_go_version")
+                        if _gv_inst.success:
+                            _gv_retry = execute_command(
+                                optimized_cmd, cwd=state.repo_path
+                            )
+                            state.cache_command_result(
+                                optimized_cmd, _gv_retry
+                            )
+                            state.log_scripted_op("retry_build_command")
+                            if _gv_retry.success:
+                                logger.info(
+                                    "Resolved by upgrading Go to "
+                                    f"{_gv_needed}"
+                                )
+                                continue
+                            result = _gv_retry
+
+                # RISC-V linker relocation truncated -> add -mcmodel=medany
+                if (
+                    "relocation truncated" in (result.stderr or "").lower()
+                    and "R_RISCV" in (result.stderr or "")
+                    and _builder_retry_allowed(state, f"jal-reloc:{command}")
+                ):
+                    logger.warning(
+                        "RISC-V relocation truncated; retrying with "
+                        "-mcmodel=medany"
+                    )
+                    _medany_cmd = (
+                        "CFLAGS='-mcmodel=medany' "
+                        "CXXFLAGS='-mcmodel=medany' " + optimized_cmd
+                    )
+                    _medany_retry = execute_command(
+                        _medany_cmd, cwd=state.repo_path
+                    )
+                    state.cache_command_result(_medany_cmd, _medany_retry)
+                    state.log_scripted_op("retry_build_command")
+                    if _medany_retry.success:
+                        logger.info(
+                            "Resolved RISC-V relocation by adding "
+                            "-mcmodel=medany"
+                        )
+                        phase.commands[phase.commands.index(command)] = (
+                            _medany_cmd
+                        )
+                        continue
+                    result = _medany_retry
+
+                # Package not found on riscv64 repo -> try
+                # one-by-one, skip missing
+                _pkg_fail_patterns = [
+                    "unable to locate package",
+                    "unable to select packages",
+                    "no such package",
+                    "has no installation candidate",
+                ]
+                if any(
+                    p in (result.stderr or "").lower()
+                    for p in _pkg_fail_patterns
+                ) and _builder_retry_allowed(
+                    state, f"missing-pkg:{command[:80]}"
+                ):
+                    _pprofile = get_active_profile()
+                    _pkg_match = re.search(
+                        r"(?:apt-get\s+install\s+-y|apk\s+add)\s+(.+)",
+                        optimized_cmd,
+                    )
+                    if _pkg_match:
+                        _pkgs = shlex.split(_pkg_match.group(1))
+                        _good = []
+                        _bad = []
+                        for _pkg in _pkgs:
+                            _single_cmd = _pprofile.install_cmd([_pkg])
+                            _single_r = execute_command(
+                                _single_cmd, cwd=state.repo_path
+                            )
+                            state.log_scripted_op("install_package_single")
+                            if _single_r.success:
+                                _good.append(_pkg)
+                            else:
+                                _bad.append(_pkg)
+                                logger.warning(
+                                    f"Package '{_pkg}' not found on "
+                                    "riscv64; skipping"
+                                )
+                        if _good:
+                            logger.info(
+                                f"Installed {len(_good)}/{len(_pkgs)} "
+                                "packages (skipped "
+                                f"{len(_bad)} unavailable on riscv64)"
+                            )
+                            if _bad:
+                                _good_cmd = _pprofile.install_cmd(_good)
+                                phase.commands[
+                                    phase.commands.index(command)
+                                ] = _good_cmd
+                            continue
 
                 error_message = _build_command_error_message(
                     result, f"Build command failed: {command}"
@@ -2539,6 +2839,15 @@ def builder_node(state: AgentState) -> AgentState:
     state.build_status = BuildStatus.SUCCESS
     logger.info("Build completed successfully with artifact verification!")
 
+    # Close the fix-attempt feedback loop: any fix applied before this
+    # successful build evidently worked. Without this, every attempt
+    # stays success=False forever — the fixer prompt then lists working
+    # fixes as "(Failed)" and fixer auto-learning never triggers.
+    for fix in state.fixes_attempted:
+        if not fix.success and fix.build_result is None:
+            fix.success = True
+            fix.build_result = "build succeeded after fix"
+
     return state
 
 
@@ -2667,12 +2976,27 @@ def validate_fixer_response(fix_data: Dict) -> tuple[bool, str]:
                         f"Suspiciously long filepath: {path[:100]}...",
                     )
 
-                # Check for absolute paths that look wrong
-                if path.startswith("/home/") or path.startswith("/root/"):
+                # Only allow paths that stay inside the repo tree.
+                # Absolute paths or `..` traversal would let a
+                # hallucinated (or poisoned) fix write anywhere in the
+                # shared sandbox — /etc, /usr/local/go, apt sources —
+                # poisoning every later build on this container.
+                if os.path.isabs(path) or ".." in Path(path).parts:
                     return (
                         False,
-                        f"Suspicious absolute path (should be "
-                        f"relative): {path}",
+                        f"Path escapes the repository (absolute or "
+                        f"contains '..'): {path}",
+                    )
+
+            # Validate patch actions (same containment as create_file)
+            elif action_type == "patch":
+                patch_file = (action.get("file") or "").strip()
+                if patch_file and (
+                    os.path.isabs(patch_file) or ".." in Path(patch_file).parts
+                ):
+                    return (
+                        False,
+                        f"Patch path escapes the repository: {patch_file}",
                     )
 
             # Validate command actions
@@ -2791,6 +3115,14 @@ FIXER_PROMPT = (
     "ackage manager (it is preinstalled in the sandbox). Avoid `go build "
     "./cmd` / `go build ./<dir>` unless you also set `-o` to a file path"
     " (directory-name output collisions are common).\n"
+    "- For CMake failures with 'not a full path to an existing compiler"
+    "\n"
+    "  tool': CMake's project() caches the compiler path on first run.\n"
+    "  Delete the build dir (`rm -rf build/`) and retry with\n"
+    "  `-DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++`"
+    "\n"
+    "  in the cmake invocation. Setting CC env var alone is not enough\n"
+    "  — it will not override the cached CMAKE_C_COMPILER.\n"
     "- For autotools failures involving gettext macros: copy macros BEFO"
     "RE `aclocal`,\n"
     "  do NOT run `autoreconf` (it reverts the fix via `autopoint`).\n"
@@ -3242,12 +3574,9 @@ def _save_learning_data(state: AgentState):
                 "trigger": {
                     "build_system": bs,
                     "has_main": bool(
-                        getattr(state, "go_main_info", {}).get(
+                        state.context_cache.get("go_main_info", {}).get(
                             "has_main", False
                         )
-                        if hasattr(state, "go_main_info")
-                        and state.go_main_info
-                        else False
                     ),
                 },
                 "plan": {
@@ -3274,11 +3603,18 @@ def _save_learning_data(state: AgentState):
                         if state.last_error
                         else ""
                     ),
+                    # ``changes_made`` records "Executed: <cmd>" /
+                    # "Created file: <p>" strings; recover the raw
+                    # commands for the few-shot example.
                     "fix": {
                         "strategy": fix.strategy,
                         "actions": [
-                            {"type": "command", "command": cmd}
-                            for cmd in (fix.commands_run or [])
+                            {
+                                "type": "command",
+                                "command": change[len("Executed: ") :],
+                            }
+                            for change in (fix.changes_made or [])
+                            if change.startswith("Executed: ")
                         ],
                     },
                     "reasoning": f"Auto-learned fix from {repo}.",
@@ -3330,6 +3666,7 @@ def _save_learning_data(state: AgentState):
                 or state.build_artifacts
                 or [],
                 build_duration_seconds=duration,
+                recipe_markdown=state.porting_recipe or None,
             )
 
         logger.info(f"Auto-learning complete for {repo}")
@@ -3462,45 +3799,512 @@ def finish_node(state: AgentState) -> AgentState:
 # ============================================================================
 
 
-def route_next(state: AgentState) -> str:
-    """Determine the next node based on the current phase.
+# ============================================================================
+# ROUTING FUNCTIONS — one per source node, named by what they decide
+# ============================================================================
+# Each function inspects state and returns a single destination node name
+# (or a list of Send() for fan-out). No string-phase indirection.
 
-    Enhanced with smart routing and cost optimization.
+
+def route_init_to_next(state: AgentState) -> str:
+    """After init: go to planner, or escalate if init failed."""
+    if state.build_status == BuildStatus.FAILED:
+        logger.warning("Initialization failed; forcing escalation")
+        return "escalate_node"
+    return "planner_node"
+
+
+def route_planner_to_next(state: AgentState) -> str:
+    """After planner: route into the scout chain or escalate.
+
+    The scout chain runs the three deterministic scout branches first
+    (build_system → deps → arch_issues) and ONLY THEN the aggregator,
+    so the fan-in actually sees the branch results.
     """
-    phase = state.current_phase.lower()
+    if not state.task_plan or not state.task_plan.phases:
+        logger.warning("Planner produced no plan; escalating")
+        return "escalate_node"
+    return "scout_build_system"
 
-    # Failed initialization is a hard blocker and must not continue
-    # to planning.
-    if (
-        phase in {"initialization", "initialized"}
-        and state.build_status == BuildStatus.FAILED
-    ):
-        logger.warning(
-            "Initialization failed; forcing escalation instead of planning"
-        )
+
+def route_scout_aggregator_to_next(state: AgentState) -> str:
+    """After aggregation: heuristic plan → supervisor, else LLM scout.
+
+    The aggregator only materializes a default BuildPlan for build
+    systems it recognizes with reasonable confidence. Anything else is
+    deferred to the LLM scout, which reads the repo facts (and any
+    previous failure) and produces a validated BuildPlan.
+    """
+    if state.build_plan:
+        return "supervisor_node"
+    return "scout_node"
+
+
+def route_supervisor_to_next(state: AgentState) -> str:
+    """Evaluate state and route to the right next action.
+
+    Pure heuristic — no LLM call. Returns a single destination.
+    """
+    # A verified success ALWAYS finishes — even at the attempt/cost
+    # ceiling. Escalating a build that just succeeded (e.g. the final
+    # fix landed on attempt max_attempts) would throw away the win and
+    # skip the recipe. Escalation checks apply to non-success states.
+    if state.build_status == BuildStatus.SUCCESS:
+        return "finish_node"
+
+    should_esc, esc_reason = should_escalate(state)
+    if should_esc:
+        logger.warning(f"Escalating: {esc_reason}")
         return "escalate_node"
 
-    routing_map = {
-        "initialization": "planner",
-        "initialized": "planner",
-        "planning": "supervisor",
-        "planned": "supervisor",
-        "scout": "scout_node",
-        "scouting": "supervisor",
-        "builder": "builder_node",
-        "building": "supervisor",
-        "fixer": "fixer_node",
-        "fixing": "supervisor",
-        "escalate": "escalate_node",
-        "escalated": END,
-        "finish": "finish_node",
-        "finished": END,
+    if state.attempt_count >= state.max_attempts:
+        return "escalate_node"
+
+    if state.attempt_count >= 3 and state.is_in_error_loop():
+        return "escalate_node"
+
+    if not state.task_plan:
+        return "planner_node"
+
+    need_new_plan = state.build_status == BuildStatus.FAILED and (
+        state.last_error_category
+        in (ErrorCategory.DEPENDENCY, ErrorCategory.MISSING_TOOLS)
+        or _should_force_replan(state)
+    )
+    if need_new_plan:
+        return "scout_node"  # re-scout for updated build plan
+
+    if state.build_status == BuildStatus.FAILED:
+        return "build_fix_subgraph"
+
+    if state.build_plan and state.build_status in (
+        BuildStatus.PENDING,
+        BuildStatus.BUILDING,
+    ):
+        return "build_fix_subgraph"
+
+    return "scout_node"
+
+
+# --------------------------------------------------------------------------
+# Build-fix subgraph internal routing
+# --------------------------------------------------------------------------
+
+
+def route_build_result(state: AgentState) -> str:
+    """Route a build result: verify, attempt a fix, or exit."""
+    if state.build_status == BuildStatus.SUCCESS:
+        return "verify_node"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after build — exiting subgraph"
+        )
+        return "__end__"
+    return "fix_node"
+
+
+def route_verify_result(state: AgentState) -> str:
+    """Route a verify result: exit as success, or go to fix."""
+    if state.build_status == BuildStatus.SUCCESS:
+        return "__end__"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after verify — exiting subgraph"
+        )
+        return "__end__"
+    if state.fixes_attempted and state.last_error_category not in (
+        ErrorCategory.LINKING,
+        ErrorCategory.COMPILATION,
+        ErrorCategory.ARCHITECTURE,
+    ):
+        return "__end__"
+    return "fix_node"
+
+
+def route_fix_result(state: AgentState) -> str:
+    """After a fix: retry build, or exit subgraph as failure."""
+    if state.build_status == BuildStatus.FAILED:
+        logger.warning("Subgraph: fix resulted in FAILED status — exiting")
+        return "__end__"
+    if state.attempt_count >= state.max_attempts:
+        logger.warning(
+            f"Subgraph: max attempts ({state.max_attempts}) exceeded "
+            f"after fix — exiting subgraph"
+        )
+        return "__end__"
+    return "build_node"
+
+
+# ============================================================================
+# PARALLEL SCOUT NODES — each investigates one axis in parallel
+# ============================================================================
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_build_system_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate build system specifics."""
+    logger.info("Scout [build system] investigating...")
+    bsi = state.build_system_info
+    result = {
+        "type": bsi.type if bsi else "unknown",
+        "confidence": bsi.confidence if bsi else 0.0,
+        "module_dir": (
+            bsi.module_dir if bsi and hasattr(bsi, "module_dir") else ""
+        ),
+        "config_files": [],
     }
+    # Probe for actual config files inside the repo
+    for probe in (
+        "CMakeLists.txt",
+        "configure.ac",
+        "Makefile.am",
+        "meson.build",
+        "go.mod",
+        "Cargo.toml",
+        "Makefile",
+    ):
+        path = os.path.join(_to_host_path(state.repo_path), probe)
+        if os.path.isfile(path):
+            result["config_files"].append(probe)
+    state.scout_build_system_result = result
+    state.log_scripted_op("scout_build_system")
+    return state
 
-    next_node = routing_map.get(phase, "supervisor")
-    logger.info(f"Routing from {phase} to {next_node}")
 
-    return next_node
+@agent_node(AgentRole.SCOUT)
+def scout_deps_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate dependencies."""
+    logger.info("Scout [dependencies] investigating...")
+    deps = state.dependencies
+    result = {
+        "build_tools": list(deps.build_tools) if deps else [],
+        "system_packages": list(deps.system_packages) if deps else [],
+        "libraries": list(deps.libraries) if deps else [],
+        "missing_tools": list(state.context_cache.get("missing_tools", [])),
+    }
+    state.scout_deps_result = result
+    state.log_scripted_op("scout_deps")
+    return state
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_arch_issues_node(state: AgentState) -> AgentState:
+    """Parallel scout branch: investigate architecture-specific code."""
+    logger.info("Scout [arch issues] investigating...")
+    arch_codes = state.arch_specific_code
+    result = {
+        "total_issues": len(arch_codes),
+        "high_severity": sum(1 for a in arch_codes if a.severity == "high"),
+        "critical": sum(1 for a in arch_codes if a.severity == "critical"),
+        "arch_types": list({a.arch_type for a in arch_codes}),
+        "files": list({a.file for a in arch_codes}),
+    }
+    state.scout_arch_issues_result = result
+    state.log_scripted_op("scout_arch_issues")
+    return state
+
+
+def _aggregator_setup_packages(
+    state: AgentState, base_canonicals: List[str], profile
+) -> List[str]:
+    """Merge scouted dependencies into the setup package list.
+
+    Only canonical names that resolve through the active profile's
+    ``package_map`` are added — unknown library names are left for the
+    LLM scout / fixer rather than guess-installed.
+
+    Args:
+        state: Current agent state (reads ``scout_deps_result``).
+        base_canonicals: Build-system tool canonicals (e.g. ["cmake"]).
+        profile: The active platform profile.
+
+    Returns:
+        Deduplicated distro package names for the setup phase.
+    """
+    deps_result = state.scout_deps_result or {}
+    canonicals = list(base_canonicals)
+    for name in (
+        list(deps_result.get("build_tools", []))
+        + list(deps_result.get("libraries", []))
+        + list(deps_result.get("system_packages", []))
+    ):
+        key = str(name).strip().lower()
+        if key and key in profile.package_map and key not in canonicals:
+            canonicals.append(key)
+    packages: List[str] = []
+    for canonical in canonicals[:15]:  # keep the install command sane
+        distro_pkg = profile.resolve(canonical)
+        if distro_pkg not in packages:
+            packages.append(distro_pkg)
+    return packages
+
+
+@agent_node(AgentRole.SCOUT)
+def scout_aggregator_node(state: AgentState) -> AgentState:
+    """Fan-in: merge the scout branch results into a build plan.
+
+    Runs AFTER the three scout branches, so their results are
+    populated. Produces a default BuildPlan for well-understood build
+    systems (skipping the LLM scout); anything else leaves
+    ``build_plan`` unset so ``route_scout_aggregator_to_next`` defers
+    to the LLM scout.
+    """
+    logger.info("Scout aggregator merging scout branch results...")
+    if state.build_plan:
+        logger.info("Build plan already exists; using as-is")
+        return state
+
+    bs_result = state.scout_build_system_result or {}
+    deps_result = state.scout_deps_result or {}
+    arch_result = state.scout_arch_issues_result or {}
+
+    build_type = bs_result.get("type") or (
+        state.build_system_info.type if state.build_system_info else "unknown"
+    )
+    confidence = float(
+        bs_result.get(
+            "confidence",
+            (
+                state.build_system_info.confidence
+                if state.build_system_info
+                else 0.0
+            ),
+        )
+    )
+
+    logger.info(
+        f"Aggregated: build_system={build_type} "
+        f"(confidence={confidence:.2f}), "
+        f"deps={len(deps_result.get('system_packages', []))}, "
+        f"arch_issues={arch_result.get('total_issues', 0)}"
+    )
+
+    # Heavily arch-specific repos need the LLM scout's judgement (SIMD
+    # opt-outs, feature flags) rather than a generic default plan.
+    if (
+        arch_result.get("critical", 0)
+        or arch_result.get("high_severity", 0) >= 3
+    ):
+        logger.info(
+            "Significant arch-specific code detected; deferring to LLM scout"
+        )
+        return state
+
+    if confidence < 0.5:
+        logger.info(
+            f"Build system confidence {confidence:.2f} < 0.5; "
+            "deferring to LLM scout"
+        )
+        return state
+
+    from .platforms import get_active_profile
+
+    profile = get_active_profile()
+
+    def _setup_cmd(base: List[str]) -> str:
+        return profile.install_cmd(
+            _aggregator_setup_packages(state, base, profile)
+        )
+
+    if build_type == "cmake":
+        state.build_plan = BuildPlan(
+            build_system="cmake",
+            build_system_confidence=confidence,
+            phases=[
+                BuildPhase(
+                    1, "setup", [_setup_cmd(["cmake", "gcc"])], False, "30s"
+                ),
+                BuildPhase(
+                    2,
+                    "configure",
+                    [
+                        "mkdir -p build && cd build"
+                        " && cmake .. -DCMAKE_BUILD_TYPE=Release"
+                    ],
+                    False,
+                    "1m",
+                ),
+                BuildPhase(
+                    3, "build", ["cd build && make -j$(nproc)"], True, "5m"
+                ),
+            ],
+            total_estimated_duration="7m",
+            notes=["Default plan from scout aggregation"],
+        )
+        logger.info("Created default CMake BuildPlan from scout aggregation")
+    elif build_type == "make":
+        state.build_plan = BuildPlan(
+            build_system="make",
+            build_system_confidence=confidence,
+            phases=[
+                BuildPhase(1, "setup", [_setup_cmd(["gcc"])], False, "30s"),
+                BuildPhase(2, "build", ["make -j$(nproc)"], True, "5m"),
+            ],
+            total_estimated_duration="6m",
+            notes=["Default plan from scout aggregation"],
+        )
+        logger.info("Created default Make BuildPlan from scout aggregation")
+    elif build_type == "autotools":
+        state.build_plan = BuildPlan(
+            build_system="autotools",
+            build_system_confidence=confidence,
+            phases=[
+                BuildPhase(
+                    1,
+                    "setup",
+                    [_setup_cmd(["gcc", "autotools", "pkgconfig"])],
+                    False,
+                    "30s",
+                ),
+                BuildPhase(2, "configure", ["./configure"], False, "3m"),
+                BuildPhase(3, "build", ["make -j$(nproc)"], True, "5m"),
+            ],
+            total_estimated_duration="9m",
+            notes=["Default plan from scout aggregation"],
+        )
+        logger.info(
+            "Created default Autotools BuildPlan from scout aggregation"
+        )
+    elif build_type == "go":
+        go_main_info = state.context_cache.get("go_main_info", {})
+        build_cmd = go_main_info.get(
+            "build_command", "go build -buildvcs=false ./..."
+        )
+        if "-buildvcs=false" not in build_cmd and _is_go_build_command(
+            build_cmd
+        ):
+            build_cmd = _inject_go_flag(build_cmd, "-buildvcs=false")
+        state.build_plan = BuildPlan(
+            build_system="go",
+            build_system_confidence=confidence,
+            phases=[
+                BuildPhase(1, "setup", [_setup_cmd(["git"])], False, "30s"),
+                BuildPhase(2, "mod_tidy", ["go mod tidy"], False, "1m"),
+                BuildPhase(3, "build", [build_cmd], True, "5m"),
+            ],
+            total_estimated_duration="7m",
+            notes=["Default Go plan from scout aggregation"],
+        )
+        logger.info("Created default Go BuildPlan from scout aggregation")
+    else:
+        # meson / cargo / python / unknown: the LLM scout handles these
+        # better than a canned plan (feature flags, workspaces, etc.).
+        logger.info(
+            f"Build system '{build_type}' not aggregator-defaulted; "
+            "deferring to LLM scout"
+        )
+        return state
+
+    state.build_status = BuildStatus.PENDING
+    return state
+
+
+# ============================================================================
+# BUILD-FIX SUBGRAPH — encapsulates the build → verify → fix → retry loop
+# ============================================================================
+
+
+@agent_node(AgentRole.BUILDER)
+def verify_node(state: AgentState) -> AgentState:
+    """Post-build artifact verification. Seals build success or routes to fix.
+
+    Outcomes:
+        * RISC-V artifacts found → SUCCESS.
+        * Artifacts found but for a DIFFERENT architecture (x86/ARM
+          fallthrough) → FAILED with an ARCHITECTURE error. This is the
+          silent-regression case the scanner exists to catch; it must
+          not pass as success.
+        * Nothing scannable found → keep the builder's SUCCESS verdict
+          (many packages `make install` their artifacts elsewhere, or
+          only produce scripts) but record the caveat for the report.
+    """
+    logger.info("Verifying build artifacts...")
+    scanner = ArtifactScanner(state.repo_path, cwd=state.repo_path)
+    artifacts = scanner.scan()
+    is_valid, message = scanner.verify_build_success()
+    logger.info(f"Verification: {message}")
+
+    if is_valid:
+        for artifact in artifacts:
+            state.add_build_artifact(
+                filepath=artifact["filepath"],
+                artifact_type=artifact["type"],
+                architecture=artifact.get("architecture"),
+            )
+        state.build_status = BuildStatus.SUCCESS
+        return state
+
+    summary = scanner.get_summary()
+    wrong_arch = [
+        arch for arch in summary.get("by_architecture", {}) if arch != "RISC-V"
+    ]
+    if wrong_arch:
+        # Build "succeeded" but produced non-riscv64 binaries — a real
+        # failure that the fixer must see (and that must never be
+        # reported as a successful port).
+        state.build_status = BuildStatus.FAILED
+        state.add_error(
+            create_error_record(
+                message=(
+                    f"Artifact verification failed: {message}. "
+                    f"Non-RISC-V architectures found: "
+                    f"{', '.join(wrong_arch)}"
+                ),
+                category=ErrorCategory.ARCHITECTURE,
+            )
+        )
+        return state
+
+    # No ELF artifacts detected at all — tolerate (scripts-only repos,
+    # out-of-tree installs) but leave a caveat for the recipe/report.
+    logger.warning(
+        "No verifiable ELF artifacts found; keeping build success "
+        "verdict but flagging as unverified"
+    )
+    state.context_cache["artifact_verification"] = {
+        "verified": False,
+        "reason": message,
+    }
+    state.build_status = BuildStatus.SUCCESS
+    return state
+
+
+def create_build_fix_subgraph() -> StateGraph:
+    """Subgraph: build → (verify → fix → retry) loop.
+
+    Entered from the parent graph. Exits when build succeeds or escalation
+    thresholds are reached. The parent graph reads ``build_status`` to
+    decide next steps.
+    """
+    sg = StateGraph(AgentState)
+
+    sg.add_node("build_node", builder_node)
+    sg.add_node("verify_node", verify_node)
+    sg.add_node("fix_node", fixer_node)
+
+    sg.set_entry_point("build_node")
+
+    sg.add_conditional_edges(
+        "build_node",
+        route_build_result,
+        {"verify_node": "verify_node", "fix_node": "fix_node", "__end__": END},
+    )
+
+    sg.add_conditional_edges(
+        "verify_node",
+        route_verify_result,
+        {"fix_node": "fix_node", "__end__": END},
+    )
+
+    sg.add_conditional_edges(
+        "fix_node",
+        route_fix_result,
+        {"build_node": "build_node", "__end__": END},
+    )
+
+    return sg.compile()
 
 
 def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
@@ -3575,60 +4379,104 @@ def predict_build_issues(state: AgentState) -> List[Dict[str, str]]:
 
 
 def create_workflow() -> StateGraph:
-    """Create the enhanced LangGraph workflow."""
-    logger.info("Creating enhanced workflow...")
+    """Create the properly graph-shaped LangGraph workflow.
 
-    # Create graph
+    Architecture:
+        init ──→ planner ──→ [scout branches] ──→ aggregator ──┬→ supervisor
+                                                               └→ scout_node
+                                                        (LLM plan) │
+        supervisor ──→ build_fix_subgraph (subgraph) ────→ supervisor
+        supervisor ──→ finish_node ──→ END
+        supervisor ──→ escalate_node ──→ END
+        supervisor ──→ planner_node (re-plan)
+        supervisor ──→ scout_node (error-aware re-scout)
+    """
+    logger.info("Creating properly graph-shaped workflow...")
+
     workflow = StateGraph(AgentState)
+    build_fix_subgraph = create_build_fix_subgraph()
 
-    # Add nodes
-    workflow.add_node("init", init_node)
-    workflow.add_node("planner", planner_node)
-    workflow.add_node("supervisor", supervisor_node)
+    # --- Nodes ---
+    workflow.add_node("init_node", init_node)
+    workflow.add_node("planner_node", planner_node)
+    workflow.add_node("supervisor_node", supervisor_node)
+    # Parallel scout branches
+    workflow.add_node("scout_build_system", scout_build_system_node)
+    workflow.add_node("scout_deps", scout_deps_node)
+    workflow.add_node("scout_arch_issues", scout_arch_issues_node)
+    # Fan-in aggregator
+    workflow.add_node("scout_aggregator", scout_aggregator_node)
+    # Sequential scout fallback (kept for compatibility)
     workflow.add_node("scout_node", scout_node)
-    workflow.add_node("builder_node", builder_node)
-    workflow.add_node("fixer_node", fixer_node)
-    workflow.add_node("escalate_node", escalate_node)
+    # Build-fix subgraph
+    workflow.add_node("build_fix_subgraph", build_fix_subgraph)
+    # Terminal nodes
     workflow.add_node("finish_node", finish_node)
+    workflow.add_node("escalate_node", escalate_node)
 
-    # Set entry point
-    workflow.set_entry_point("init")
+    # --- Entry point ---
+    workflow.set_entry_point("init_node")
 
-    # Add conditional edges
+    # --- Edges ---
+
+    # init → planner (or escalate)
     workflow.add_conditional_edges(
-        "init",
-        route_next,
+        "init_node",
+        route_init_to_next,
+        {"planner_node": "planner_node", "escalate_node": "escalate_node"},
     )
 
+    # planner → scout branches → aggregator (fan-in AFTER the branches)
     workflow.add_conditional_edges(
-        "planner",
-        route_next,
+        "planner_node",
+        route_planner_to_next,
+        {
+            "scout_build_system": "scout_build_system",
+            "escalate_node": "escalate_node",
+        },
     )
 
+    # Scout chain: build_system → deps → arch_issues → aggregator
+    workflow.add_edge("scout_build_system", "scout_deps")
+    workflow.add_edge("scout_deps", "scout_arch_issues")
+    workflow.add_edge("scout_arch_issues", "scout_aggregator")
+
+    # Aggregator: heuristic plan → supervisor; unknown/low-confidence →
+    # LLM scout for a validated BuildPlan.
     workflow.add_conditional_edges(
-        "supervisor",
-        route_next,
+        "scout_aggregator",
+        route_scout_aggregator_to_next,
+        {"supervisor_node": "supervisor_node", "scout_node": "scout_node"},
     )
 
+    # Sequential scout fallback → supervisor
+    workflow.add_edge("scout_node", "supervisor_node")
+
+    # Supervisor → next action
     workflow.add_conditional_edges(
-        "scout_node",
-        route_next,
+        "supervisor_node",
+        route_supervisor_to_next,
+        {
+            "planner_node": "planner_node",
+            "scout_node": "scout_node",
+            "build_fix_subgraph": "build_fix_subgraph",
+            "finish_node": "finish_node",
+            "escalate_node": "escalate_node",
+        },
     )
 
-    workflow.add_conditional_edges(
-        "builder_node",
-        route_next,
-    )
+    # Build-fix subgraph exits back to supervisor for re-evaluation
+    workflow.add_edge("build_fix_subgraph", "supervisor_node")
 
-    workflow.add_conditional_edges(
-        "fixer_node",
-        route_next,
-    )
-
-    workflow.add_edge("escalate_node", END)
+    # Terminals
     workflow.add_edge("finish_node", END)
+    workflow.add_edge("escalate_node", END)
 
-    return workflow.compile()
+    compiled = workflow.compile()
+    logger.info(
+        "Graph workflow compiled with parallel scouts + build-fix subgraph"
+    )
+    return compiled
 
 
 # Create global app instance

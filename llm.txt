@@ -9,8 +9,8 @@ Important current behavior:
 
 ## Core Docs
 
+- [PROJECT.md](./PROJECT.md): Canonical LLM context — goal, scope, architecture, path map, flows, configuration, changelog. Read this first.
 - [README.md](./README.md): Architecture overview, quickstart, usage, and project structure.
-- [ROADMAP.md](./ROADMAP.md): Planned capabilities and current priorities.
 - [LICENSE](./LICENSE): MIT license.
 
 ## Entrypoints

@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import shlex
 from typing import Any, Dict, List, Optional
 
 from src.state import (
@@ -37,6 +38,17 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # SCRIPTED OPERATIONS CLASS
 # ============================================================================
+
+
+def _walk_root_is_excluded(root: str, *names: str) -> bool:
+    """True when any path COMPONENT of ``root`` equals one of ``names``.
+
+    Substring checks like ``".git" in root`` misfire for repos whose
+    own name contains the token (``user.github.io`` contains ``.git``),
+    silently disabling the whole walk.
+    """
+    parts = root.split(os.sep)
+    return any(part in names for part in parts)
 
 
 class ScriptedOperations:
@@ -61,17 +73,325 @@ class ScriptedOperations:
 
         logger.info(f"ScriptedOperations initialized: {self.workspace_root}")
 
+    def _build_auth_clone_cmd(self, url: str, container_repo_path: str) -> str:
+        """Return a shell-safe clone command, configuring auth if needed.
+
+        When a ``GIT_TOKEN``/``GH_TOKEN`` is present, the bearer header
+        is scoped to ``https://github.com/`` ONLY (via git's
+        URL-matched ``http.<url>.extraHeader``). A global unscoped
+        extraHeader would attach the token to every git request to
+        ANY host — a clone of an attacker-controlled homepage URL from
+        the package list would then receive the token verbatim.
+        """
+        token = os.environ.get("GIT_TOKEN", "") or os.environ.get(
+            "GH_TOKEN", ""
+        )
+
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
+        if token and url.startswith("https://github.com/"):
+            escaped_token = token.replace("'", "'\"'\"'")
+            configure_cmd = (
+                "git config --global "
+                "http.https://github.com/.extraHeader "
+                f"'Authorization: bearer {escaped_token}'"
+            )
+            execute_command(configure_cmd, use_docker=True)
+
+        return (
+            f"git clone --depth 1 {shlex.quote(url)} "
+            f"{shlex.quote(container_repo_path)}"
+        )
+
+    def _is_auth_error(self, result: CommandResult) -> bool:
+        err = (result.stderr or "").lower()
+        return any(
+            pat in err
+            for pat in [
+                "could not read username",
+                "could not read password",
+                "authentication failed",
+                "403 forbidden",
+                "401 unauthorized",
+                "access denied",
+                "no such device or address",
+            ]
+        )
+
+    # ------------------------------------------------------------------
+    # Fail-fast git environment: apply on every git subprocess so a
+    # missing credential / hanging SSH prompt exits immediately instead
+    # of stalling for 60+ seconds. Cheap & safe to always pass.
+    # ------------------------------------------------------------------
+    _GIT_FAIL_FAST_ENV: Dict[str, str] = {
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/bin/echo",
+        "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=no",
+    }
+
+    # ------------------------------------------------------------------
+    # Homepage → git URL heuristics. Applied as an ordered chain when
+    # the raw URL cannot be cloned. Order matters: most specific first,
+    # generic fallbacks last. Every substitution must yield a syntactic
+    # git URL (ends with a repo name, optionally `.git`); the actual
+    # existence is verified by trying to clone.
+    # ------------------------------------------------------------------
+    _HOMEPAGE_TO_GIT_RULES = (
+        # `https://www.gnu.org/software/<name>/` → savannah
+        (
+            re.compile(
+                r"^https?://(?:www\.)?gnu\.org/software/([A-Za-z0-9_.\-]+)/?$"
+            ),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://git.savannah.gnu.org/cgit/<name>.git/` → git/
+        (
+            re.compile(
+                r"^https?://git\.savannah\.gnu\.org/cgit/"
+                # Repo name: no dots so we don't swallow the `.git`
+                # suffix into the capture; matches real savannah paths.
+                r"([A-Za-z0-9_\-]+)(?:\.git)?/?$"
+            ),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://<name>.savannah.gnu.org/` → git.savannah.gnu.org/git
+        (
+            re.compile(r"^https?://([A-Za-z0-9_.\-]+)\.savannah\.gnu\.org/?$"),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://dev.yorhel.nl` → code.blicky.net/yorhel/<name>
+        (
+            re.compile(r"^https?://dev\.yorhel\.nl/?$"),
+            None,  # sentinel: dispatcher fills in `name` at call time
+        ),
+    )
+
+    def _resolve_homepage_to_git_urls(self, url: str, name: str) -> List[str]:
+        """Return candidate git URLs derived from a project homepage.
+
+        The input ``url`` is often a project's *homepage* (e.g.
+        ``https://www.gnu.org/software/wget/``) rather than a cloneable
+        git URL. This helper applies deterministic host-specific rules
+        to turn the homepage into likely-valid git URLs, so downstream
+        clone recovery has something concrete to try.
+
+        Args:
+            url: The (possibly non-git) source URL.
+            name: The canonical repo name; used as a fallback when the
+                URL alone does not disclose it (e.g. ``dev.yorhel.nl``).
+
+        Returns:
+            A list of unique candidate git URLs (may be empty).
+        """
+        candidates: List[str] = []
+        stripped = url.rstrip("/")
+        for pattern, replacement in self._HOMEPAGE_TO_GIT_RULES:
+            match = pattern.match(stripped)
+            if not match:
+                continue
+            if replacement is None:
+                # Dispatcher: dev.yorhel.nl repos live on code.blicky.net.
+                cand = f"https://code.blicky.net/yorhel/{name}.git"
+            else:
+                cand = pattern.sub(replacement, stripped)
+            if cand and cand not in candidates:
+                candidates.append(cand)
+        return candidates
+
+    def _try_url_variants(
+        self, url: str, name: str
+    ) -> Optional[CommandResult]:
+        """Attempt to clone from URL variants derived from ``url``.
+
+        Order (broadest to most heuristic):
+            1. ``/cgit/`` → ``/git/`` (cgit is a *browsing* frontend).
+            2. Append ``.git`` if not already present.
+            3. Homepage-to-git rules (GNU savannah, blicky, ...).
+
+        Returns:
+            The successful ``CommandResult`` if any variant clones
+            cleanly, otherwise ``None``.
+        """
+        # Validate name — only allow safe path components
+        if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name):
+            raise ValueError(f"Unsafe repo name: {name!r}")
+
+        # Validate url scheme
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
+        container_repo_path = f"/workspace/repos/{name}"
+        variants: List[str] = []
+
+        if "/cgit/" in url:
+            variants.append(url.replace("/cgit/", "/git/"))
+        if not url.endswith(".git"):
+            variants.append(url.rstrip("/") + ".git")
+        for cand in self._resolve_homepage_to_git_urls(url, name):
+            if cand not in variants:
+                variants.append(cand)
+
+        for variant in variants:
+            # Use list form — no shell, no injection
+            execute_command(
+                ["rm", "-rf", container_repo_path], use_docker=True
+            )
+            cmd = [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                variant,
+                container_repo_path,
+            ]
+            result = execute_command(
+                cmd, use_docker=True, extra_env=self._GIT_FAIL_FAST_ENV
+            )
+            if result.success:
+                # No f-string in logger call: cheaper when log is off
+                logger.info("Clone succeeded via URL variant: %s", variant)
+                return result
+
+        return None
+
     def _to_host_path(self, path: str) -> str:
-        """Translate container path to host path if necessary."""
+        """Translate container path to host path if necessary.
+
+        Only the leading ``/workspace`` prefix is rewritten — a plain
+        ``str.replace`` would also mangle any later ``workspace``
+        segment inside the path.
+        """
         if path.startswith("/workspace") and not os.path.exists("/workspace"):
-            return path.replace("/workspace", self.workspace_root)
+            return self.workspace_root + path[len("/workspace") :]
         return path
 
     def _to_container_path(self, path: str) -> str:
         """Translate host path to container path if necessary."""
         if path.startswith(self.workspace_root):
-            return path.replace(self.workspace_root, "/workspace")
+            return "/workspace" + path[len(self.workspace_root) :]
         return path
+
+    # ------------------------------------------------------------------
+    # Container-health precheck. Detects a "poisoned" sandbox — one
+    # where a previous package's LLM fix broke git or apt — and repairs
+    # it in place before we try to clone anything. Observed root cause
+    # for the 34-package cascade on debian shard 8 (run 28020958388):
+    # one repo's fix added a broken deb source to sources.list.d, then
+    # every subsequent repo failed with `git: command not found` or
+    # `apt-get update` errors because git was missing / apt was wedged.
+    # ------------------------------------------------------------------
+    def _ensure_container_healthy(self) -> None:
+        """Verify sandbox tooling is intact; repair in place if not.
+
+        Runs at most three cheap probes:
+            1. ``git --version`` — installs ``git`` via the active
+               platform profile if missing (exit 127).
+            2. ``apt-get update`` / ``apk update`` — if it fails, drops
+               any files under ``/etc/apt/sources.list.d/`` and
+               ``/etc/apk/repositories.d/`` that are not part of the
+               base image (heuristic: created within the last day).
+            3. Retries the failing probe once after repair.
+
+        All failures are non-fatal (best effort); the subsequent clone
+        will surface the real error via ``CommandResult``.
+        """
+        from src.platforms import get_active_profile
+
+        try:
+            profile = get_active_profile()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(f"Profile lookup failed during precheck: {exc}")
+            return
+
+        # 1) Git availability
+        probe = execute_command(
+            ["git", "--version"],
+            use_docker=True,
+            validate=False,
+        )
+        if not probe.success and (
+            "not found" in (probe.stderr or "").lower()
+            or probe.exit_code == 127
+        ):
+            logger.warning(
+                "Sandbox precheck: git missing, installing via %s",
+                profile.name,
+            )
+            install = execute_command(
+                profile.install_cmd(["git"]),
+                use_docker=True,
+            )
+            state = "ok" if install.success else "still-broken"
+            logger.info(f"Sandbox git self-repair: {state}")
+
+        # 2) Package manager: only check on Debian/Ubuntu where the
+        # cascade from a bad third-party source is worst; Alpine's
+        # apk failures usually surface per-install.
+        if profile.name in ("debian", "ubuntu"):
+            update = execute_command(
+                "apt-get update",
+                use_docker=True,
+            )
+            if not update.success and (
+                "Release file" in (update.stderr or "")
+                or "not have a Release" in (update.stderr or "")
+            ):
+                logger.warning(
+                    "Sandbox precheck: apt sources broken, removing "
+                    "LLM-added source list files under "
+                    "/etc/apt/sources.list.d/"
+                )
+                # Only remove non-base-image entries. `.list` files
+                # baked into the image are typically created at image
+                # build time; anything newer was added post-boot by a
+                # fix command that we now know failed.
+                cleanup = (
+                    "find /etc/apt/sources.list.d -maxdepth 1 "
+                    "-type f -mmin -1440 -delete"
+                )
+                execute_command(cleanup, use_docker=True)
+                retry = execute_command("apt-get update", use_docker=True)
+                if retry.success:
+                    logger.info(
+                        "Sandbox apt self-repair: recovered after "
+                        "removing stale source lists"
+                    )
+                else:
+                    logger.warning(
+                        "Sandbox apt self-repair: still failing after "
+                        "cleanup (%s)",
+                        (retry.stderr or "")[:120],
+                    )
+
+    def _init_submodules_if_present(self, container_repo_path: str) -> None:
+        """Best-effort ``git submodule update --init --recursive``.
+
+        Runs only when the cloned repo contains a top-level
+        ``.gitmodules``; downgrades any failure to a warning. Many Go
+        repos (aliyun-cli, upstream vendor mirrors) resolve their
+        real Go packages from a submodule, and skipping this step
+        surfaces later as ``no required module provides package``.
+        """
+        check = execute_command(
+            f"test -f {container_repo_path}/.gitmodules",
+            use_docker=True,
+        )
+        if not check.success:
+            return
+        logger.info("Repository declares submodules; initializing recursively")
+        result = execute_command(
+            f"cd {container_repo_path} && "
+            f"git submodule update --init --recursive",
+            use_docker=True,
+            extra_env=self._GIT_FAIL_FAST_ENV,
+            timeout=300,
+        )
+        if not result.success:
+            logger.warning(
+                "Submodule init failed (continuing without): %s",
+                (result.stderr or "")[:200],
+            )
 
     def clone_or_update_repository(self, url: str, name: str) -> CommandResult:
         """Clone a repository or update it if it already exists.
@@ -87,58 +407,113 @@ class ScriptedOperations:
         Returns:
             The ``CommandResult`` of the clone or update operation.
         """
+        # Validate inputs once, up front: both are interpolated into
+        # in-container shell strings below (rm -rf, git clone, cd).
+        if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name) or name.startswith("."):
+            raise ValueError(f"Unsafe repo name: {name!r}")
+        if not url.startswith(("https://", "http://")):
+            raise ValueError(f"Refusing non-http URL: {url!r}")
+
         # Use container path
         container_repo_path = f"/workspace/repos/{name}"
         host_repo_path = os.path.join(self.repos_dir, name)
 
+        # ------------------------------------------------------------
+        # Container-health precheck: make sure the sandbox still has
+        # git / working apt sources before we attempt anything else.
+        # ------------------------------------------------------------
+        self._ensure_container_healthy()
+
         # Check if already exists (check on host for speed)
         if os.path.exists(os.path.join(host_repo_path, ".git")):
-            logger.info(f"Repository {name} already exists, pulling latest...")
-            # Pull inside container to maintain ownership
-            cmd = f"cd {container_repo_path} && git pull"
-            result = execute_command(cmd, use_docker=True)
+            logger.info(f"Repository {name} already exists, resetting...")
+            # STRATEGIC HARDENING (dasel regression, 2026-07-01): a
+            # previous run's LLM may have authored broken files (e.g. a
+            # syntactically-invalid Makefile or half-applied patches).
+            # `git pull` alone preserves those files (they are untracked
+            # or committed-locally), so every subsequent run replays the
+            # same failure. Always reset to pristine upstream state
+            # before touching the working tree; this keeps every run
+            # idempotent and preserves the self-healing contract.
+            # Reset to FETCH_HEAD rather than a command-substituted
+            # `origin/<branch>`: if `git remote show origin` fails
+            # (network / non-English locale) the substitution is empty
+            # and `git reset --hard` silently resets to the poisoned
+            # LOCAL head — exactly the state this hardening removes.
+            reset_cmd = (
+                f"cd {container_repo_path} && "
+                f"git fetch --depth 1 origin && "
+                f"git reset --hard FETCH_HEAD && "
+                f"git clean -fdx"
+            )
+            result = execute_command(
+                reset_cmd,
+                use_docker=True,
+                extra_env=self._GIT_FAIL_FAST_ENV,
+            )
 
             if not result.success:
-                # Pull failed — likely diverged history or force-push
+                # Reset failed — likely diverged history, force-push, or
+                # a genuinely broken clone. Delete and re-clone.
                 logger.warning(
-                    f"git pull failed for {name}, attempting fetch+reset..."
+                    f"fetch+reset failed for {name} "
+                    f"(stderr={result.stderr[:200]!r}); "
+                    f"re-cloning from scratch..."
                 )
-                reset_cmd = (
-                    f"cd {container_repo_path} && "
-                    f"git fetch origin && "
-                    f"git reset --hard $(git remote show origin | "
-                    f"grep 'HEAD branch' | awk '{{print $NF}}' | "
-                    f"xargs -I% echo origin/%) && "
-                    f"git clean -fdx"
+                execute_command(
+                    ["rm", "-rf", container_repo_path], use_docker=True
                 )
-                result = execute_command(reset_cmd, use_docker=True)
-
-                if not result.success:
-                    # Reset also failed — delete and re-clone
-                    logger.warning(
-                        f"fetch+reset failed for {name}, "
-                        f"re-cloning from scratch..."
-                    )
-                    rm_cmd = f"rm -rf {container_repo_path}"
-                    execute_command(rm_cmd, use_docker=True)
-                    clone_cmd = (
-                        f"git clone --depth 1 {url} {container_repo_path}"
-                    )
-                    result = execute_command(clone_cmd, use_docker=True)
+                clone_cmd = (
+                    f"git clone --depth 1 {shlex.quote(url)} "
+                    f"{shlex.quote(container_repo_path)}"
+                )
+                result = execute_command(
+                    clone_cmd,
+                    use_docker=True,
+                    extra_env=self._GIT_FAIL_FAST_ENV,
+                )
         else:
-            # If directory exists but is not a valid git repo, remove it first
-            if os.path.exists(host_repo_path):
-                logger.warning(
-                    f"Directory {name} exists but has no .git, "
-                    f"removing and re-cloning..."
-                )
-                rm_cmd = f"rm -rf {container_repo_path}"
-                execute_command(rm_cmd, use_docker=True)
+            execute_command(
+                ["rm", "-rf", container_repo_path], use_docker=True
+            )
 
             logger.info(f"Cloning repository {url}...")
-            # Clone inside container
-            cmd = f"git clone --depth 1 {url} {container_repo_path}"
-            result = execute_command(cmd, use_docker=True)
+            cmd = self._build_auth_clone_cmd(url, container_repo_path)
+            result = execute_command(
+                cmd,
+                use_docker=True,
+                extra_env=self._GIT_FAIL_FAST_ENV,
+            )
+
+            if not result.success and self._is_auth_error(result):
+                logger.warning(
+                    f"Auth failure for {name}, retrying without token..."
+                )
+                execute_command(
+                    ["rm", "-rf", container_repo_path], use_docker=True
+                )
+                cmd = (
+                    f"git clone --depth 1 {shlex.quote(url)} "
+                    f"{shlex.quote(container_repo_path)}"
+                )
+                result = execute_command(
+                    cmd,
+                    use_docker=True,
+                    extra_env=self._GIT_FAIL_FAST_ENV,
+                )
+
+            if not result.success:
+                logger.warning(
+                    f"Clone failed for {name}, trying URL variants..."
+                )
+                variant_result = self._try_url_variants(url, name)
+                if variant_result is not None:
+                    result = variant_result
+                    logger.info(f"Clone via URL variant succeeded for {name}")
+                else:
+                    logger.error(
+                        f"All clone attempts failed for {name} ({url})"
+                    )
 
         # Configure git safe.directory to prevent "dubious ownership" errors
         # This is needed because the workspace is mounted from host
@@ -152,6 +527,10 @@ class ScriptedOperations:
                 logger.warning(
                     f"Failed to add safe.directory: {safe_result.stderr}"
                 )
+
+        # Auto-init any git submodules the repo declares. Non-fatal.
+        if result.success:
+            self._init_submodules_if_present(container_repo_path)
 
         return result
 
@@ -187,6 +566,45 @@ class ScriptedOperations:
 
     # ========== Build System Detection ==========
 
+    def _has_npm_build_script(self, repo_path: str) -> bool:
+        """Check if package.json has a 'build' script (true npm project)."""
+        pkg_file = os.path.join(repo_path, "package.json")
+        if not os.path.exists(pkg_file):
+            return False
+        try:
+            with open(pkg_file, "r", encoding="utf-8", errors="ignore") as f:
+                pkg = json.load(f)
+            scripts = pkg.get("scripts", {})
+            if isinstance(scripts, dict) and "build" in scripts:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _score_go_subdir(self, root: str, repo_path: str) -> int:
+        """Score a Go module root by main-package/cmd markers.
+
+        Higher = more likely to be the primary build target.
+        """
+        score = 0
+        if os.path.isfile(os.path.join(root, "main.go")):
+            score += 10
+        cmd_dir = os.path.join(root, "cmd")
+        if os.path.isdir(cmd_dir):
+            score += 8
+        for entry in os.scandir(root):
+            if entry.is_file() and entry.name.endswith(".go"):
+                try:
+                    with open(
+                        entry.path, "r", encoding="utf-8", errors="ignore"
+                    ) as f:
+                        if "package main" in f.read(2048):
+                            score += 5
+                            break
+                except Exception:
+                    pass
+        return score
+
     def detect_build_system(self, repo_path: str) -> BuildSystemInfo:
         """Detect the build system using file-based heuristics.
 
@@ -201,7 +619,7 @@ class ScriptedOperations:
         repo_path = self._to_host_path(repo_path)
         build_systems = {
             "cmake": ["CMakeLists.txt"],
-            "autotools": ["configure.ac", "configure.in"],
+            "autotools": ["configure.ac", "configure.in", "configure"],
             "make": ["Makefile", "GNUmakefile"],
             "meson": ["meson.build"],
             "cargo": ["Cargo.toml"],
@@ -220,44 +638,71 @@ class ScriptedOperations:
             for file in files:
                 filepath = os.path.join(repo_path, file)
                 if os.path.exists(filepath):
+                    # npm requires stricter detection: need a
+                    # lockfile or a build script
+                    if build_sys == "npm":
+                        has_lock = os.path.exists(
+                            os.path.join(repo_path, "package-lock.json")
+                        )
+                        has_build = self._has_npm_build_script(repo_path)
+                        if not has_lock and not has_build:
+                            continue
                     detected.append((build_sys, file))
+                    # Never let a weaker marker clobber a stronger one
+                    # (e.g. `configure` at 0.85 must not overwrite the
+                    # 0.95 set by `configure.ac` a moment earlier).
+                    prev = confidence_scores.get(build_sys, 0)
                     if file in [
                         "CMakeLists.txt",
                         "Cargo.toml",
                         "configure.ac",
                         "go.mod",
                     ]:
-                        confidence_scores[build_sys] = 0.95
+                        confidence_scores[build_sys] = max(prev, 0.95)
+                    elif file == "configure":
+                        confidence_scores[build_sys] = max(prev, 0.85)
                     else:
-                        confidence_scores[build_sys] = (
-                            confidence_scores.get(build_sys, 0) + 0.3
-                        )
+                        confidence_scores[build_sys] = min(prev + 0.3, 0.9)
 
         if not detected:
-            for build_sys in ["go", "cargo"]:
-                for root, dirs, files in os.walk(repo_path):
-                    if ".git" in root:
-                        continue
-                    if "go.mod" in files and build_sys == "go":
-                        module_dir = root.replace(repo_path, "").lstrip("/")
-                        detected.append(("go", f"{module_dir}/go.mod"))
-                        confidence_scores["go"] = 0.90
-                        logger.info(
-                            f"Found Go module in subdirectory: "
-                            f"{module_dir}/go.mod"
-                        )
-                        break
-                    if "Cargo.toml" in files and build_sys == "cargo":
-                        module_dir = root.replace(repo_path, "").lstrip("/")
-                        detected.append(("cargo", f"{module_dir}/Cargo.toml"))
-                        confidence_scores["cargo"] = 0.90
-                        logger.info(
-                            f"Found Cargo module in subdirectory: "
-                            f"{module_dir}/Cargo.toml"
-                        )
-                        break
-                if detected:
-                    break
+            go_subdir_candidates = []
+            cargo_found = None
+            for root, dirs, files in os.walk(repo_path):
+                if _walk_root_is_excluded(root, ".git"):
+                    continue
+                if "go.mod" in files:
+                    module_dir = root.replace(repo_path, "").lstrip("/")
+                    score = self._score_go_subdir(root, repo_path)
+                    go_subdir_candidates.append((root, module_dir, score))
+                if "Cargo.toml" in files and cargo_found is None:
+                    module_dir = root.replace(repo_path, "").lstrip("/")
+                    cargo_found = (root, module_dir)
+                    logger.info(
+                        f"Found Cargo module in subdirectory: "
+                        f"{module_dir}/Cargo.toml"
+                    )
+
+            if go_subdir_candidates:
+                candidates_sorted = sorted(
+                    go_subdir_candidates, key=lambda x: x[2], reverse=True
+                )
+                best_root, best_dir, best_score = candidates_sorted[0]
+                detected.append(("go", f"{best_dir}/go.mod"))
+                confidence_scores["go"] = 0.90
+                logger.info(
+                    f"Found Go module in subdirectory: "
+                    f"{best_dir}/go.mod (score={best_score})"
+                )
+            elif cargo_found:
+                detected.append(("cargo", f"{cargo_found[1]}/Cargo.toml"))
+                confidence_scores["cargo"] = 0.90
+
+        if not detected and os.path.exists(
+            os.path.join(repo_path, "Makefile")
+        ):
+            detected.append(("make", "Makefile"))
+            confidence_scores["make"] = 0.5
+            logger.info("Only Makefile found; detected as make (fallback)")
 
         if not detected:
             return BuildSystemInfo(
@@ -266,6 +711,17 @@ class ScriptedOperations:
                 primary_file="",
                 additional_files=[],
             )
+
+        # Priority boost: prefer Go over npm when both detected
+        sys_types = {s for s, _ in detected}
+        if "go" in sys_types and "npm" in sys_types:
+            # Demote npm below go
+            if (
+                "npm" in confidence_scores
+                and "go" in confidence_scores
+                and confidence_scores["npm"] >= confidence_scores["go"]
+            ):
+                confidence_scores["npm"] = confidence_scores["go"] - 0.1
 
         best_system = max(confidence_scores.items(), key=lambda x: x[1])
 
@@ -439,8 +895,25 @@ class ScriptedOperations:
         with open(go_mod, "r") as f:
             content = f.read()
 
-        require_pattern = r"require\s+([^\s]+)"
-        deps.libraries = re.findall(require_pattern, content)
+        # go.mod uses two require forms; handle both:
+        #   require example.com/pkg v1.2.3          (single line)
+        #   require (                                (block)
+        #       example.com/pkg v1.2.3
+        #   )
+        # The old single-line-only regex captured a literal "(" for
+        # block form — i.e. for most real go.mod files.
+        libraries: List[str] = []
+        for match in re.finditer(r"require\s+\(([^)]*)\)", content, re.DOTALL):
+            for line in match.group(1).splitlines():
+                line = line.strip()
+                if not line or line.startswith("//"):
+                    continue
+                libraries.append(line.split()[0])
+        for match in re.finditer(
+            r"^require\s+([^\s(]+)", content, re.MULTILINE
+        ):
+            libraries.append(match.group(1))
+        deps.libraries = list(dict.fromkeys(libraries))
 
         deps.build_tools = ["go"]
         return deps
@@ -471,7 +944,7 @@ class ScriptedOperations:
         go_mod_files = []
         has_go_files = False
         for root, dirs, files in os.walk(repo_path):
-            if ".git" in root:
+            if _walk_root_is_excluded(root, ".git"):
                 continue
             if "go.mod" in files:
                 module_dir = root.replace(repo_path, "").lstrip("/")
@@ -486,7 +959,7 @@ class ScriptedOperations:
                 result["has_go_files"] = True
                 # Try to find main package anyway
                 for root, dirs, files in os.walk(repo_path):
-                    if ".git" in root or "vendor" in root:
+                    if _walk_root_is_excluded(root, ".git", "vendor"):
                         continue
                     for f in files:
                         if f.endswith(".go"):
@@ -510,12 +983,27 @@ class ScriptedOperations:
             return result
 
         result["has_go_mod"] = True
-        go_mod_path, module_dir = go_mod_files[0]
+
+        # Prefer go_mod entry whose root has main.go or cmd/, else first
+        best_mod = go_mod_files[0]
+        if len(go_mod_files) > 1:
+            scored = [
+                (root, d, self._score_go_subdir(root, repo_path))
+                for root, d in go_mod_files
+            ]
+            scored.sort(key=lambda x: x[2], reverse=True)
+            best_mod = (scored[0][0], scored[0][1])
+            logger.info(
+                f"Chose go.mod at '{scored[0][1]}' (score={scored[0][2]}) "
+                f"out of {len(scored)} candidates"
+            )
+
+        go_mod_path, module_dir = best_mod
         result["module_dir"] = module_dir
 
         main_files = []
         for root, dirs, files in os.walk(go_mod_path):
-            if ".git" in root or "vendor" in root:
+            if _walk_root_is_excluded(root, ".git", "vendor"):
                 continue
             for f in files:
                 if f.endswith(".go"):
@@ -1039,10 +1527,15 @@ class ScriptedOperations:
         ]
 
         for arch, pattern in arch_patterns:
+            # Use the arch-specific REGEX (not the bare arch token —
+            # a Makefile comment mentioning "riscv" must not count as
+            # existing RISC-V support) and parenthesize the -name
+            # alternation so -type f applies to both suffixes.
             cmd = (
-                f"find {target_path} -type f -name '*.mak' "
-                f"-o -name '*.mk' 2>/dev/null "
-                f"| xargs grep -l '{arch}' 2>/dev/null | head -20"
+                f"find {shlex.quote(target_path)} -type f "
+                f"\\( -name '*.mak' -o -name '*.mk' \\) 2>/dev/null "
+                f"| xargs grep -liE {shlex.quote(pattern)} "
+                f"2>/dev/null | head -20"
             )
             find_result = execute_command(cmd, use_docker=True)
 

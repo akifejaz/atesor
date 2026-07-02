@@ -3,7 +3,7 @@
 
 Used by the per-shard jobs in ``batch-port`` and ``batch-port-retry``
 to turn a ``{"packages": [...]}`` plan (produced by
-``plan-remaining.py``) into the exact positional package list that
+``plan_remaining.py``) into the exact positional package list that
 ``batch_test.py --package`` should run for shard ``--shard-index`` of
 ``--shard-total``.
 
@@ -40,7 +40,9 @@ def _load(path: str) -> list[str]:
 
 
 def apply_shard(
-    names: list[str], shard_index: int, shard_total: int,
+    names: list[str],
+    shard_index: int,
+    shard_total: int,
 ) -> list[str]:
     """Contiguous ceil(N/total) chunking, mirroring batch_test."""
     if shard_total <= 1:
@@ -53,21 +55,29 @@ def apply_shard(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI entry point."""
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--from", dest="src", required=True,
-                   help="Path to remaining-<platform>.json")
+    p.add_argument(
+        "--from",
+        dest="src",
+        required=True,
+        help="Path to remaining-<platform>.json",
+    )
     p.add_argument("--shard-index", type=int, required=True)
     p.add_argument("--shard-total", type=int, required=True)
     p.add_argument("--format", choices=["space", "lines"], default="space")
     p.add_argument(
-        "--output-key", default=None,
+        "--output-key",
+        default=None,
         help="When set, emit `KEY=<value>` for $GITHUB_OUTPUT.",
     )
     args = p.parse_args(argv)
 
     if args.shard_total < 1:
-        print(f"[ERROR] --shard-total must be >= 1 (got {args.shard_total})",
-              file=sys.stderr)
+        print(
+            f"[ERROR] --shard-total must be >= 1 (got {args.shard_total})",
+            file=sys.stderr,
+        )
         return 2
     if args.shard_index < 0 or args.shard_index >= args.shard_total:
         print(

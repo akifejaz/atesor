@@ -27,6 +27,19 @@ from .state import AgentRole
 
 logger = logging.getLogger(__name__)
 
+# Process-level cache for the OpenRouter live-model catalogue. Populated
+# by _discover_openrouter_free_models() on first use, then reused so
+# every create_llm_pool() call doesn't re-hit the /models endpoint.
+_FREE_MODELS_CACHE: "List[str] | None" = None
+
+# Default output-token cap applied to every provider. Kept intentionally
+# conservative so free-tier OpenRouter accounts (which reject calls whose
+# requested `max_tokens` exceeds their remaining credit with HTTP 402)
+# stay well within budget. Agent JSON outputs are typically <4k tokens;
+# 8k gives a healthy safety margin. Override per-role by wrapping the
+# returned LLM if a specific agent needs more.
+_DEFAULT_MAX_TOKENS = int(os.getenv("ATESOR_MAX_OUTPUT_TOKENS", "8192"))
+
 
 class ModelProvider(str, Enum):
     """Supported LLM providers selectable via ``LLM_PROVIDER``."""
@@ -38,13 +51,16 @@ class ModelProvider(str, Enum):
 
 # Model configurations per provider
 MODEL_CONFIG = {
+    # gpt-4 / gpt-3.5-turbo are legacy models (worse AND more expensive
+    # than the current mini tier). 4o-mini covers the cheap roles;
+    # planner/scout/fixer get the full 4o for stronger JSON planning.
     "openai": {
-        "supervisor": {"model": "gpt-3.5-turbo", "temperature": 0.0},
-        "planner": {"model": "gpt-4", "temperature": 0.1},
-        "scout": {"model": "gpt-4", "temperature": 0.1},
-        "builder": {"model": "gpt-3.5-turbo", "temperature": 0.0},
-        "fixer": {"model": "gpt-4", "temperature": 0.2},
-        "summarizer": {"model": "gpt-3.5-turbo", "temperature": 0.1},
+        "supervisor": {"model": "gpt-4o-mini", "temperature": 0.0},
+        "planner": {"model": "gpt-4o", "temperature": 0.1},
+        "scout": {"model": "gpt-4o", "temperature": 0.1},
+        "builder": {"model": "gpt-4o-mini", "temperature": 0.0},
+        "fixer": {"model": "gpt-4o", "temperature": 0.2},
+        "summarizer": {"model": "gpt-4o-mini", "temperature": 0.1},
     },
     "gemini": {
         "supervisor": {
@@ -60,13 +76,41 @@ MODEL_CONFIG = {
             "temperature": 0.1,
         },
     },
+    # OpenRouter free-tier slugs are retired without notice (see run
+    # 28020958388 — ``google/gemini-2.0-flash-exp:free`` went dark).
+    # NOTE: ``openrouter/free`` is now an official Free Models Router
+    # (availability- and capability-aware) and is appended to every
+    # fallback chain by ``_openrouter_fallback_ids``. We still
+    # (a) keep a currently-live coding-oriented slug as the per-role
+    # default, (b) diversify across roles so a single retirement can't
+    # blackhole every agent, and (c) let ``create_llm_pool`` refresh the
+    # fallback list dynamically from ``/models`` at pool-creation time.
+    # Override any of these via ``OPENROUTER_FALLBACK_MODELS``.
     "openrouter": {
-        "supervisor": {"model": "openrouter/free", "temperature": 0.0},
-        "planner": {"model": "openrouter/free", "temperature": 0.1},
-        "scout": {"model": "openrouter/free", "temperature": 0.1},
-        "builder": {"model": "openrouter/free", "temperature": 0.0},
-        "fixer": {"model": "openrouter/free", "temperature": 0.2},
-        "summarizer": {"model": "openrouter/free", "temperature": 0.1},
+        "supervisor": {
+            "model": "qwen/qwen3-coder:free",
+            "temperature": 0.0,
+        },
+        "planner": {
+            "model": "openai/gpt-oss-120b:free",
+            "temperature": 0.1,
+        },
+        "scout": {
+            "model": "qwen/qwen3-coder:free",
+            "temperature": 0.1,
+        },
+        "builder": {
+            "model": "qwen/qwen3-coder:free",
+            "temperature": 0.0,
+        },
+        "fixer": {
+            "model": "openai/gpt-oss-120b:free",
+            "temperature": 0.2,
+        },
+        "summarizer": {
+            "model": "meta-llama/llama-3.3-70b-instruct:free",
+            "temperature": 0.1,
+        },
     },
 }
 
@@ -100,9 +144,49 @@ def check_api_keys() -> Tuple[bool, str, str]:
     return False, f"Unknown provider: {provider}", provider
 
 
+# The Free Models Router: OpenRouter picks an AVAILABLE free model that
+# supports the request's features (structured outputs etc.). Used as the
+# universal last resort when every named model is rate-limited.
+# https://openrouter.ai/openrouter/free
+OPENROUTER_FREE_ROUTER = "openrouter/free"
+
+
 def create_llm(role: AgentRole) -> BaseChatModel:
     """Create an LLM instance for a specific agent role."""
     return _create_llm_with_model(role, _resolve_model_name(role))
+
+
+def _openrouter_fallback_ids() -> List[str]:
+    """Return the ordered OpenRouter fallback model ids.
+
+    Reads ``OPENROUTER_FALLBACK_MODELS`` (comma-separated) when set,
+    else uses the curated defaults. ``openrouter/free`` is always
+    appended as the terminal entry so a fully rate-limited pool
+    degrades to "any available free model" instead of failing.
+
+    NOTE: ``openrouter/auto`` is deliberately NOT in the defaults — the
+    Auto Router selects from PAID models only, so on a zero-credit
+    account it is a guaranteed 402 that just burns a daily-quota
+    request.
+    """
+    raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
+    ids = [m.strip() for m in raw.split(",") if m.strip()]
+    if not ids:
+        # Currently-live curated defaults, diversified across providers
+        # to survive a single-provider outage. Refresh via:
+        #   python3 -c "from src.models import
+        #     _discover_openrouter_free_models as f; print(f())"
+        ids = [
+            "qwen/qwen3-coder:free",
+            "openai/gpt-oss-120b:free",
+            "openai/gpt-oss-20b:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "qwen/qwen3-next-80b-a3b-instruct:free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
+        ]
+    if OPENROUTER_FREE_ROUTER not in ids:
+        ids.append(OPENROUTER_FREE_ROUTER)
+    return ids
 
 
 def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
@@ -115,6 +199,10 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
     only the primary is returned (those providers' SDKs already retry
     transient errors transparently).
 
+    A lightweight health-check runs each fallback model with a tiny
+    prompt at pool-creation time; models that return 404/429 are skipped
+    so the pool only contains reachable models.
+
     Callers that want resilience to ``Model not found`` / 404 from the
     primary pass this list into
     ``llm_call_with_validation(fallback_llms=...)``.
@@ -124,29 +212,68 @@ def create_llm_pool(role: AgentRole) -> List[BaseChatModel]:
 
     Returns:
         A list whose first element is the primary model, followed by any
-        configured fallback models.
+        reachable fallback models.
     """
     primary = create_llm(role)
     provider = os.getenv("LLM_PROVIDER", ModelProvider.GEMINI.value).lower()
     if provider != ModelProvider.OPENROUTER.value:
         return [primary]
-    raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
-    fallback_ids = [m.strip() for m in raw.split(",") if m.strip()]
-    if not fallback_ids:
-        # Default pool for free-tier OpenRouter where upstream model
-        # availability can vary by minute.
-        fallback_ids = [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "qwen/qwen3-14b:free",
-            "deepseek/deepseek-r1-0528:free",
-        ]
+    fallback_ids = _openrouter_fallback_ids()
+    primary_id = getattr(primary, "model_name", None) or getattr(
+        primary, "model", None
+    )
+    # Skip proactive probing: it (a) self-inflicts rate limits by hitting
+    # every candidate at pool-creation time, and (b) mis-classifies
+    # transiently-throttled (429) models as permanently unhealthy,
+    # collapsing the pool to size 1 exactly when we need diversity.
+    # Rotation in llm_call_with_validation handles per-call failures.
     fallbacks = []
     for model_id in fallback_ids:
+        if model_id == primary_id:
+            continue
         try:
             fallbacks.append(_create_llm_with_model(role, model_id))
         except Exception as exc:
             logger.warning(f"Skipping fallback model '{model_id}': {exc}")
     return [primary, *fallbacks]
+
+
+def _discover_openrouter_free_models(timeout: int = 8) -> List[str]:
+    """Fetch the live ``:free`` slugs from OpenRouter ``/models``.
+
+    Returns an empty list on any error — callers must treat this as a
+    best-effort augmentation, not a required step. Cached in-process for
+    the lifetime of the run to avoid hammering the endpoint from every
+    ``create_llm_pool`` call.
+    """
+    global _FREE_MODELS_CACHE
+    if _FREE_MODELS_CACHE is not None:
+        return _FREE_MODELS_CACHE
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        _FREE_MODELS_CACHE = []
+        return _FREE_MODELS_CACHE
+    try:
+        import requests
+
+        resp = requests.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        models = resp.json().get("data", [])
+        _FREE_MODELS_CACHE = sorted(
+            m["id"] for m in models if ":free" in m.get("id", "")
+        )
+        logger.info(
+            f"Discovered {len(_FREE_MODELS_CACHE)} live OpenRouter "
+            f":free slugs for fallback pool augmentation."
+        )
+    except Exception as exc:
+        logger.warning(f"OpenRouter model discovery failed: {exc}")
+        _FREE_MODELS_CACHE = []
+    return _FREE_MODELS_CACHE
 
 
 def _resolve_model_name(role: AgentRole) -> str:
@@ -180,19 +307,54 @@ def _create_llm_with_model(role: AgentRole, model_name: str) -> BaseChatModel:
 
     if provider == ModelProvider.OPENAI.value:
         return ChatOpenAI(
-            model=model_name, temperature=temperature, request_timeout=120
+            model=model_name,
+            temperature=temperature,
+            request_timeout=120,
+            max_tokens=_DEFAULT_MAX_TOKENS,
         )
     elif provider == ModelProvider.GEMINI.value:
         return ChatGoogleGenerativeAI(
-            model=model_name, temperature=temperature, timeout=120
+            model=model_name,
+            temperature=temperature,
+            timeout=120,
+            max_output_tokens=_DEFAULT_MAX_TOKENS,
         )
     elif provider == ModelProvider.OPENROUTER.value:
+        # Server-side fallback: the `models` array makes OpenRouter try
+        # each listed model IN THE SAME REQUEST when the primary is
+        # rate-limited / down / filtered. This matters on the free
+        # tier: every client-side retry is a separate request that
+        # counts against the daily free-models cap (50/day without
+        # lifetime credits), while a server-side fallback chain costs
+        # one. HARD LIMIT: OpenRouter rejects the whole request with
+        # HTTP 400 when the array exceeds 3 entries ("'models' array
+        # must have 3 items or fewer" — observed 2026-07-02), so we
+        # send the two best non-primary fallbacks plus the terminal
+        # `openrouter/free` router. The full chain remains available
+        # to the client-side rotation in llm_call_with_validation.
+        # https://openrouter.ai/docs/guides/routing/model-fallbacks
+        named_fallbacks = [
+            m
+            for m in _openrouter_fallback_ids()
+            if m != model_name and m != OPENROUTER_FREE_ROUTER
+        ]
+        server_side_fallbacks = named_fallbacks[:2] + [
+            OPENROUTER_FREE_ROUTER
+        ]
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,
             openai_api_key=os.getenv("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             request_timeout=120,
+            extra_body={"models": server_side_fallbacks},
+            # OpenRouter free-tier accounts get HTTP 402 when the
+            # requested `max_tokens` exceeds available credit. Agent
+            # responses are almost always <4k tokens; capping the default
+            # at 8k keeps us well within any reasonable free budget
+            # without truncating legitimate outputs. Larger caps can
+            # still be requested per-call by wrapping the LLM.
+            max_tokens=_DEFAULT_MAX_TOKENS,
         )
     raise ValueError(f"Unsupported provider: {provider}")
 

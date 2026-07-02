@@ -101,6 +101,8 @@ class TestCommandValidatorDangerous(unittest.TestCase):
 
     DANGEROUS = [
         ("rm -rf /", "rm -rf /"),
+        ("rm -rf /*", "rm -rf glob root"),
+        ("rm -rf / anything", "rm -rf root with tail"),
         ("dd if=/dev/zero of=/dev/sda", "disk wipe"),
         (":(){ :|:& };:", "fork bomb"),
         ("mkfs.ext4 /dev/sda1", "format filesystem"),
@@ -109,6 +111,29 @@ class TestCommandValidatorDangerous(unittest.TestCase):
         ("eval rm -rf /tmp", "eval"),
         ("cat /etc/shadow", "shadow file"),
         ("cat /etc/passwd", "passwd file"),
+        # Container-poisoning guards (run 28020958388 root cause)
+        ("apt-get remove git", "apt remove"),
+        ("apt-get purge nodejs", "apt purge"),
+        ("apt-get autoremove", "apt autoremove"),
+        ("apt remove git", "apt remove short"),
+        ("apk del git", "apk del"),
+        ("dpkg --remove git", "dpkg remove"),
+        ("dpkg --purge git", "dpkg purge"),
+        (
+            "echo 'deb http://x' >> /etc/apt/sources.list",
+            "apt sources.list append",
+        ),
+        (
+            "echo 'deb http://x' > /etc/apt/sources.list.d/foo.list",
+            "apt sources.list.d write",
+        ),
+        (
+            "echo 'deb http://x' | tee -a /etc/apt/sources.list",
+            "apt sources.list tee",
+        ),
+        ("echo 'http://x' > /etc/apk/repositories", "apk repositories write"),
+        ("add-apt-repository ppa:foo/bar", "add-apt-repository"),
+        ("apt-key adv --recv-keys ABC123", "apt-key adv"),
         # Unknown commands fail closed
         ("nmap -sP 192.168.1.0/24", "unknown"),
         ("blahblah --foo", "unknown"),
@@ -126,6 +151,28 @@ class TestCommandValidatorDangerous(unittest.TestCase):
         ok, reason = self.validator.is_safe("nmap 1.2.3.4")
         self.assertFalse(ok)
         self.assertEqual(reason, "Unknown command pattern (not in whitelist)")
+
+    def test_rm_rf_subpath_allowed(self) -> None:
+        """Verify rm -rf on a real subdirectory is allowed."""
+        for cmd in [
+            "rm -rf /workspace/repos/foo",
+            "rm -rf /tmp/x",
+            "rm -rf /root/.cache/build",
+        ]:
+            with self.subTest(cmd=cmd):
+                ok, reason = self.validator.is_safe(cmd)
+                self.assertTrue(ok, f"should allow: {cmd} -> {reason}")
+
+    def test_apt_install_still_allowed(self) -> None:
+        """apt-get install / apk add remain allowed after the new blocks."""
+        for cmd in [
+            "apt-get install -y git",
+            "apk add git curl",
+            "apt update",
+        ]:
+            with self.subTest(cmd=cmd):
+                ok, _ = self.validator.is_safe(cmd)
+                self.assertTrue(ok, cmd)
 
 
 # ===========================================================================
@@ -482,6 +529,66 @@ class TestExecuteCommand(unittest.TestCase):
         # Translated to /workspace/...
         self.assertTrue(args[w_idx + 1].startswith("/workspace"))
 
+    def test_extra_env_is_forwarded_to_docker_exec(self) -> None:
+        """extra_env values become --env flags on the docker exec argv."""
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            """Fake run."""
+            captured["args"] = args
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch("src.tools.subprocess.run", side_effect=fake_run):
+            execute_command(
+                "git status",
+                extra_env={"GIT_TERMINAL_PROMPT": "0", "FOO": "bar"},
+            )
+
+        args = captured["args"]
+        # Every requested env pair must appear as --env K=V somewhere
+        # before the container name.
+        env_pairs = []
+        for idx, tok in enumerate(args):
+            if tok == "--env" and idx + 1 < len(args):
+                env_pairs.append(args[idx + 1])
+        self.assertIn("GIT_TERMINAL_PROMPT=0", env_pairs)
+        self.assertIn("FOO=bar", env_pairs)
+
+    def test_extra_env_is_merged_when_running_on_host(self) -> None:
+        """When not using Docker, extra_env is merged into env dict."""
+        seen_env = {}
+
+        def fake_run(args, **kwargs):
+            """Fake run."""
+            seen_env.update(kwargs.get("env") or {})
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch("src.tools.subprocess.run", side_effect=fake_run):
+            execute_command(
+                "echo hi",
+                use_docker=False,
+                extra_env={"MY_KEY": "my_value"},
+            )
+
+        self.assertEqual(seen_env.get("MY_KEY"), "my_value")
+
+    def test_list_form_command_is_quoted(self) -> None:
+        """Argv-form commands are joined into a shell-safe string."""
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            """Fake run."""
+            captured["args"] = args
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch("src.tools.subprocess.run", side_effect=fake_run):
+            execute_command(["git", "clone", "https://x/y z", "/tmp/y z"])
+
+        bash_cmd = captured["args"][-1]
+        # shlex.quote pads args containing spaces with single quotes
+        self.assertIn("'https://x/y z'", bash_cmd)
+        self.assertIn("'/tmp/y z'", bash_cmd)
+
 
 # ===========================================================================
 # apply_patch — rejects content that isn't a valid unified diff when
@@ -574,8 +681,9 @@ class TestCodexEnvelopePatch(unittest.TestCase):
                 success=True, stdout="", stderr="", exit_code=0
             )
 
-        with mock.patch("src.tools.write_file", return_value=True), mock.patch(
-            "src.tools.execute_command", side_effect=fake_exec
+        with (
+            mock.patch("src.tools.write_file", return_value=True),
+            mock.patch("src.tools.execute_command", side_effect=fake_exec),
         ):
             ok = apply_patch(
                 self.SAMPLE_ENVELOPE,

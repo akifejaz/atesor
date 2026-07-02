@@ -17,7 +17,6 @@ RISC-V architecture.
 
 import logging
 import shlex
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from .tools import execute_command
@@ -47,11 +46,15 @@ class ArtifactScanner:
         """
         self.artifacts = []
 
-        # Find executable binaries.
+        # Find executable binaries. Shared objects are excluded via
+        # find's own name test — piping through `grep -v '.so'` treated
+        # `.so` as a REGEX applied to the whole path, so any path
+        # containing "<char>so" (jsonnet, socat, src/sort, ...) dropped
+        # every binary and the build was reported artifact-less.
         find_cmd = (
             f"find {shlex.quote(self.build_dir)} -path '*/.git' -prune"
-            " -o -type f -executable -print 2>/dev/null"
-            " | grep -v '.so' | head -20"
+            " -o -type f -executable ! -name '*.so*' -print 2>/dev/null"
+            " | head -20"
         )
         binaries_result = execute_command(find_cmd, cwd=self.cwd)
         if binaries_result.success and binaries_result.stdout.strip():
@@ -124,12 +127,20 @@ class ArtifactScanner:
     def _detect_architecture(self, file_info: str) -> Optional[str]:
         """Detect the architecture from ``file`` command output.
 
+        Only the DESCRIPTION part (after the first ``path:``) is
+        inspected. ``file`` output starts with the file path, and paths
+        routinely contain arch tokens (``build-riscv64/``, ``charm/``)
+        — matching on the full line let an x86 leftover binary in a
+        riscv-named directory pass as a RISC-V artifact.
+
         Args:
             file_info: Output from the ``file`` command.
 
         Returns:
             An architecture string, or None if undetected.
         """
+        if ":" in file_info:
+            file_info = file_info.split(":", 1)[1]
         file_info_lower = file_info.lower()
 
         if "risc-v" in file_info_lower or "riscv64" in file_info_lower:
@@ -154,24 +165,23 @@ class ArtifactScanner:
         Returns:
             An architecture string, or None if undetected.
         """
-        tmp_dir = None
         try:
-            tmp_dir = tempfile.mkdtemp(prefix="atesor_ar_")
+            # The temp dir must be created INSIDE the container — the
+            # previous host-side tempfile.mkdtemp produced a path that
+            # did not exist in the sandbox, so `cd` failed silently and
+            # static-library verification never ran. One shell keeps
+            # mktemp, extraction, inspection, and cleanup atomic.
             extract_cmd = (
-                f"cd {shlex.quote(tmp_dir)} && ar x"
-                f" {shlex.quote(archive_path)} 2>/dev/null"
-                " && file *.o | head -1"
+                'cd "$(mktemp -d /tmp/atesor_ar_XXXXXX)"'
+                f" && ar x {shlex.quote(archive_path)} 2>/dev/null"
+                " && file *.o | head -1; _rc=$?; cd /;"
+                ' rm -rf "$OLDPWD"; exit $_rc'
             )
-            result = execute_command(extract_cmd, cwd=tmp_dir)
+            result = execute_command(extract_cmd, cwd=self.cwd)
             if result.success and result.stdout:
                 return self._detect_architecture(result.stdout)
         except Exception as e:
             logger.debug(f"Failed to check archive architecture: {e}")
-        finally:
-            if tmp_dir:
-                import shutil
-
-                shutil.rmtree(tmp_dir, ignore_errors=True)
 
         return None
 

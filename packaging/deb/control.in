@@ -1,0 +1,18 @@
+Package: atesor-ai
+Version: @VERSION@
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Akif Ejaz <akif.ejaz@10xengineers.ai>
+Depends: python3 (>= 3.10), docker.io | docker-ce | docker-engine, qemu-user-static, binfmt-support
+Installed-Size: @SIZE@
+Homepage: https://github.com/akifejaz/atesor
+Description: Automated C/C++/Go/Rust to RISC-V porting agent
+ Atesor AI is a LangGraph multi-agent system that automates porting
+ software packages to RISC-V (riscv64). Builds run natively inside an
+ Alpine or Debian riscv64 Docker sandbox emulated via QEMU/binfmt_misc.
+ .
+ The package bundles a self-contained Python virtualenv. It still
+ requires a running Docker daemon plus qemu-user-static for riscv64
+ emulation, and an LLM API key (GOOGLE_API_KEY, OPENAI_API_KEY, or
+ OPENROUTER_API_KEY) in the environment or a .env file.

@@ -1,7 +1,7 @@
 """Tests for shard planning + slicing used by the batch-port workflow.
 
 Covers:
-* ``.github/scripts/plan-shards.py::compute_plan`` — group count math.
+* ``.github/scripts/plan_shards.py::compute_plan`` — group count math.
 * ``.github/scripts/batch_test.py::_apply_shard`` — contiguous slicing
   must cover every package exactly once across all shards.
 """
@@ -27,9 +27,9 @@ def _load(rel_path: str, name: str):
     return mod
 
 
-plan_shards = _load(".github/scripts/plan-shards.py", "plan_shards")
+plan_shards = _load(".github/scripts/plan_shards.py", "plan_shards")
 batch_test = _load(".github/scripts/batch_test.py", "batch_test_mod")
-missing_pkgs = _load(".github/scripts/missing-pkgs.py", "missing_pkgs_mod")
+missing_pkgs = _load(".github/scripts/missing_pkgs.py", "missing_pkgs_mod")
 
 
 class TestComputePlan(unittest.TestCase):
