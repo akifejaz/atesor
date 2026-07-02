@@ -130,7 +130,102 @@ class ScriptedOperations:
         )
 
 
-    def _try_url_variants(self, url: str, name: str) -> Optional[CommandResult]:
+    # ------------------------------------------------------------------
+    # Fail-fast git environment: apply on every git subprocess so a
+    # missing credential / hanging SSH prompt exits immediately instead
+    # of stalling for 60+ seconds. Cheap & safe to always pass.
+    # ------------------------------------------------------------------
+    _GIT_FAIL_FAST_ENV: Dict[str, str] = {
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/bin/echo",
+        "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=no",
+    }
+
+    # ------------------------------------------------------------------
+    # Homepage → git URL heuristics. Applied as an ordered chain when
+    # the raw URL cannot be cloned. Order matters: most specific first,
+    # generic fallbacks last. Every substitution must yield a syntactic
+    # git URL (ends with a repo name, optionally `.git`); the actual
+    # existence is verified by trying to clone.
+    # ------------------------------------------------------------------
+    _HOMEPAGE_TO_GIT_RULES = (
+        # `https://www.gnu.org/software/<name>/` → savannah
+        (
+            re.compile(
+                r"^https?://(?:www\.)?gnu\.org/software/([A-Za-z0-9_.\-]+)/?$"
+            ),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://git.savannah.gnu.org/cgit/<name>.git/` → git/
+        (
+            re.compile(
+                r"^https?://git\.savannah\.gnu\.org/cgit/"
+                # Repo name: no dots so we don't swallow the `.git`
+                # suffix into the capture; matches real savannah paths.
+                r"([A-Za-z0-9_\-]+)(?:\.git)?/?$"
+            ),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://<name>.savannah.gnu.org/` → git.savannah.gnu.org/git
+        (
+            re.compile(
+                r"^https?://([A-Za-z0-9_.\-]+)\.savannah\.gnu\.org/?$"
+            ),
+            r"https://git.savannah.gnu.org/git/\1.git",
+        ),
+        # `https://dev.yorhel.nl` → code.blicky.net/yorhel/<name>
+        (
+            re.compile(r"^https?://dev\.yorhel\.nl/?$"),
+            None,  # sentinel: dispatcher fills in `name` at call time
+        ),
+    )
+
+    def _resolve_homepage_to_git_urls(self, url: str, name: str) -> List[str]:
+        """Return candidate git URLs derived from a project homepage.
+
+        The input ``url`` is often a project's *homepage* (e.g.
+        ``https://www.gnu.org/software/wget/``) rather than a cloneable
+        git URL. This helper applies deterministic host-specific rules
+        to turn the homepage into likely-valid git URLs, so downstream
+        clone recovery has something concrete to try.
+
+        Args:
+            url: The (possibly non-git) source URL.
+            name: The canonical repo name; used as a fallback when the
+                URL alone does not disclose it (e.g. ``dev.yorhel.nl``).
+
+        Returns:
+            A list of unique candidate git URLs (may be empty).
+        """
+        candidates: List[str] = []
+        stripped = url.rstrip("/")
+        for pattern, replacement in self._HOMEPAGE_TO_GIT_RULES:
+            match = pattern.match(stripped)
+            if not match:
+                continue
+            if replacement is None:
+                # Dispatcher: dev.yorhel.nl repos live on code.blicky.net.
+                cand = f"https://code.blicky.net/yorhel/{name}.git"
+            else:
+                cand = pattern.sub(replacement, stripped)
+            if cand and cand not in candidates:
+                candidates.append(cand)
+        return candidates
+
+    def _try_url_variants(
+        self, url: str, name: str
+    ) -> Optional[CommandResult]:
+        """Attempt to clone from URL variants derived from ``url``.
+
+        Order (broadest to most heuristic):
+            1. ``/cgit/`` → ``/git/`` (cgit is a *browsing* frontend).
+            2. Append ``.git`` if not already present.
+            3. Homepage-to-git rules (GNU savannah, blicky, ...).
+
+        Returns:
+            The successful ``CommandResult`` if any variant clones
+            cleanly, otherwise ``None``.
+        """
         # Validate name — only allow safe path components
         if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name):
             raise ValueError(f"Unsafe repo name: {name!r}")
@@ -140,20 +235,33 @@ class ScriptedOperations:
             raise ValueError(f"Refusing non-http URL: {url!r}")
 
         container_repo_path = f"/workspace/repos/{name}"
-        variants = []
+        variants: List[str] = []
 
         if "/cgit/" in url:
             variants.append(url.replace("/cgit/", "/git/"))
         if not url.endswith(".git"):
-            variants.append(url + ".git")
+            variants.append(url.rstrip("/") + ".git")
+        for cand in self._resolve_homepage_to_git_urls(url, name):
+            if cand not in variants:
+                variants.append(cand)
 
         for variant in variants:
             # Use list form — no shell, no injection
-            execute_command(["rm", "-rf", container_repo_path], use_docker=True)
-            cmd = ["git", "clone", "--depth", "1", variant, container_repo_path]
-            result = execute_command(cmd, use_docker=True)
+            execute_command(
+                ["rm", "-rf", container_repo_path], use_docker=True
+            )
+            cmd = [
+                "git", "clone", "--depth", "1",
+                variant, container_repo_path,
+            ]
+            result = execute_command(
+                cmd, use_docker=True, extra_env=self._GIT_FAIL_FAST_ENV
+            )
             if result.success:
-                logger.info("Clone succeeded via URL variant: %s", variant)  # no f-string in logger
+                # No f-string in logger call: cheaper when log is off
+                logger.info(
+                    "Clone succeeded via URL variant: %s", variant
+                )
                 return result
 
         return None
@@ -169,6 +277,129 @@ class ScriptedOperations:
         if path.startswith(self.workspace_root):
             return path.replace(self.workspace_root, "/workspace")
         return path
+
+    # ------------------------------------------------------------------
+    # Container-health precheck. Detects a "poisoned" sandbox — one
+    # where a previous package's LLM fix broke git or apt — and repairs
+    # it in place before we try to clone anything. Observed root cause
+    # for the 34-package cascade on debian shard 8 (run 28020958388):
+    # one repo's fix added a broken deb source to sources.list.d, then
+    # every subsequent repo failed with `git: command not found` or
+    # `apt-get update` errors because git was missing / apt was wedged.
+    # ------------------------------------------------------------------
+    def _ensure_container_healthy(self) -> None:
+        """Verify sandbox tooling is intact; repair in place if not.
+
+        Runs at most three cheap probes:
+            1. ``git --version`` — installs ``git`` via the active
+               platform profile if missing (exit 127).
+            2. ``apt-get update`` / ``apk update`` — if it fails, drops
+               any files under ``/etc/apt/sources.list.d/`` and
+               ``/etc/apk/repositories.d/`` that are not part of the
+               base image (heuristic: created within the last day).
+            3. Retries the failing probe once after repair.
+
+        All failures are non-fatal (best effort); the subsequent clone
+        will surface the real error via ``CommandResult``.
+        """
+        from src.platforms import get_active_profile
+
+        try:
+            profile = get_active_profile()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(f"Profile lookup failed during precheck: {exc}")
+            return
+
+        # 1) Git availability
+        probe = execute_command(
+            ["git", "--version"],
+            use_docker=True,
+            validate=False,
+        )
+        if not probe.success and (
+            "not found" in (probe.stderr or "").lower()
+            or probe.exit_code == 127
+        ):
+            logger.warning(
+                "Sandbox precheck: git missing, installing via %s",
+                profile.name,
+            )
+            install = execute_command(
+                profile.install_cmd(["git"]),
+                use_docker=True,
+            )
+            state = "ok" if install.success else "still-broken"
+            logger.info(f"Sandbox git self-repair: {state}")
+
+        # 2) Package manager: only check on Debian/Ubuntu where the
+        # cascade from a bad third-party source is worst; Alpine's
+        # apk failures usually surface per-install.
+        if profile.name in ("debian", "ubuntu"):
+            update = execute_command(
+                "apt-get update",
+                use_docker=True,
+            )
+            if not update.success and (
+                "Release file" in (update.stderr or "")
+                or "not have a Release" in (update.stderr or "")
+            ):
+                logger.warning(
+                    "Sandbox precheck: apt sources broken, removing "
+                    "LLM-added source list files under "
+                    "/etc/apt/sources.list.d/"
+                )
+                # Only remove non-base-image entries. `.list` files
+                # baked into the image are typically created at image
+                # build time; anything newer was added post-boot by a
+                # fix command that we now know failed.
+                cleanup = (
+                    "find /etc/apt/sources.list.d -maxdepth 1 "
+                    "-type f -mmin -1440 -delete"
+                )
+                execute_command(cleanup, use_docker=True)
+                retry = execute_command("apt-get update", use_docker=True)
+                if retry.success:
+                    logger.info(
+                        "Sandbox apt self-repair: recovered after "
+                        "removing stale source lists"
+                    )
+                else:
+                    logger.warning(
+                        "Sandbox apt self-repair: still failing after "
+                        "cleanup (%s)",
+                        (retry.stderr or "")[:120],
+                    )
+
+    def _init_submodules_if_present(self, container_repo_path: str) -> None:
+        """Best-effort ``git submodule update --init --recursive``.
+
+        Runs only when the cloned repo contains a top-level
+        ``.gitmodules``; downgrades any failure to a warning. Many Go
+        repos (aliyun-cli, upstream vendor mirrors) resolve their
+        real Go packages from a submodule, and skipping this step
+        surfaces later as ``no required module provides package``.
+        """
+        check = execute_command(
+            f"test -f {container_repo_path}/.gitmodules",
+            use_docker=True,
+        )
+        if not check.success:
+            return
+        logger.info(
+            "Repository declares submodules; initializing recursively"
+        )
+        result = execute_command(
+            f"cd {container_repo_path} && "
+            f"git submodule update --init --recursive",
+            use_docker=True,
+            extra_env=self._GIT_FAIL_FAST_ENV,
+            timeout=300,
+        )
+        if not result.success:
+            logger.warning(
+                "Submodule init failed (continuing without): %s",
+                (result.stderr or "")[:200],
+            )
 
     def clone_or_update_repository(self, url: str, name: str) -> CommandResult:
         """Clone a repository or update it if it already exists.
@@ -188,40 +419,55 @@ class ScriptedOperations:
         container_repo_path = f"/workspace/repos/{name}"
         host_repo_path = os.path.join(self.repos_dir, name)
 
+        # ------------------------------------------------------------
+        # Container-health precheck: make sure the sandbox still has
+        # git / working apt sources before we attempt anything else.
+        # ------------------------------------------------------------
+        self._ensure_container_healthy()
+
         # Check if already exists (check on host for speed)
         if os.path.exists(os.path.join(host_repo_path, ".git")):
-            logger.info(f"Repository {name} already exists, pulling latest...")
-            # Pull inside container to maintain ownership
-            cmd = f"cd {container_repo_path} && git pull"
-            result = execute_command(cmd, use_docker=True)
+            logger.info(f"Repository {name} already exists, resetting...")
+            # STRATEGIC HARDENING (dasel regression, 2026-07-01): a
+            # previous run's LLM may have authored broken files (e.g. a
+            # syntactically-invalid Makefile or half-applied patches).
+            # `git pull` alone preserves those files (they are untracked
+            # or committed-locally), so every subsequent run replays the
+            # same failure. Always reset to pristine upstream state
+            # before touching the working tree; this keeps every run
+            # idempotent and preserves the self-healing contract.
+            reset_cmd = (
+                f"cd {container_repo_path} && "
+                f"git fetch --depth 1 origin && "
+                f"git reset --hard $(git remote show origin | "
+                f"grep 'HEAD branch' | awk '{{print $NF}}' | "
+                f"xargs -I% echo origin/%) && "
+                f"git clean -fdx"
+            )
+            result = execute_command(
+                reset_cmd,
+                use_docker=True,
+                extra_env=self._GIT_FAIL_FAST_ENV,
+            )
 
             if not result.success:
-                # Pull failed — likely diverged history or force-push
+                # Reset failed — likely diverged history, force-push, or
+                # a genuinely broken clone. Delete and re-clone.
                 logger.warning(
-                    f"git pull failed for {name}, attempting fetch+reset..."
+                    f"fetch+reset failed for {name} "
+                    f"(stderr={result.stderr[:200]!r}); "
+                    f"re-cloning from scratch..."
                 )
-                reset_cmd = (
-                    f"cd {container_repo_path} && "
-                    f"git fetch origin && "
-                    f"git reset --hard $(git remote show origin | "
-                    f"grep 'HEAD branch' | awk '{{print $NF}}' | "
-                    f"xargs -I% echo origin/%) && "
-                    f"git clean -fdx"
+                rm_cmd = f"rm -rf {container_repo_path}"
+                execute_command(rm_cmd, use_docker=True)
+                clone_cmd = (
+                    f"git clone --depth 1 {url} {container_repo_path}"
                 )
-                result = execute_command(reset_cmd, use_docker=True)
-
-                if not result.success:
-                    # Reset also failed — delete and re-clone
-                    logger.warning(
-                        f"fetch+reset failed for {name}, "
-                        f"re-cloning from scratch..."
-                    )
-                    rm_cmd = f"rm -rf {container_repo_path}"
-                    execute_command(rm_cmd, use_docker=True)
-                    clone_cmd = (
-                        f"git clone --depth 1 {url} {container_repo_path}"
-                    )
-                    result = execute_command(clone_cmd, use_docker=True)
+                result = execute_command(
+                    clone_cmd,
+                    use_docker=True,
+                    extra_env=self._GIT_FAIL_FAST_ENV,
+                )
         else:
             rm_cmd = f"rm -rf {container_repo_path}"
             execute_command(rm_cmd, use_docker=True)
@@ -230,7 +476,11 @@ class ScriptedOperations:
 
             logger.info(f"Cloning repository {url}...")
             cmd = self._build_auth_clone_cmd(url, container_repo_path)
-            result = execute_command(cmd, use_docker=True)
+            result = execute_command(
+                cmd,
+                use_docker=True,
+                extra_env=self._GIT_FAIL_FAST_ENV,
+            )
 
             if not result.success and self._is_auth_error(result):
                 logger.warning(
@@ -239,7 +489,11 @@ class ScriptedOperations:
                 rm_cmd = f"rm -rf {container_repo_path}"
                 execute_command(rm_cmd, use_docker=True)
                 cmd = f"git clone --depth 1 {url} {container_repo_path}"
-                result = execute_command(cmd, use_docker=True)
+                result = execute_command(
+                    cmd,
+                    use_docker=True,
+                    extra_env=self._GIT_FAIL_FAST_ENV,
+                )
 
             if not result.success:
                 logger.warning(
@@ -266,6 +520,10 @@ class ScriptedOperations:
                 logger.warning(
                     f"Failed to add safe.directory: {safe_result.stderr}"
                 )
+
+        # Auto-init any git submodules the repo declares. Non-fatal.
+        if result.success:
+            self._init_submodules_if_present(container_repo_path)
 
         return result
 

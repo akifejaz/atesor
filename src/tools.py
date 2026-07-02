@@ -131,7 +131,7 @@ class CommandValidator:
         r"^unzip\s+",
         r"^cp\s+",
         r"^mv\s+",
-        r"^rm\s+(?!-rf\s+/)",  # Allow rm but not rm -rf /
+        r"^rm\s+",  # DANGEROUS_PATTERNS block only truly dangerous forms
         # Discovery
         r"^which\s+",
         r"^uname\s+",
@@ -163,7 +163,11 @@ class CommandValidator:
 
     # Dangerous patterns to block (blacklist)
     DANGEROUS_PATTERNS = {
-        r"rm\s+-rf\s+/",  # Recursive root deletion
+        # Root deletion — must be genuinely `rm -rf /` (root) or `/*`,
+        # not a path with a real subdirectory like
+        # `/workspace/repos/foo`. Any character in the class ``\s``,
+        # ``*`` or end-of-line following the ``/`` means it stayed root.
+        r"rm\s+-rf\s+/(?:\s|$|\*)",
         r":\(\)\{\s*:\|:\&\s*\}",  # Fork bomb
         r"dd\s+if=/dev/zero\s+of=/dev/sd",  # Disk wipe
         r"mkfs\.",  # Format filesystem
@@ -182,6 +186,37 @@ class CommandValidator:
         r"/etc/passwd",  # System files
         # Container swap fiddling (host-only, never appropriate).
         r"mkswap\s+|swapon\s+",
+        # ------------------------------------------------------------------
+        # Container-poisoning guards (run 28020958388: one poisoned
+        # container broke 34 subsequent packages on the same worker).
+        # ------------------------------------------------------------------
+        # Uninstalling packages via the distro manager (autoremove,
+        # remove, purge) can silently drop `git`, `ca-certificates`, and
+        # other transitive deps we rely on. The base image ships every
+        # tool we need; the LLM should never *remove* a package to work
+        # around a build failure.
+        r"\b(?:apt-get|apt)\s+(?:remove|purge|autoremove)\b",
+        r"\bapk\s+del\b",
+        r"\bdpkg\s+--(?:remove|purge)\b",
+        # Rewriting the apt/apk source lists is the second-most common
+        # container-poisoning vector — an LLM adds a broken third-party
+        # repo (e.g. `deb.debian.org/debian-ports stable`) and every
+        # subsequent `apt-get update` explodes for the rest of the
+        # worker's lifetime. Refuse any redirect (`>`, `>>`, `tee -a`)
+        # into the apt/apk source lists directories.
+        (
+            r"(?:>|>>|tee(?:\s+-a)?\s+)"
+            r"\s*/etc/apt/(?:sources\.list|sources\.list\.d/)"
+        ),
+        (
+            r"(?:>|>>|tee(?:\s+-a)?\s+)"
+            r"\s*/etc/apk/repositories(?:\.d/)?"
+        ),
+        # ``add-apt-repository`` and ``apt-key adv`` both mutate the
+        # repo list and can wedge apt if the URL is bad. There's no
+        # legitimate need for either inside our sandbox.
+        r"\badd-apt-repository\b",
+        r"\bapt-key\s+adv\b",
     }
 
     def is_safe(self, command: str) -> Tuple[bool, str]:
@@ -270,22 +305,36 @@ def execute_command(
     timeout: int = 1800,
     validate: bool = True,
     use_docker: bool = True,
+    extra_env: Optional[dict] = None,
 ) -> CommandResult:
     """Execute a shell command safely.
 
     Args:
-        command: Shell command to execute.
+        command: Shell command to execute. Accepts either a ``str`` (run
+            through the shell) or a ``list[str]`` (argv form; joined for
+            docker exec, passed as ``shell=False`` on the host).
         cwd: Working directory (translated to a container path when
             ``use_docker`` is True).
         timeout: Timeout in seconds.
         validate: Whether to validate command safety.
         use_docker: Whether to execute in the Docker container.
             Defaults to True.
+        extra_env: Additional environment variables exported for the
+            command. Applied inside the container via ``docker exec
+            --env`` and on the host via a merged ``env`` dict. Values
+            already present in the process environment are overridden.
 
     Returns:
         A ``CommandResult`` with output and status.
     """
     from src.config import _IN_DOCKER, WORKSPACE_ROOT
+
+    # Accept argv-form commands for scripted callers that build a list
+    # to avoid shell injection. All downstream logic works on strings.
+    if isinstance(command, (list, tuple)):
+        import shlex
+
+        command = " ".join(shlex.quote(str(part)) for part in command)
 
     start_time = time.time()
 
@@ -335,6 +384,13 @@ def execute_command(
 
             # Build docker exec command
             docker_cmd = ["docker", "exec"]
+
+            # Inject per-call environment overrides (fail-fast git flags,
+            # locale, tokens). Applied before the container name, per
+            # `docker exec` calling convention.
+            if extra_env:
+                for env_key, env_val in extra_env.items():
+                    docker_cmd.extend(["--env", f"{env_key}={env_val}"])
 
             # Add working directory if specified
             if cwd:
@@ -400,6 +456,13 @@ def execute_command(
             # Execute on host (for git clone, etc.)
             logger.debug(f"Executing on host: {command[:100]}")
 
+            host_env = None
+            if extra_env:
+                host_env = os.environ.copy()
+                host_env.update(
+                    {str(k): str(v) for k, v in extra_env.items()}
+                )
+
             result = subprocess.run(
                 command,
                 shell=True,
@@ -407,6 +470,7 @@ def execute_command(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=host_env,
             )
 
         duration = time.time() - start_time

@@ -229,40 +229,50 @@ def _build_command_error_message(result, fallback: str) -> str:
     return f"{fallback} (exit {result.exit_code}) - {detail}"
 
 
-def _try_clone_recovery(state: AgentState, url: str, name: str) -> Optional[CommandResult]:
+def _try_clone_recovery(
+    state: AgentState, url: str, name: str
+) -> Optional[CommandResult]:
     """Try additional URL-level recovery when the initial clone fails.
 
-    Explores URL transformations, logs which (if any) succeeded so the
-    memory system can learn from the pattern.
-    """
-    host_repo_path = os.path.join(
-        getattr(scripted_ops, "repos_dir", "/workspace/repos"), name
-    )
-    container_repo_path = f"/workspace/repos/{name}"
-    tried = [url]
+    Delegates to :meth:`ScriptedOperations._try_url_variants` so both
+    the initial clone path (in scripted_ops) and the supervisor-level
+    recovery path (here) apply the same set of transformations:
+    ``/cgit/`` → ``/git/``, appending ``.git``, and the homepage → git
+    rules (GNU savannah, blicky, ...).
 
-    variants = []
+    Args:
+        state: Agent state (used to record which variants were tried).
+        url: The original clone URL.
+        name: The canonical repo name.
+
+    Returns:
+        The successful ``CommandResult`` if a variant clones cleanly,
+        or ``None`` if every attempt fails.
+    """
+    tried: List[str] = [url]
+    result = scripted_ops._try_url_variants(url, name)
+
+    # Reflect the attempts the variant helper made into audit state.
+    # We don't have direct access to the internal list, so replay the
+    # deterministic rules to record accurate telemetry.
+    stripped = url.rstrip("/")
+    variants: List[str] = []
     if "/cgit/" in url:
         variants.append(url.replace("/cgit/", "/git/"))
     if not url.endswith(".git"):
-        variants.append(url + ".git")
+        variants.append(stripped + ".git")
+    for cand in scripted_ops._resolve_homepage_to_git_urls(url, name):
+        if cand not in variants:
+            variants.append(cand)
+    tried.extend(variants)
 
-    for variant in variants:
-        rm_cmd = f"rm -rf {container_repo_path}"
-        execute_command(rm_cmd, use_docker=True)
-        cmd = f"git clone --depth 1 {variant} {container_repo_path}"
-        result = execute_command(cmd, use_docker=True)
-        if result.success:
-            logger.info(
-                f"Clone recovery succeeded via URL variant: {variant}"
-            )
-            state.context_cache["clone_recovery"] = {
-                "original_url": url,
-                "success_url": variant,
-                "attempted": tried + [variant],
-            }
-            return result
-        tried.append(variant)
+    if result is not None:
+        state.context_cache["clone_recovery"] = {
+            "original_url": url,
+            "success_url": result.command,
+            "attempted": tried,
+        }
+        return result
 
     state.context_cache["clone_recovery"] = {
         "original_url": url,
@@ -1787,20 +1797,40 @@ def _resolve_header_to_packages(stderr: str, profile) -> List[str]:
 
 
 def _is_suspected_oom(result, command: str) -> bool:
-    """Detect a likely QEMU OOM-kill on a parallel build command.
+    """Detect a likely QEMU OOM-kill under emulated riscv64.
 
-    Restricted to known parallel build commands to avoid misclassifying
-    other silent failures. Triggers on exit 137 (SIGKILL) or a non-zero
-    exit with no captured output at all.
+    Under QEMU emulation, parallel builds and even a single-thread
+    ``cargo fetch`` or ``pip install`` occasionally OOM-kill (exit 137
+    / SIGKILL). The heuristic:
+
+    * Exit ``137`` (SIGKILL) is *always* treated as OOM regardless of
+      the command — QEMU's mmap OOM path is by far the most common
+      cause of that exit code inside the sandbox.
+    * For known-parallel build commands, a non-zero exit with *no*
+      captured output at all is also treated as OOM (build was killed
+      before it could log anything).
+
+    Args:
+        result: The completed ``CommandResult``.
+        command: The shell command that was executed.
+
+    Returns:
+        ``True`` if the failure looks like an OOM kill worth retrying
+        serially, otherwise ``False``.
     """
+    # Universal signal — always trust exit 137 as OOM. Broadened from
+    # build-only in run 28020958388 because cargo fetch / pip install /
+    # dependency downloads also OOM'd for 58 packages.
+    if result.exit_code == 137:
+        return True
+    # Known parallel builds with an empty-output silent kill.
     if not re.search(
         r"\b(go\s+(build|install|test)|make|ninja"
-        r"|cargo\s+(build|install|test))\b",
+        r"|cargo\s+(build|install|test|fetch|update)"
+        r"|pip\s+install|npm\s+(install|ci|run))\b",
         command,
     ):
         return False
-    if result.exit_code == 137:
-        return True
     no_output = (
         not (result.stdout or "").strip() and not (result.stderr or "").strip()
     )
@@ -1833,15 +1863,38 @@ def _serialize_build_command(command: str) -> str:
     if re.search(r"\bninja\b", body) and "-j" not in body:
         body = re.sub(r"\bninja\b", "ninja -j1", body, count=1)
         return prefix + body
-    if re.search(r"\bcargo\s+(build|install|test)\b", body) and (
-        "-j" not in body
-    ):
-        body = re.sub(
-            r"\bcargo\s+(build|install|test)\b",
-            r"cargo \1 -j 1",
-            body,
-            count=1,
-        )
+    if re.search(r"\bcargo\s+(build|install|test|fetch|update)\b", body):
+        # Cargo network commands (fetch/update) don't accept -j, so we
+        # only add the flag for build variants that support it.
+        if re.search(r"\bcargo\s+(build|install|test)\b", body) and (
+            "-j" not in body
+        ):
+            body = re.sub(
+                r"\bcargo\s+(build|install|test)\b",
+                r"cargo \1 -j 1",
+                body,
+                count=1,
+            )
+        if "cargo_build_jobs" not in body.lower():
+            body = "env CARGO_BUILD_JOBS=1 " + body
+        return prefix + body
+    if re.search(r"\bpip\s+install\b", body):
+        # `pip install` has no jobs flag; the OOM comes from wheel
+        # builds (setup.py compilations). Serialize via MAKEFLAGS,
+        # which pip forwards to setup.py invocations.
+        if "makeflags" not in body.lower():
+            body = "env MAKEFLAGS=-j1 " + body
+        return prefix + body
+    if re.search(r"\bnpm\s+(install|ci|run)\b", body):
+        # NPM's own worker pool is bounded by --jobs; back-compat flag
+        # supported since npm 7.
+        if "--jobs" not in body:
+            body = re.sub(
+                r"\bnpm\s+(install|ci|run)\b",
+                r"npm \1 --jobs 1",
+                body,
+                count=1,
+            )
         return prefix + body
     return command
 
@@ -1882,6 +1935,70 @@ def _resolve_missing_python_modules(stderr: str) -> List[str]:
             seen.add(pip_name)
             pkgs.append(pip_name)
     return pkgs
+
+
+def _download_go_toolchain_cmd(version: str) -> str:
+    """Return a shell command that installs a Go toolchain from go.dev.
+
+    The previous ``go install golang.org/dl/goX.Y.Z@latest`` path does
+    not work on Alpine musl (the ``dl`` helper links against glibc) and
+    also OOM-kills under QEMU during the ``goX.Y.Z download`` step
+    (observed root cause for 25+ Go packages in run 28020958388).
+    Downloading the official riscv64 tarball into ``/usr/local`` is
+    what our sandbox images already do at build time; replicating that
+    at runtime is fast, deterministic, and works on every distro.
+
+    Args:
+        version: The Go version string to install, e.g. ``"1.25.0"``.
+
+    Returns:
+        A shell command string that, when executed inside the sandbox,
+        replaces ``/usr/local/go`` with the requested version. Includes
+        a sanity check (``go version``) so a partial download is
+        surfaced as a non-zero exit.
+    """
+    tarball = f"go{version}.linux-riscv64.tar.gz"
+    url = f"https://go.dev/dl/{tarball}"
+    tmp = f"/tmp/{tarball}"
+    return (
+        f"set -e && "
+        f"curl -fsSL -o {tmp} {url} && "
+        f"rm -rf /usr/local/go && "
+        f"tar -xzf {tmp} -C /usr/local && "
+        f"rm -f {tmp} && "
+        f"/usr/local/go/bin/go version"
+    )
+
+
+def _repo_has_gitmodules(repo_path: str) -> bool:
+    """Return True when ``repo_path`` contains a ``.gitmodules`` file."""
+    try:
+        return os.path.isfile(os.path.join(repo_path, ".gitmodules"))
+    except (OSError, TypeError):
+        return False
+
+
+def _npm_scripts(repo_path: str) -> List[str]:
+    """Return the list of npm scripts declared in ``package.json``.
+
+    Empty list when ``package.json`` is missing or unparseable. Used
+    to detect the ``npm run build`` guard case: the LLM sometimes
+    invents a ``build`` script that the project never defined.
+    """
+    pkg_path = os.path.join(repo_path, "package.json")
+    if not os.path.isfile(pkg_path):
+        return []
+    try:
+        import json as _json
+
+        with open(pkg_path, "r", encoding="utf-8", errors="ignore") as fp:
+            data = _json.load(fp)
+    except Exception:
+        return []
+    scripts = data.get("scripts") if isinstance(data, dict) else None
+    if not isinstance(scripts, dict):
+        return []
+    return list(scripts.keys())
 
 
 @agent_node(AgentRole.BUILDER)
@@ -1982,6 +2099,49 @@ def builder_node(state: AgentState) -> AgentState:
             # post-configure hook wouldn't have fired yet.
             if re.match(r"\bmake\b", optimized_cmd.lstrip()):
                 _fixup_top_builddir_in_submakefiles(state.repo_path)
+
+            # ``npm run <script>`` guard: the fixer/scout frequently
+            # invents an ``npm run build`` even when package.json does
+            # not declare a ``build`` script (root cause: the scout
+            # prompt encourages "run the standard build command"). If
+            # the requested script does not exist, downgrade to the
+            # only script present when there's one obvious choice, or
+            # skip the command otherwise so the phase can proceed.
+            _npm_run_match = re.match(
+                r"^\s*npm\s+run\s+([A-Za-z0-9_.:\-]+)\b(.*)$",
+                optimized_cmd,
+            )
+            if _npm_run_match:
+                wanted = _npm_run_match.group(1)
+                tail = _npm_run_match.group(2)
+                scripts = _npm_scripts(_to_host_path(state.repo_path))
+                if scripts and wanted not in scripts:
+                    replacement = None
+                    # Prefer well-known aliases in this order; skip
+                    # otherwise so we do not blindly execute arbitrary
+                    # scripts the project happens to declare.
+                    for alias in ("build", "prod", "compile", "dist"):
+                        if alias in scripts:
+                            replacement = alias
+                            break
+                    if replacement and replacement != wanted:
+                        rewritten = f"npm run {replacement}{tail}"
+                        logger.warning(
+                            "npm script %r not declared; "
+                            "substituting %r (available: %s)",
+                            wanted,
+                            replacement,
+                            ", ".join(scripts),
+                        )
+                        optimized_cmd = rewritten
+                    else:
+                        logger.warning(
+                            "npm script %r not declared and no safe "
+                            "alias available (scripts=%s); skipping",
+                            wanted,
+                            scripts,
+                        )
+                        continue
 
             result = execute_command(optimized_cmd, cwd=state.repo_path)
             state.cache_command_result(command, result)
@@ -2390,6 +2550,44 @@ def builder_node(state: AgentState) -> AgentState:
                             continue
                         result = retry_result
 
+                # Go says "no required module provides package X" AND the
+                # repo declares submodules -> init and retry. Common with
+                # vendored, dot-slash-relative go.mod trees (aliyun-cli).
+                _need_submod = (
+                    "no required module provides package"
+                    in (result.stderr or "").lower()
+                )
+                if (
+                    _need_submod
+                    and _repo_has_gitmodules(state.repo_path)
+                    and _builder_retry_allowed(
+                        state, f"submod-init:{command}"
+                    )
+                ):
+                    logger.warning(
+                        "Missing Go module + .gitmodules present -> "
+                        "running submodule update --init --recursive"
+                    )
+                    _sm_cmd = (
+                        f"cd {state.repo_path} && "
+                        "git submodule update --init --recursive"
+                    )
+                    _sm_res = execute_command(_sm_cmd, cwd=state.repo_path)
+                    state.log_scripted_op("init_submodules")
+                    if _sm_res.success:
+                        _sm_retry = execute_command(
+                            optimized_cmd, cwd=state.repo_path
+                        )
+                        state.cache_command_result(optimized_cmd, _sm_retry)
+                        state.log_scripted_op("retry_build_command")
+                        if _sm_retry.success:
+                            logger.info(
+                                "Resolved missing Go module by "
+                                "initializing submodules"
+                            )
+                            continue
+                        result = _sm_retry
+
                 # Missing git in Debian sandbox -> install and retry
                 if (
                     "command not found" in (result.stderr or "").lower()
@@ -2409,24 +2607,25 @@ def builder_node(state: AgentState) -> AgentState:
                         continue
                     result = _gtool_retry
 
-                # Go version too old -> install newer Go via golang.org/dl
+                # Go version too old -> install newer Go via go.dev tarball
                 if is_toolchain_version_mismatch(result.stderr or ""):
                     _gv_match = re.search(
-                        r'go\.mod requires go (>=?\s*)?(\d+\.\d+\.\d+)',
+                        r'go\.mod requires go (>=?\s*)?(\d+\.\d+(?:\.\d+)?)',
                         result.stderr or ""
                     )
                     if _gv_match and _builder_retry_allowed(
                         state, f"go-version:{command}"
                     ):
                         _gv_needed = _gv_match.group(2)
+                        # Normalise short "1.25" → "1.25.0" so the
+                        # go.dev tarball URL is always valid.
+                        if _gv_needed.count(".") == 1:
+                            _gv_needed = f"{_gv_needed}.0"
                         logger.warning(
-                            "Go version too old, attempting to install "
-                            f"Go {_gv_needed}"
+                            "Go version too old, downloading Go "
+                            f"{_gv_needed} tarball into /usr/local"
                         )
-                        _gv_cmd = (
-                            f"go install golang.org/dl/go{_gv_needed}@latest "
-                            f"&& go{_gv_needed} download"
-                        )
+                        _gv_cmd = _download_go_toolchain_cmd(_gv_needed)
                         _gv_inst = execute_command(
                             _gv_cmd, cwd=state.repo_path
                         )
