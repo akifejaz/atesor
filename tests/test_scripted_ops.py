@@ -298,5 +298,227 @@ class TestPathTranslation:
         assert ops._to_host_path("/tmp/x") == "/tmp/x"
 
 
+# ---------- Homepage → git URL resolution ----------
+
+
+class TestResolveHomepageToGitUrls:
+    """Tests for ScriptedOperations._resolve_homepage_to_git_urls."""
+
+    def _ops(self) -> ScriptedOperations:
+        """Helper: build a ScriptedOperations bound to a tmp workspace."""
+        return ScriptedOperations()
+
+    def test_gnu_homepage_maps_to_savannah(self) -> None:
+        """`gnu.org/software/wget/` -> savannah `wget.git`."""
+        got = self._ops()._resolve_homepage_to_git_urls(
+            "https://www.gnu.org/software/wget/", "wget"
+        )
+        assert got == ["https://git.savannah.gnu.org/git/wget.git"]
+
+    def test_gnu_homepage_without_trailing_slash(self) -> None:
+        """`gnu.org/software/grep` (no slash) also resolves."""
+        got = self._ops()._resolve_homepage_to_git_urls(
+            "http://www.gnu.org/software/grep", "grep"
+        )
+        assert got == ["https://git.savannah.gnu.org/git/grep.git"]
+
+    def test_savannah_cgit_url_maps_to_git_dir(self) -> None:
+        """`git.savannah.gnu.org/cgit/gawk.git` -> git/gawk.git (no dupes)."""
+        got = self._ops()._resolve_homepage_to_git_urls(
+            "https://git.savannah.gnu.org/cgit/gawk.git", "gawk"
+        )
+        assert got == ["https://git.savannah.gnu.org/git/gawk.git"]
+
+    def test_yorhel_maps_to_blicky(self) -> None:
+        """`dev.yorhel.nl` -> `code.blicky.net/yorhel/<name>.git`."""
+        got = self._ops()._resolve_homepage_to_git_urls(
+            "https://dev.yorhel.nl", "ncdu"
+        )
+        assert got == ["https://code.blicky.net/yorhel/ncdu.git"]
+
+    def test_generic_github_url_yields_no_rewrite(self) -> None:
+        """Regular GitHub URLs have no homepage rewrite."""
+        got = self._ops()._resolve_homepage_to_git_urls(
+            "https://github.com/foo/bar", "bar"
+        )
+        assert got == []
+
+
+# ---------- Container-health precheck ----------
+
+
+class TestEnsureContainerHealthy:
+    """Tests for ScriptedOperations._ensure_container_healthy."""
+
+    def test_git_missing_triggers_install(
+        self, stub_execute_command
+    ) -> None:
+        """Missing git in container -> profile.install_cmd(['git']) runs."""
+        from src.state import CommandResult
+
+        calls: list = []
+
+        def fake(cmd, **kwargs):
+            """Fake."""
+            calls.append(cmd)
+            # First probe: git --version fails with 127
+            if isinstance(cmd, list) and cmd == ["git", "--version"]:
+                return CommandResult(
+                    "git --version", 127, "", "git: not found", 0.0
+                )
+            # Install command succeeds
+            return CommandResult(str(cmd), 0, "installed", "", 0.0)
+
+        stub_execute_command("src.scripted_ops", fake)
+        ScriptedOperations()._ensure_container_healthy()
+
+        # The install command should reference git and use the active
+        # profile's package manager (alpine → apk).
+        install_calls = [
+            c for c in calls if isinstance(c, str) and "git" in c
+        ]
+        assert any(
+            "apk" in c or "apt-get" in c for c in install_calls
+        ), calls
+
+    def test_healthy_container_makes_only_probes(
+        self, stub_execute_command
+    ) -> None:
+        """A working sandbox runs only the read-only probes, no install."""
+        from src.state import CommandResult
+
+        calls: list = []
+
+        def fake(cmd, **kwargs):
+            """Fake."""
+            calls.append(cmd)
+            return CommandResult(str(cmd), 0, "", "", 0.0)
+
+        stub_execute_command("src.scripted_ops", fake)
+        ScriptedOperations()._ensure_container_healthy()
+
+        # Only the git --version probe should run (alpine skips the apt
+        # probe entirely).
+        assert any(
+            isinstance(c, list) and c[:2] == ["git", "--version"]
+            for c in calls
+        )
+        # No install command
+        assert not any(
+            isinstance(c, str) and "install" in c for c in calls
+        )
+
+
+# ---------- Submodule init after clone ----------
+
+
+class TestInitSubmodulesIfPresent:
+    """Tests for ScriptedOperations._init_submodules_if_present."""
+
+    def test_no_gitmodules_is_no_op(self, stub_execute_command) -> None:
+        """When ``.gitmodules`` is absent, no submodule call is made."""
+        from src.state import CommandResult
+
+        calls: list = []
+
+        def fake(cmd, **kwargs):
+            """Fake."""
+            calls.append(cmd)
+            # test -f returns non-zero when the file doesn't exist
+            if isinstance(cmd, str) and cmd.startswith("test -f"):
+                return CommandResult(cmd, 1, "", "", 0.0)
+            return CommandResult(str(cmd), 0, "", "", 0.0)
+
+        stub_execute_command("src.scripted_ops", fake)
+        ScriptedOperations()._init_submodules_if_present(
+            "/workspace/repos/foo"
+        )
+
+        # test -f check ran, but no submodule command should follow.
+        assert any(
+            isinstance(c, str) and "test -f" in c for c in calls
+        )
+        assert not any(
+            isinstance(c, str) and "submodule update" in c for c in calls
+        )
+
+    def test_gitmodules_triggers_submodule_init(
+        self, stub_execute_command
+    ) -> None:
+        """When ``.gitmodules`` exists, git submodule update runs."""
+        from src.state import CommandResult
+
+        calls: list = []
+
+        def fake(cmd, **kwargs):
+            """Fake."""
+            calls.append(cmd)
+            return CommandResult(str(cmd), 0, "", "", 0.0)
+
+        stub_execute_command("src.scripted_ops", fake)
+        ScriptedOperations()._init_submodules_if_present(
+            "/workspace/repos/foo"
+        )
+
+        assert any(
+            isinstance(c, str)
+            and "git submodule update --init --recursive" in c
+            for c in calls
+        )
+
+
+class TestCloneResetsExistingRepo:
+    """Regression: reused clones must be reset to pristine upstream state.
+
+    Rationale: a previous run's LLM may have authored broken files (e.g.
+    a syntactically-invalid Makefile) or half-applied patches; ``git
+    pull`` alone preserves them, causing every subsequent run to replay
+    the same failure. See src/scripted_ops.py::clone_or_update_repository.
+    """
+
+    def test_existing_repo_runs_fetch_reset_and_clean(
+        self, stub_execute_command, monkeypatch, tmp_path
+    ) -> None:
+        """When the clone directory exists, fetch+reset+clean must run."""
+        from src.state import CommandResult
+
+        # Pretend the .git directory exists so we hit the "exists" branch.
+        monkeypatch.setattr("os.path.exists", lambda _p: True)
+        # Suppress side effects from health check and submodule init.
+        monkeypatch.setattr(
+            "src.scripted_ops.ScriptedOperations."
+            "_ensure_container_healthy",
+            lambda _self: None,
+        )
+        monkeypatch.setattr(
+            "src.scripted_ops.ScriptedOperations."
+            "_init_submodules_if_present",
+            lambda _self, _p: None,
+        )
+
+        commands: list = []
+
+        def fake(cmd, **kwargs):
+            """Fake execute_command that records every issued command."""
+            commands.append(cmd)
+            return CommandResult(str(cmd), 0, "", "", 0.0)
+
+        stub_execute_command("src.scripted_ops", fake)
+        ScriptedOperations().clone_or_update_repository(
+            "https://github.com/foo/bar.git", "bar"
+        )
+
+        joined = " ".join(str(c) for c in commands)
+        # Must reset to upstream HEAD and remove untracked files.
+        assert "git fetch" in joined
+        assert "git reset --hard" in joined
+        assert "git clean -fdx" in joined
+        # Must NOT do a bare `git pull` which would preserve the poison.
+        assert not any(
+            isinstance(c, str) and c.strip().endswith("git pull")
+            for c in commands
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

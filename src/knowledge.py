@@ -197,6 +197,31 @@ COMMON_PORTING_ISSUES = {
             "For Makefile: LDFLAGS += -latomic",
         ],
     },
+    "linker_relaxation": {
+        "symptoms": [
+            "relocation truncated to fit",
+            "relocation R_RISCV_HI20",
+            "relocation R_RISCV_CALL",
+            "relocation R_RISCV_JAL",
+        ],
+        "root_cause": (
+            "RISC-V default code model (-mcmodel=medlow) limits code to"
+            " 2 GiB; large functions exceed this"
+        ),
+        "solutions": [
+            (
+                "Compile with -mcmodel=medany (medium/any) which uses"
+                " PC-relative addressing up to 4 GiB"
+            ),
+            (
+                "Add to CFLAGS/CXXFLAGS: -mcmodel=medany"
+            ),
+            (
+                "For CMake: set(CMAKE_C_FLAGS"
+                " \"${CMAKE_C_FLAGS} -mcmodel=medany\")"
+            ),
+        ],
+    },
     "cache_line_size": {
         "symptoms": [
             "hardcoded CACHELINE_SIZE 64",

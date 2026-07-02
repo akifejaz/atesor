@@ -772,6 +772,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--platform",
+        dest="platform",
+        default=None,
+        choices=sorted(_PLATFORM_CONTAINERS),
+        help=(
+            "Sandbox distro to run against. Overrides ATESOR_PLATFORM "
+            "for this invocation and picks the matching container "
+            "image + per-worker container names. "
+            f"Default: value of ATESOR_PLATFORM (currently {PLATFORM!r})."
+        ),
+    )
+    parser.add_argument(
         "names",
         nargs="*",
         help="Optional package names to filter from the chosen list.",
@@ -805,6 +817,14 @@ def _apply_shard(
 def main() -> int:
     """Run the configured packages through the agent in parallel."""
     args = _parse_args(sys.argv[1:])
+
+    global PLATFORM, _BASE_CONTAINER
+    if args.platform and args.platform != PLATFORM:
+        PLATFORM = args.platform
+        _BASE_CONTAINER = _PLATFORM_CONTAINERS[PLATFORM]
+        # Downstream helpers read ATESOR_PLATFORM (e.g. main.py); keep
+        # env and module state in sync so child processes agree with us.
+        os.environ["ATESOR_PLATFORM"] = PLATFORM
 
     global MAX_WORKERS
     if args.workers < 1:

@@ -5,7 +5,9 @@ Given:
 
 * a package list JSON (e.g. ``.github/packages/full.json``),
 * the set of asset filenames already published under the current
-  monthly release tag (one name per line in ``--released-assets``),
+  monthly release tag and any overflow tags
+  (``builds-YYYY-MM``, ``builds-YYYY-MM-01``, ``builds-YYYY-MM-02``,
+  …; one name per line in ``--released-assets``),
 * a target ``--platform`` slug (``alpine`` or ``debian``), and
 * a shard ``--group-size``,
 
@@ -21,9 +23,10 @@ where ``<prefix>`` defaults to the platform name. ``N`` is the number
 of shards needed to cover the remaining packages at ``--group-size``
 each (``ceil(remaining / group_size)``).
 
-"Already released" means an asset under the current monthly tag whose
-filename matches the canonical pattern produced by
-``src.packager.package_build``::
+"Already released" means an asset under the current monthly tag (or
+any of its ``-NN`` overflow tags created when a release fills its
+1000-asset cap) whose filename matches the canonical pattern produced
+by ``src.packager.package_build``::
 
     <package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip
 

@@ -12,7 +12,7 @@ name: ATESOR AI Batch Porting Tests
 
 on:
   push:
-    branches: [main, ci-dev]
+    branches: [main]
   pull_request:
     branches: [main]
   # schedule:
@@ -38,9 +38,14 @@ on:
         description: "Max packages per full-list shard (job)"
         type: string
         default: "50"
+      force_all:
+        description: "Rebuild ALL packages (ignore already-released zips under the monthly tag)"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write   # publish assets to the monthly GitHub Release
+  contents: write       # publish assets + push data-update branch
+  pull-requests: write  # create draft PR for merged data/ updates
 
 env:
   PYTHON_VERSION: "3.11"
@@ -105,7 +110,7 @@ jobs:
       - name: Run smoke batch
         run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -121,6 +126,7 @@ jobs:
             workspace/logs/
             workspace/output/
             workspace/packages/
+            data/examples/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 14
@@ -170,21 +176,37 @@ jobs:
 
       - name: Snapshot current monthly release assets
         id: snapshot
+        env:
+          FORCE_ALL: ${{ inputs.force_all }}
         run: |
           set -euo pipefail
-          tag="builds-$(date -u +%Y-%m)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          # `gh release view` exits non-zero if the release doesn't
-          # exist yet — that's the expected state at the start of a
-          # new month and means "skip nothing".
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
-              --json assets --jq '.assets[].name' \
-              > released-assets.txt 2>/dev/null; then
-            count=$(wc -l < released-assets.txt | tr -d ' ')
-            echo "::notice::Found release $tag with $count asset(s)."
+          # GitHub caps each release at 1000 assets, so the release-zips
+          # action rolls over to `-01`, `-02`, … when full.
+          tag_prefix="builds-$(date -u +%Y-%m)"
+          echo "tag=$tag_prefix" >> "$GITHUB_OUTPUT"
+          : > released-assets.txt
+          # force_all bypasses the release skip entirely: an empty
+          # released-assets list makes plan-remaining.py treat every
+          # package as "remaining", so the full sweep rebuilds all.
+          if [[ "$FORCE_ALL" == "true" ]]; then
+            echo "::notice::force_all=true; ignoring releases ${tag_prefix}* and rebuilding ALL packages."
           else
-            : > released-assets.txt
-            echo "::notice::No release $tag yet; nothing to skip."
+            mapfile -t month_tags < <(
+              gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+                --json tagName --jq '.[].tagName' 2>/dev/null \
+              | grep -E "^${tag_prefix}(-[0-9]+)?$" || true
+            )
+            if (( ${#month_tags[@]} == 0 )); then
+              echo "::notice::No releases for ${tag_prefix}* yet; nothing to skip."
+            else
+              for t in "${month_tags[@]}"; do
+                gh release view "$t" --repo "$GITHUB_REPOSITORY" \
+                  --json assets --jq '.assets[].name' \
+                  >> released-assets.txt 2>/dev/null || true
+              done
+              count=$(wc -l < released-assets.txt | tr -d ' ')
+              echo "::notice::Found ${#month_tags[@]} release(s) for ${tag_prefix}* with $count total asset(s): ${month_tags[*]}"
+            fi
           fi
 
       - id: plan
@@ -303,7 +325,7 @@ jobs:
             --package \
             $PKGS
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -319,6 +341,7 @@ jobs:
             workspace/logs/
             workspace/output/
             workspace/packages/
+            data/examples/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 30
@@ -380,7 +403,7 @@ jobs:
       - name: Run smoke batch
         run: python3 .github/scripts/batch_test.py --list "$LIST" --workers "$WORKERS" --package
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -396,6 +419,7 @@ jobs:
             workspace/logs/
             workspace/output/
             workspace/packages/
+            data/examples/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 14
@@ -489,7 +513,7 @@ jobs:
             --package \
             $PKGS
       - name: Publish zip artifacts to monthly release
-        if: always()
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/release-zips
         with:
           packages_dir: workspace/packages
@@ -505,6 +529,175 @@ jobs:
             workspace/logs/
             workspace/output/
             workspace/packages/
+            data/examples/
             data/recipe_cache.json
           if-no-files-found: warn
           retention-days: 30
+
+  # ------------------------------------------------------------------------- #
+  # 5. Collect full-run logs from all shards (both platforms)
+  #
+  # This runs at the end of full workflows even when shard jobs fail/cancel.
+  # It aggregates all available shard artifacts, extracts only *.log files,
+  # and publishes one combined artifact retained for 30 days.
+  # ------------------------------------------------------------------------- #
+  collect-full-shard-logs:
+    name: collect-full-shard-logs
+    needs:
+      - plan-full
+      - atesor-debian-full
+      - atesor-alpine-full
+    if: >-
+      always() &&
+      needs.plan-full.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download debian full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debian-full-logs-${{ github.run_id }}-shard-*
+          path: collected/debian
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Download alpine full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: alpine-full-logs-${{ github.run_id }}-shard-*
+          path: collected/alpine
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Collect all *.log files
+        run: |
+          set -euo pipefail
+          mkdir -p collected-logs
+          # Preserve shard-level path context to avoid filename collisions.
+          while IFS= read -r f; do
+            rel="${f#collected/}"
+            mkdir -p "collected-logs/$(dirname "$rel")"
+            cp "$f" "collected-logs/$rel"
+          done < <(find collected -type f -name '*.log' 2>/dev/null || true)
+
+          count=$(find collected-logs -type f -name '*.log' | wc -l | tr -d ' ')
+          echo "Collected $count log file(s)."
+
+      - name: Upload platform full logs (debian)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logs-debian
+          path: collected-logs/debian/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload platform full logs (alpine)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logs-alpine
+          path: collected-logs/alpine/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ------------------------------------------------------------------------- #
+  # 6. Merge self-learning data updates and propose a draft PR
+  # ------------------------------------------------------------------------- #
+  propose-data-updates-pr:
+    name: propose-data-updates-pr
+    needs:
+      - plan-full
+      - atesor-debian-full
+      - atesor-alpine-full
+    if: >-
+      always() &&
+      needs.plan-full.result != 'skipped'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download debian full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debian-full-logs-${{ github.run_id }}-shard-*
+          path: data-artifacts/debian
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Download alpine full shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: alpine-full-logs-${{ github.run_id }}-shard-*
+          path: data-artifacts/alpine
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Merge data updates from all shards/platforms
+        run: |
+          python3 .github/scripts/merge_data_artifacts.py \
+            --artifacts-root data-artifacts \
+            --repo-data-dir data
+
+      - name: Check for merged data changes
+        id: data_changes
+        run: |
+          if git diff --quiet -- data; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No merged data/ changes to propose."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft PR with merged data updates
+        if: steps.data_changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          branch="ci/data-updates-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add data/
+          git commit -m \
+            "chore(data): merge CI self-learning updates (run ${GITHUB_RUN_ID})"
+          git push --set-upstream origin "$branch"
+
+          existing_pr="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "$branch" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+          if [[ -n "$existing_pr" ]]; then
+            echo "::notice::Draft PR #$existing_pr already exists for $branch."
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "$branch" \
+            --base main \
+            --draft \
+            --title "chore(data): merge CI self-learning updates (${GITHUB_RUN_ID})" \
+            --body "$(cat <<'EOF'
+          Automated CI proposal for self-learning data updates merged
+          across all full-run shards/platforms.
+
+          Included files:
+          - data/recipe_cache.json
+          - data/examples/*.json
+
+          Merge policy used in CI:
+          - Recipe cache entries: newest `last_built` wins per
+            package+sandbox.
+          - Example entries: dedupe by `id`; manual entries are
+            preferred over auto entries on conflict; otherwise newest
+            timestamp wins.
+
+          Please review and merge manually.
+          EOF
+          )"
