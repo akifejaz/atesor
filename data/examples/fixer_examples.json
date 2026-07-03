@@ -389,6 +389,78 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: syncthing - Generate the missing static assets befor",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "syncthing",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/syncthing\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ gith",
+      "fix": {
+        "strategy": "Generate the missing static assets before building",
+        "actions": [
+          {
+            "type": "command",
+            "command": "go generate ./... && go build -buildvcs=false ./cmd/syncthing"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from syncthing.",
+      "id": "fixer-auto-003",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: tgpt - Install the X11 development headers requ",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "tgpt",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\.\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ golang\\.design/x/cl",
+      "fix": {
+        "strategy": "Install the X11 development headers required by golang.design/x/clipboard",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add xorg-server-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from tgpt.",
+      "id": "fixer-auto-004",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: vim - Install the terminal library required by",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "vim",
+      "error_pattern": "Build\\ command\\ failed:\\ \\./configure\\ \\(exit\\ 1\\)\\ \\-\\ configure:\\ error:\\ NOT\\ FOUND!\\\n\\ \\ \\ \\ \\ \\ ",
+      "fix": {
+        "strategy": "Install the terminal library required by vim (ncurses development files).",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add ncurses-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from vim.",
+      "id": "fixer-auto-005",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }
