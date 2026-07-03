@@ -288,6 +288,7 @@ def curate_artifacts(
         from langchain_core.messages import HumanMessage
 
         from .graph import invoke_llm
+        from .llm_helpers import response_cost, response_usage
         from .llm_logger import log_llm_call
 
         response = invoke_llm(llm, [HumanMessage(content=prompt)], timeout=60)
@@ -296,12 +297,15 @@ def curate_artifacts(
         )
         if isinstance(text, list):  # some providers return list of parts
             text = "".join(str(p) for p in text)
+        tokens_in, tokens_out = response_usage(response)
         log_llm_call(
             agent_role="curator",
             prompt=prompt,
             response=text,
             model=getattr(llm, "model_name", "unknown"),
-            cost_usd=0.002,
+            cost_usd=response_cost(llm, response),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             metadata={"repo": repo_name, "phase": "curate_artifacts"},
         )
     except Exception as e:

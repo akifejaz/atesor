@@ -1,24 +1,23 @@
-"""Tests for graph routing: init, planner, supervisor, build-fix subgraph."""
+"""Tests for graph routing: init, analyst, supervisor, build-fix subgraph."""
 
 import unittest
 
 from src.graph import (
+    route_analyst_to_next,
     route_build_result,
     route_fix_result,
+    route_heuristic_plan_to_next,
     route_init_to_next,
-    route_planner_to_next,
     route_supervisor_to_next,
     route_verify_result,
 )
 from src.state import (
-    AgentRole,
     AgentState,
     BuildPhase,
     BuildPlan,
     BuildStatus,
     ErrorCategory,
-    TaskPhase,
-    TaskPlan,
+    PackageAnalysis,
     create_initial_state,
 )
 
@@ -31,13 +30,21 @@ def _base_state(**overrides) -> AgentState:
     return s
 
 
+def _analysis(**overrides) -> PackageAnalysis:
+    """Build a PackageAnalysis with field overrides."""
+    pa = PackageAnalysis(purpose="test package", llm_grounded=True)
+    for k, v in overrides.items():
+        setattr(pa, k, v)
+    return pa
+
+
 class TestRouteInit(unittest.TestCase):
     """Tests for route_init_to_next."""
 
-    def test_successful_init_routes_to_planner(self):
-        """Successful init routes to planner."""
+    def test_successful_init_routes_to_analyst(self):
+        """Successful init routes to the analyst."""
         s = _base_state(build_status=BuildStatus.PENDING)
-        self.assertEqual(route_init_to_next(s), "planner_node")
+        self.assertEqual(route_init_to_next(s), "analyst_node")
 
     def test_failed_init_routes_to_escalate(self):
         """Failed init routes to escalate."""
@@ -45,42 +52,25 @@ class TestRouteInit(unittest.TestCase):
         self.assertEqual(route_init_to_next(s), "escalate_node")
 
 
-class TestRoutePlanner(unittest.TestCase):
-    """Tests for route_planner_to_next."""
+class TestRouteAnalyst(unittest.TestCase):
+    """Tests for route_analyst_to_next."""
 
-    def test_planner_with_plan_routes_to_scout_chain(self):
-        """A valid plan enters the scout chain at the FIRST branch node.
+    def test_analysis_routes_to_heuristic_plan(self):
+        """A produced analysis enters the heuristic plan node."""
+        s = _base_state(package_analysis=_analysis())
+        self.assertEqual(route_analyst_to_next(s), "heuristic_plan_node")
 
-        The aggregator must run AFTER the branches so the fan-in
-        actually sees their results (regression: aggregator-first
-        wiring meant the default plan was always built from empty
-        results and every repo got the 'unknown' discovery plan).
-        """
-        tp = TaskPlan(
-            phases=[TaskPhase(1, "test", "test", AgentRole.SCOUT, False)]
-        )
-        s = _base_state(task_plan=tp)
-        self.assertEqual(route_planner_to_next(s), "scout_build_system")
-
-    def test_planner_no_plan_escalates(self):
-        """Planner no plan escalates."""
-        s = _base_state(task_plan=None)
-        self.assertEqual(route_planner_to_next(s), "escalate_node")
-
-    def test_planner_empty_phases_escalates(self):
-        """Planner empty phases escalates."""
-        tp = TaskPlan(phases=[])
-        s = _base_state(task_plan=tp)
-        self.assertEqual(route_planner_to_next(s), "escalate_node")
+    def test_missing_analysis_escalates(self):
+        """The analyst always leaves an analysis; None means it crashed."""
+        s = _base_state(package_analysis=None)
+        self.assertEqual(route_analyst_to_next(s), "escalate_node")
 
 
-class TestRouteScoutAggregator(unittest.TestCase):
-    """Tests for route_scout_aggregator_to_next."""
+class TestRouteHeuristicPlan(unittest.TestCase):
+    """Tests for route_heuristic_plan_to_next."""
 
-    def test_aggregated_plan_routes_to_supervisor(self):
-        """Aggregated plan routes to supervisor."""
-        from src.graph import route_scout_aggregator_to_next
-
+    def test_materialized_plan_routes_to_supervisor(self):
+        """A materialized default plan routes to the supervisor."""
         bp = BuildPlan(
             build_system="cmake",
             build_system_confidence=0.9,
@@ -88,14 +78,97 @@ class TestRouteScoutAggregator(unittest.TestCase):
             total_estimated_duration="1m",
         )
         s = _base_state(build_plan=bp)
-        self.assertEqual(route_scout_aggregator_to_next(s), "supervisor_node")
+        self.assertEqual(route_heuristic_plan_to_next(s), "supervisor_node")
 
     def test_no_plan_defers_to_llm_scout(self):
-        """No plan defers to llm scout."""
+        """No plan defers to the LLM scout."""
         s = _base_state(build_plan=None)
-        from src.graph import route_scout_aggregator_to_next
+        self.assertEqual(route_heuristic_plan_to_next(s), "scout_node")
 
-        self.assertEqual(route_scout_aggregator_to_next(s), "scout_node")
+
+class TestHeuristicPlanNode(unittest.TestCase):
+    """Tests for heuristic_plan_node's analyst consumption."""
+
+    def test_go_plan_initializes_module_when_missing(self):
+        """Go default plan adds go mod init for GOPATH-style repos."""
+        from src.graph import heuristic_plan_node
+        from src.state import BuildSystemInfo
+
+        s = _base_state()
+        s.build_system_info = BuildSystemInfo(
+            type="go", confidence=0.7, primary_file="main.go"
+        )
+        s.context_cache["go_main_info"] = {
+            "needs_go_init": True,
+            "build_command": "go build .",
+        }
+        out = heuristic_plan_node(s)
+        self.assertIsNotNone(out.build_plan)
+        cmds = out.build_plan.phases[1].commands
+        self.assertTrue(any(cmd.startswith("go mod init ") for cmd in cmds))
+        self.assertIn("go mod tidy", cmds)
+        self.assertTrue(any(cmd.startswith("go build ") for cmd in cmds))
+
+    def test_analyst_custom_plan_veto_defers_to_scout(self):
+        """needs_custom_plan from an LLM-grounded analysis defers.
+
+        This is the load-bearing consumption path: the analyst READ the
+        build files and says a textbook recipe will fail, so the
+        heuristic node must NOT emit one even when detection confidence
+        is high.
+        """
+        from src.graph import heuristic_plan_node
+        from src.state import BuildSystemInfo
+
+        s = _base_state()
+        s.build_system_info = BuildSystemInfo(
+            type="cmake", confidence=0.9, primary_file="CMakeLists.txt"
+        )
+        s.package_analysis = _analysis(
+            build_system="cmake",
+            build_system_confidence=0.9,
+            needs_custom_plan=True,
+        )
+        out = heuristic_plan_node(s)
+        self.assertIsNone(out.build_plan)
+
+    def test_fallback_analysis_does_not_veto(self):
+        """A non-grounded fallback analysis must not veto the recipe.
+
+        Otherwise every package would defer to the LLM scout exactly
+        when the LLM layer is starved.
+        """
+        from src.graph import heuristic_plan_node
+        from src.state import BuildSystemInfo
+
+        s = _base_state()
+        s.build_system_info = BuildSystemInfo(
+            type="make", confidence=0.9, primary_file="Makefile"
+        )
+        s.package_analysis = _analysis(
+            needs_custom_plan=True, llm_grounded=False
+        )
+        out = heuristic_plan_node(s)
+        self.assertIsNotNone(out.build_plan)
+        self.assertEqual(out.build_plan.build_system, "make")
+
+    def test_analyst_build_system_overrides_weak_detection(self):
+        """An LLM-grounded, more-confident build-system verdict wins."""
+        from src.graph import heuristic_plan_node
+        from src.state import BuildSystemInfo
+
+        s = _base_state()
+        s.build_system_info = BuildSystemInfo(
+            type="make", confidence=0.55, primary_file="Makefile"
+        )
+        s.package_analysis = _analysis(
+            build_system="cmake",
+            build_system_confidence=0.95,
+            needs_custom_plan=False,
+        )
+        out = heuristic_plan_node(s)
+        self.assertIsNotNone(out.build_plan)
+        self.assertEqual(out.build_plan.build_system, "cmake")
 
 
 class TestRouteSupervisor(unittest.TestCase):
@@ -134,7 +207,7 @@ class TestRouteSupervisor(unittest.TestCase):
 
     def test_error_loop_escalates(self):
         """Error loop escalates."""
-        from src.state import ErrorCategory, ErrorRecord
+        from src.state import ErrorRecord
 
         err = ErrorRecord(message="fail", category=ErrorCategory.COMPILATION)
         s = _base_state(
@@ -153,19 +226,20 @@ class TestRouteSupervisor(unittest.TestCase):
             message="pkg not found",
             category=ErrorCategory.DEPENDENCY,
         )
-        tp = TaskPlan(phases=[TaskPhase(1, "t", "t", AgentRole.SCOUT, False)])
         s = _base_state(
-            task_plan=tp,
+            package_analysis=_analysis(),
             build_status=BuildStatus.FAILED,
             last_error_category=ErrorCategory.DEPENDENCY,
             error_history=[err],
         )
         self.assertEqual(route_supervisor_to_next(s), "scout_node")
 
-    def test_no_task_plan_routes_to_planner(self):
-        """No task plan routes to planner."""
-        s = _base_state(task_plan=None, build_status=BuildStatus.PENDING)
-        self.assertEqual(route_supervisor_to_next(s), "planner_node")
+    def test_no_analysis_routes_to_analyst(self):
+        """No package analysis routes back to the analyst."""
+        s = _base_state(
+            package_analysis=None, build_status=BuildStatus.PENDING
+        )
+        self.assertEqual(route_supervisor_to_next(s), "analyst_node")
 
     def test_pending_build_routes_to_subgraph(self):
         """Pending build routes to subgraph."""
@@ -176,9 +250,7 @@ class TestRouteSupervisor(unittest.TestCase):
             total_estimated_duration="1m",
         )
         s = _base_state(
-            task_plan=TaskPlan(
-                phases=[TaskPhase(1, "t", "t", AgentRole.SCOUT, False)]
-            ),
+            package_analysis=_analysis(),
             build_plan=bp,
             build_status=BuildStatus.PENDING,
         )

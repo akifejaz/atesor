@@ -235,6 +235,37 @@ class BuildSystemInfo:
 
 
 @dataclass
+class PackageAnalysis:
+    """The analyst agent's understanding of the package.
+
+    Produced from ACTUAL repo evidence (README, build files) by one LLM
+    call, and consumed downstream — the heuristic planner uses
+    ``dependencies``/``needs_custom_plan`` to decide whether a default
+    recipe is safe, the scout grounds its BuildPlan in
+    ``build_strategy``/``riscv_risks``, the fixer gets ``purpose`` and
+    risks as diagnosis context, and verification checks
+    ``expected_artifacts``.
+    """
+
+    purpose: str = ""  # what the package is/does (one sentence)
+    language: str = ""  # dominant implementation language
+    build_system: str = "unknown"
+    build_system_confidence: float = 0.0
+    build_system_reasoning: str = ""  # file evidence for the call
+    dependencies: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # [{"name": canonical, "reason": file evidence}]
+    riscv_risks: List[str] = field(default_factory=list)
+    build_strategy: str = ""  # how to build, grounded in files read
+    expected_artifacts: List[str] = field(
+        default_factory=list
+    )  # binary/library names the build should produce
+    needs_custom_plan: bool = False  # True → defer to LLM scout
+    complexity: int = 5  # 1-10
+    llm_grounded: bool = False  # False → deterministic fallback
+
+
+@dataclass
 class AgentState:
     """Comprehensive state for the RISC-V porting agent.
 
@@ -249,6 +280,7 @@ class AgentState:
 
     # ========== Task Planning ==========
     task_plan: Optional[TaskPlan] = None
+    package_analysis: Optional[PackageAnalysis] = None
     current_phase: str = "initialization"
 
     # ========== Build Information ==========
@@ -278,6 +310,8 @@ class AgentState:
     # ========== Performance Tracking ==========
     api_calls_made: int = 0
     api_cost_usd: float = 0.0
+    api_tokens_in: int = 0
+    api_tokens_out: int = 0
     scripted_ops_count: int = 0
     execution_start_time: datetime = field(default_factory=datetime.now)
 
@@ -337,10 +371,26 @@ class AgentState:
         self.fixes_attempted.append(fix)
         self.update_timestamp()
 
-    def log_api_call(self, cost: float = 0.0) -> None:
-        """Track API usage."""
-        self.api_calls_made += 1
+    def log_api_call(
+        self,
+        cost: float = 0.0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        calls: int = 1,
+    ) -> None:
+        """Track API usage with real token counts and cost.
+
+        Args:
+            cost: Real USD cost of the call(s), from token usage.
+            tokens_in: Billed prompt tokens.
+            tokens_out: Billed completion tokens.
+            calls: Number of LLM invocations this covers (a validated
+                call may retry several times).
+        """
+        self.api_calls_made += max(1, calls)
         self.api_cost_usd += cost
+        self.api_tokens_in += tokens_in
+        self.api_tokens_out += tokens_out
         self.update_timestamp()
 
     def log_scripted_op(self, operation: str = "unknown") -> None:

@@ -673,6 +673,9 @@ def save_porting_outputs(state: AgentState, output_dir: str) -> None:
 
 def generate_detailed_report(state: dict) -> str:
     """Generate a comprehensive detailed report."""
+    tokens = (
+        f"{state.get('api_tokens_in', 0)}/{state.get('api_tokens_out', 0)}"
+    )
     report = f"""# RISC-V Porting Report: {state.get("repo_name", "Unknown")}
 
 ## Executive Summary
@@ -692,7 +695,8 @@ def generate_detailed_report(state: dict) -> str:
 | Attempts Made | {state.get("attempt_count", 0)} |
 | API Calls | {state.get("api_calls_made", 0)} |
 | Scripted Operations | {state.get("scripted_ops_count", 0)} |
-| Estimated Cost | ${state.get("api_cost_usd", 0):.4f} |
+| LLM Tokens (in/out) | {tokens} |
+| Cost (from token usage) | ${state.get("api_cost_usd", 0):.4f} |
 
 ---
 

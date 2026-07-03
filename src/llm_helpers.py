@@ -72,6 +72,9 @@ class LLMCallOutcome:
     used_fallback: bool  # True when the deterministic fallback was used
     attempts: int  # how many LLM invocations we actually made
     last_error: str = ""  # human-readable reason of the final failure
+    input_tokens: int = 0  # billed prompt tokens across ALL attempts
+    output_tokens: int = 0  # billed completion tokens across ALL attempts
+    cost_usd: float = 0.0  # real cost across ALL attempts (free tier = 0)
 
 
 # ----------------------------------------------------------------------------
@@ -121,6 +124,54 @@ def extract_json_block(text: str) -> str:
     return text
 
 
+def response_usage(response: Any) -> tuple:
+    """Extract ``(input_tokens, output_tokens)`` from an LLM response.
+
+    Reads the LangChain-standard ``usage_metadata`` first, then the
+    OpenAI-style ``response_metadata['token_usage']``. Returns
+    ``(0, 0)`` when the provider reported no usage — callers must treat
+    that as "unknown", not "free".
+
+    Args:
+        response: The message object returned by ``llm.invoke``.
+
+    Returns:
+        Tuple of billed prompt and completion token counts.
+    """
+    usage = getattr(response, "usage_metadata", None)
+    if isinstance(usage, dict) and usage:
+        return (
+            int(usage.get("input_tokens", 0) or 0),
+            int(usage.get("output_tokens", 0) or 0),
+        )
+    meta = getattr(response, "response_metadata", None)
+    if isinstance(meta, dict):
+        token_usage = meta.get("token_usage") or meta.get("usage") or {}
+        if isinstance(token_usage, dict) and token_usage:
+            return (
+                int(token_usage.get("prompt_tokens", 0) or 0),
+                int(token_usage.get("completion_tokens", 0) or 0),
+            )
+    return (0, 0)
+
+
+def response_cost(llm: Any, response: Any) -> float:
+    """Return the real USD cost of ``response`` produced by ``llm``.
+
+    Args:
+        llm: The LLM instance that produced the response.
+        response: The message object returned by ``llm.invoke``.
+
+    Returns:
+        USD cost computed from actual token usage and the model's
+        price table entry (0 for free-tier models).
+    """
+    from .models import cost_for_usage
+
+    tokens_in, tokens_out = response_usage(response)
+    return cost_for_usage(_model_id(llm), tokens_in, tokens_out)
+
+
 # ----------------------------------------------------------------------------
 # Core helper: validated LLM call with retry + fallback
 # ----------------------------------------------------------------------------
@@ -144,7 +195,6 @@ def llm_call_with_validation(
     fallback_factory: Optional[Callable[[], Optional[dict]]] = None,
     role: str = "agent",
     audit_metadata: Optional[dict] = None,
-    cost_estimate: float = 0.01,
     max_retries: int = 2,  # total LLM calls = max_retries + 1
     critique_template: str = _DEFAULT_CRITIQUE,
     timeout: int = 120,
@@ -175,10 +225,17 @@ def llm_call_with_validation(
         An ``LLMCallOutcome`` describing the parsed data and how it was
         obtained.
     """
+    from .models import cost_for_usage
+
     metadata = dict(audit_metadata or {})
     messages: list = [HumanMessage(content=prompt)]
     attempts = 0
     last_reason = "no attempts made"
+    # Real usage accounting, accumulated across every attempt (failed
+    # attempts bill tokens too).
+    total_tokens_in = 0
+    total_tokens_out = 0
+    total_cost = 0.0
     # LLM rotation: primary + optional fallbacks. Provider-side errors
     # (404, 429, 5xx) rotate to the next model in the pool for free —
     # they do NOT consume the critique-retry budget, so a large pool
@@ -296,12 +353,21 @@ def llm_call_with_validation(
             break
 
         raw = extract_content(getattr(response, "content", response))
+        tokens_in, tokens_out = response_usage(response)
+        call_cost = cost_for_usage(
+            _model_id(active_llm), tokens_in, tokens_out
+        )
+        total_tokens_in += tokens_in
+        total_tokens_out += tokens_out
+        total_cost += call_cost
         log_llm_call(
             agent_role=role,
             prompt=_format_messages_for_log(messages),
             response=raw,
             model=getattr(active_llm, "model_name", "unknown"),
-            cost_usd=cost_estimate,
+            cost_usd=call_cost,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             metadata={**metadata, "attempt": attempts, "pool_idx": pool_idx},
         )
 
@@ -368,6 +434,9 @@ def llm_call_with_validation(
                 used_fallback=False,
                 attempts=attempts,
                 last_error="",
+                input_tokens=total_tokens_in,
+                output_tokens=total_tokens_out,
+                cost_usd=total_cost,
             )
 
         last_reason = f"schema validation failed: {verdict.reason}"
@@ -395,6 +464,9 @@ def llm_call_with_validation(
                 used_fallback=True,
                 attempts=attempts,
                 last_error=last_reason,
+                input_tokens=total_tokens_in,
+                output_tokens=total_tokens_out,
+                cost_usd=total_cost,
             )
         except Exception as exc:
             logger.exception(f"[{role}] fallback factory raised: {exc}")
@@ -404,6 +476,9 @@ def llm_call_with_validation(
         used_fallback=False,
         attempts=attempts,
         last_error=last_reason,
+        input_tokens=total_tokens_in,
+        output_tokens=total_tokens_out,
+        cost_usd=total_cost,
     )
 
 
@@ -616,4 +691,6 @@ __all__ = [
     "llm_call_with_validation",
     "extract_content",
     "extract_json_block",
+    "response_usage",
+    "response_cost",
 ]

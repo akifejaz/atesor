@@ -218,64 +218,6 @@
       "reasoning": "CMake needs build/ directory for out-of-source builds. Use -j$(nproc) for parallel compilation."
     },
     {
-      "name": "Auto: gitleaks build execution",
-      "tags": [
-        "go",
-        "gitleaks"
-      ],
-      "build_system": "go",
-      "repo_name": "gitleaks",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "go mod tidy"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "mkdir -p ./.atesor-bin && go build -o ./.atesor-bin/config -buildvcs=false ./cmd/generate/config"
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from gitleaks.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-06-17",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: ffuf build execution",
-      "tags": [
-        "go",
-        "ffuf"
-      ],
-      "build_system": "go",
-      "repo_name": "ffuf",
-      "phases": [
-        {
-          "name": "setup",
-          "commands": [
-            "apt-get update && apt-get install -y --no-install-recommends git"
-          ]
-        },
-        {
-          "name": "build",
-          "commands": [
-            "cd /workspace/repos/ffuf && env GOMAXPROCS=1 go mod tidy && go build -p 1 -buildvcs=false ."
-          ]
-        }
-      ],
-      "timeout_recommendation": "120s",
-      "reasoning": "Auto-learned build execution from ffuf.",
-      "id": "builder-auto-095",
-      "source": "auto",
-      "timestamp": "2026-06-17",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: airixss build execution",
       "tags": [
         "go",
@@ -3072,6 +3014,67 @@
       "timeout_recommendation": "120s",
       "reasoning": "Auto-learned build execution from assetfinder.",
       "id": "builder-auto-106",
+      "source": "auto",
+      "timestamp": "2026-07-02",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: assetfinder build execution",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apk update && apk add git"
+          ]
+        },
+        {
+          "name": "go_prepare_build",
+          "commands": [
+            "go mod init github.com/tomnomnom/assetfinder",
+            "go mod tidy",
+            "go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from assetfinder.",
+      "id": "builder-auto-107",
+      "source": "auto",
+      "timestamp": "2026-07-02",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: anew build execution",
+      "tags": [
+        "go",
+        "anew"
+      ],
+      "build_system": "go",
+      "repo_name": "anew",
+      "phases": [
+        {
+          "name": "setup",
+          "commands": [
+            "apt-get update && apt-get install -y --no-install-recommends git"
+          ]
+        },
+        {
+          "name": "go_prepare_build",
+          "commands": [
+            "go mod tidy",
+            "go build -buildvcs=false ."
+          ]
+        }
+      ],
+      "timeout_recommendation": "120s",
+      "reasoning": "Auto-learned build execution from anew.",
+      "id": "builder-auto-108",
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "debian-riscv64"

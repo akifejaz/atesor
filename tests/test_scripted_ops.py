@@ -89,6 +89,13 @@ class TestDetectBuildSystem:
         assert info.type == "go"
         assert info.module_dir.endswith("src/sub")
 
+    def test_gopath_style_go_without_mod_detected(self, repo) -> None:
+        """Test GOPATH-style Go repo is detected as Go."""
+        _write(repo, "cmd/tool/main.go", "package main\nfunc main() {}\n")
+        info = ScriptedOperations(repo).detect_build_system(repo)
+        assert info.type == "go"
+        assert info.confidence >= 0.6
+
     def test_autotools_detected(self, repo) -> None:
         """Test autotools detected."""
         _write(repo, "configure.ac", "AC_INIT(foo, 1.0)\n")
@@ -276,6 +283,14 @@ class TestQuickAnalysis:
         assert "ZLIB" in result["dependencies"].libraries
         # file_tree calls execute_command (docker) — may be empty in unit tests
         assert isinstance(result["file_tree"], str)
+
+    def test_gopath_style_go_exposes_go_main_info(self, repo) -> None:
+        """Test quick analysis keeps Go context for repos without go.mod."""
+        _write(repo, "main.go", "package main\nfunc main() {}\n")
+        result = quick_analysis(repo)
+        assert result["build_system"].type == "go"
+        assert "go_main_info" in result
+        assert result["go_main_info"]["needs_go_init"] is True
 
 
 # ---------- Path translation ----------

@@ -151,6 +151,56 @@ def check_api_keys() -> Tuple[bool, str, str]:
 OPENROUTER_FREE_ROUTER = "openrouter/free"
 
 
+# USD per 1M tokens (input, output) for the paid models this project
+# can be configured with. Free-tier models resolve to $0 via
+# ``cost_for_usage`` regardless of this table.
+MODEL_PRICES_PER_MTOK = {
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gemini-flash-lite-latest": (0.10, 0.40),
+    "gemini-flash-latest": (0.30, 2.50),
+}
+
+# Conservative default for paid models missing from the table, so an
+# unlisted model over-counts (and trips the cost ceiling early) rather
+# than billing as free.
+_DEFAULT_PAID_PRICE_PER_MTOK = (3.00, 12.00)
+
+
+def is_free_model(model_id: str) -> bool:
+    """Return True when ``model_id`` is an OpenRouter free-tier model."""
+    mid = (model_id or "").lower()
+    return mid.endswith(":free") or mid == OPENROUTER_FREE_ROUTER
+
+
+def cost_for_usage(
+    model_id: str, input_tokens: int, output_tokens: int
+) -> float:
+    """Compute the real USD cost of one LLM call from its token usage.
+
+    Replaces the old hardcoded $0.01-per-call fiction: free-tier models
+    cost $0, paid models are priced from ``MODEL_PRICES_PER_MTOK``
+    (falling back to a conservative default for unknown paid models).
+
+    Args:
+        model_id: Provider model id (e.g. ``gpt-4o``,
+            ``qwen/qwen3-coder:free``).
+        input_tokens: Prompt tokens billed for the call.
+        output_tokens: Completion tokens billed for the call.
+
+    Returns:
+        Estimated USD cost of the call.
+    """
+    if is_free_model(model_id):
+        return 0.0
+    price_in, price_out = MODEL_PRICES_PER_MTOK.get(
+        model_id, _DEFAULT_PAID_PRICE_PER_MTOK
+    )
+    return (
+        max(0, input_tokens) * price_in + max(0, output_tokens) * price_out
+    ) / 1_000_000
+
+
 def create_llm(role: AgentRole) -> BaseChatModel:
     """Create an LLM instance for a specific agent role."""
     return _create_llm_with_model(role, _resolve_model_name(role))
@@ -338,9 +388,7 @@ def _create_llm_with_model(role: AgentRole, model_name: str) -> BaseChatModel:
             for m in _openrouter_fallback_ids()
             if m != model_name and m != OPENROUTER_FREE_ROUTER
         ]
-        server_side_fallbacks = named_fallbacks[:2] + [
-            OPENROUTER_FREE_ROUTER
-        ]
+        server_side_fallbacks = named_fallbacks[:2] + [OPENROUTER_FREE_ROUTER]
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,

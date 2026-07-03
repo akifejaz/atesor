@@ -14,6 +14,7 @@ from src.llm_helpers import (
     extract_content,
     extract_json_block,
     llm_call_with_validation,
+    response_usage,
 )
 
 
@@ -500,6 +501,98 @@ class TestTokenBudgetSelfHeal(unittest.TestCase):
         self.assertLess(seen_caps[1], 6000)
         # Fallback should have been shrunk too, ready for future calls.
         self.assertLess(fallback.max_tokens, 6000)
+
+
+class TestUsageAccounting(unittest.TestCase):
+    """Real token/cost accounting on LLMCallOutcome."""
+
+    def _llm(self, name):
+        """Fake LLM with a model name."""
+        llm = mock.MagicMock()
+        llm.model_name = name
+        return llm
+
+    def _invoke_with_usage(self, content, tokens_in, tokens_out):
+        """Fake invoke_fn returning content plus usage metadata."""
+
+        def invoke_fn(llm, messages, timeout=120):
+            """Invoke fn."""
+            return SimpleNamespace(
+                content=content,
+                usage_metadata={
+                    "input_tokens": tokens_in,
+                    "output_tokens": tokens_out,
+                },
+            )
+
+        return invoke_fn
+
+    def test_response_usage_reads_usage_metadata(self) -> None:
+        """LangChain-standard usage_metadata is read first."""
+        r = SimpleNamespace(
+            usage_metadata={"input_tokens": 10, "output_tokens": 4}
+        )
+        self.assertEqual(response_usage(r), (10, 4))
+
+    def test_response_usage_falls_back_to_token_usage(self) -> None:
+        """OpenAI-style response_metadata token_usage is the fallback."""
+        r = SimpleNamespace(
+            usage_metadata=None,
+            response_metadata={
+                "token_usage": {
+                    "prompt_tokens": 7,
+                    "completion_tokens": 3,
+                }
+            },
+        )
+        self.assertEqual(response_usage(r), (7, 3))
+
+    def test_response_usage_unknown_is_zero(self) -> None:
+        """No usage anywhere reads as (0, 0), never invented."""
+        self.assertEqual(response_usage(SimpleNamespace()), (0, 0))
+
+    def test_outcome_carries_free_model_zero_cost(self) -> None:
+        """Free-tier models bill $0 but still report tokens."""
+        outcome = llm_call_with_validation(
+            invoke_fn=self._invoke_with_usage('{"a": 1}', 500, 100),
+            llm=self._llm("qwen/qwen3-coder:free"),
+            prompt="p",
+            validator=_ok_validator,
+        )
+        self.assertEqual(outcome.input_tokens, 500)
+        self.assertEqual(outcome.output_tokens, 100)
+        self.assertEqual(outcome.cost_usd, 0.0)
+
+    def test_outcome_prices_paid_model_from_table(self) -> None:
+        """Paid models are priced from MODEL_PRICES_PER_MTOK."""
+        outcome = llm_call_with_validation(
+            invoke_fn=self._invoke_with_usage('{"a": 1}', 1000, 100),
+            llm=self._llm("gpt-4o"),
+            prompt="p",
+            validator=_ok_validator,
+        )
+        # 1000 * 2.50/1M + 100 * 10.00/1M
+        self.assertAlmostEqual(outcome.cost_usd, 0.0035)
+
+    def test_usage_accumulates_across_retries(self) -> None:
+        """Every attempt bills tokens — retries accumulate."""
+        verdicts = iter(
+            [ValidationResult.bad("nope"), ValidationResult.good()]
+        )
+
+        def flaky_validator(_data):
+            """Fail once, then pass."""
+            return next(verdicts)
+
+        outcome = llm_call_with_validation(
+            invoke_fn=self._invoke_with_usage('{"a": 1}', 100, 10),
+            llm=self._llm("gpt-4o"),
+            prompt="p",
+            validator=flaky_validator,
+        )
+        self.assertEqual(outcome.attempts, 2)
+        self.assertEqual(outcome.input_tokens, 200)
+        self.assertEqual(outcome.output_tokens, 20)
 
 
 if __name__ == "__main__":

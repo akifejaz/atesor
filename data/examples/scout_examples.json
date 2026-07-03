@@ -377,42 +377,6 @@
       "reasoning": "Projects using CGO need gcc available. Install build-base and relevant -dev packages."
     },
     {
-      "name": "Auto: axfr2hosts (go)",
-      "tags": [
-        "go",
-        "axfr2hosts"
-      ],
-      "build_system": "go",
-      "repo_name": "axfr2hosts",
-      "trigger": {
-        "build_system": "go",
-        "has_main": false
-      },
-      "plan": {
-        "build_system": "go",
-        "phases": [
-          {
-            "name": "setup",
-            "commands": [
-              "apt-get update && apt-get install -y --no-install-recommends git"
-            ]
-          },
-          {
-            "name": "build",
-            "commands": [
-              "cd /workspace/repos/axfr2hosts && go mod tidy",
-              "cd /workspace/repos/axfr2hosts && go build -buildvcs=false ."
-            ]
-          }
-        ]
-      },
-      "reasoning": "Auto-learned from successful axfr2hosts build.",
-      "id": "scout-auto-093",
-      "source": "auto",
-      "timestamp": "2026-06-17",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: certgraph (go)",
       "tags": [
         "go",
@@ -3735,6 +3699,43 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: assetfinder (go)",
+      "tags": [
+        "go",
+        "assetfinder"
+      ],
+      "build_system": "go",
+      "repo_name": "assetfinder",
+      "trigger": {
+        "build_system": "go",
+        "has_main": true
+      },
+      "plan": {
+        "build_system": "go",
+        "phases": [
+          {
+            "name": "setup",
+            "commands": [
+              "apk update && apk add git"
+            ]
+          },
+          {
+            "name": "go_prepare_build",
+            "commands": [
+              "go mod init github.com/tomnomnom/assetfinder",
+              "go mod tidy",
+              "go build -buildvcs=false ."
+            ]
+          }
+        ]
+      },
+      "reasoning": "Auto-learned from successful assetfinder build.",
+      "id": "scout-auto-104",
+      "source": "auto",
+      "timestamp": "2026-07-02",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }

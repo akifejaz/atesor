@@ -705,6 +705,26 @@ class ScriptedOperations:
             logger.info("Only Makefile found; detected as make (fallback)")
 
         if not detected:
+            # GOPATH-style Go repos can have a valid main package but no
+            # go.mod. If we leave these as "unknown", the workflow often
+            # falls back to generic `make` plans that cannot succeed.
+            go_info = self.find_go_main_package(repo_path)
+            if go_info.get("has_go_files"):
+                main_path = go_info.get("main_path", "").strip("/")
+                if main_path and main_path != ".":
+                    primary = f"{main_path}/main.go"
+                elif go_info.get("has_main"):
+                    primary = "main.go"
+                else:
+                    primary = "*.go"
+                detected.append(("go", primary))
+                confidence_scores["go"] = 0.65
+                logger.info(
+                    "Detected GOPATH-style Go project (no go.mod); "
+                    "using Go build-system fallback"
+                )
+
+        if not detected:
             return BuildSystemInfo(
                 type="unknown",
                 confidence=0.0,
@@ -918,7 +938,7 @@ class ScriptedOperations:
         deps.build_tools = ["go"]
         return deps
 
-    def find_go_main_package(self, repo_path: str) -> Dict[str, str]:
+    def find_go_main_package(self, repo_path: str) -> Dict[str, Any]:
         """Find the Go main package location.
 
         For repos without ``go.mod`` (old GOPATH-style), sets
@@ -937,6 +957,7 @@ class ScriptedOperations:
             "build_command": "go build .",
             "needs_go_init": False,
             "has_go_mod": False,
+            "has_go_files": False,
         }
 
         repo_path = self._to_host_path(repo_path)
@@ -1593,13 +1614,14 @@ def quick_analysis(repo_path: str) -> Dict[str, Any]:
         "arch_build_files": ops.detect_arch_specific_build_files(repo_path),
     }
 
+    go_main_info = ops.find_go_main_package(repo_path)
+    if go_main_info.get("has_go_mod") or go_main_info.get("has_go_files"):
+        analysis["go_main_info"] = go_main_info
+
     if analysis["build_system"].type != "unknown":
         analysis["dependencies"] = ops.extract_dependencies(
             repo_path, analysis["build_system"].type
         )
-
-        if analysis["build_system"].type == "go":
-            analysis["go_main_info"] = ops.find_go_main_package(repo_path)
 
     analysis["arch_specific_code"] = ops.find_architecture_specific_code(
         repo_path

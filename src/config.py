@@ -153,6 +153,26 @@ CONTAINER_NAME = "atesor-ai-sandbox"
 IMAGE_NAME = "atesor-ai-sandbox:latest"
 
 
+def to_host_path(path: str) -> str:
+    """Translate a ``/workspace`` container path to a host path.
+
+    Canonical translator — every module that needs host-side access to
+    sandbox files must use this (or delegate to it) so container/host
+    path mapping stays consistent in one place.
+
+    Args:
+        path: A path that may start with the in-container ``/workspace``
+            prefix.
+
+    Returns:
+        The equivalent host path, or ``path`` unchanged when it is not
+        a container path (or when we ARE running inside the container).
+    """
+    if path.startswith("/workspace") and not os.path.exists("/workspace"):
+        return path.replace("/workspace", WORKSPACE_ROOT, 1)
+    return path
+
+
 def print_config() -> None:
     """Print the current configuration to standard output."""
     environment = "Docker Container" if _IN_DOCKER else "Host System"
@@ -180,6 +200,7 @@ __all__ = [
     "CACHE_DIR",
     "LOGS_DIR",
     "PACKAGES_DIR",
+    "to_host_path",
     "print_config",
     "CONTAINER_NAME",
     "IMAGE_NAME",

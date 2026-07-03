@@ -123,5 +123,45 @@ class TestServerSideFallback(unittest.TestCase):
         self.assertEqual(len(models), len(set(models)))
 
 
+class TestCostForUsage(unittest.TestCase):
+    """Tests for real token-based cost computation."""
+
+    def test_free_slug_costs_zero(self) -> None:
+        """Free-tier ``:free`` slugs bill nothing."""
+        from src.models import cost_for_usage
+
+        self.assertEqual(
+            cost_for_usage("qwen/qwen3-coder:free", 100000, 50000), 0.0
+        )
+
+    def test_free_router_costs_zero(self) -> None:
+        """The Free Models Router bills nothing."""
+        from src.models import cost_for_usage
+
+        self.assertEqual(cost_for_usage("openrouter/free", 1000, 1000), 0.0)
+
+    def test_paid_model_priced_from_table(self) -> None:
+        """Table-listed paid models price per million tokens."""
+        from src.models import cost_for_usage
+
+        self.assertAlmostEqual(cost_for_usage("gpt-4o", 1_000_000, 0), 2.50)
+        self.assertAlmostEqual(
+            cost_for_usage("gpt-4o-mini", 0, 1_000_000), 0.60
+        )
+
+    def test_unknown_paid_model_uses_conservative_default(self) -> None:
+        """Unlisted paid models over-count rather than bill as free."""
+        from src.models import cost_for_usage
+
+        cost = cost_for_usage("some/unknown-model", 1_000_000, 0)
+        self.assertGreater(cost, 0.0)
+
+    def test_negative_tokens_clamped(self) -> None:
+        """Bogus negative usage never produces negative cost."""
+        from src.models import cost_for_usage
+
+        self.assertEqual(cost_for_usage("gpt-4o", -5, -5), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
