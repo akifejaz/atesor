@@ -389,6 +389,78 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: flac - Disable manpage generation to avoid miss",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "flac",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Disable manpage generation to avoid missing Pandoc dependency",
+        "actions": [
+          {
+            "type": "command",
+            "command": "mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DINSTALL_MANPAGES=OFF"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from flac.",
+      "id": "fixer-auto-003",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: mosh-static-multiarch - Create a minimal build.sh script so the ",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "mosh-static-multiarch",
+      "error_pattern": "Build\\ command\\ failed:\\ \\./build\\.sh\\ \\(exit\\ 127\\)\\ \\-\\ bash:\\ line\\ 1:\\ \\./build\\.sh:\\ No\\ such\\ ",
+      "fix": {
+        "strategy": "Create a minimal build.sh script so the build system finds an executable entry point.",
+        "actions": [
+          {
+            "type": "command",
+            "command": "chmod +x build.sh"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from mosh-static-multiarch.",
+      "id": "fixer-auto-004",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: curl - Install the missing libpsl development p",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "curl",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Install the missing libpsl development package",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add libpsl-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from curl.",
+      "id": "fixer-auto-005",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }
