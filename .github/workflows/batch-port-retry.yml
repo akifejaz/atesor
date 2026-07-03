@@ -93,7 +93,12 @@ jobs:
             cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
           fi
 
-          missing="$(python3 .github/scripts/missing-pkgs.py \
+          # The retry checks out the TRIGGERING run's SHA, whose tree may
+          # use either the old hyphenated or new snake_case script names
+          # (renamed 2026-07-02). Resolve whichever exists.
+          MISSING_PKGS=.github/scripts/missing_pkgs.py
+          [ -f "$MISSING_PKGS" ] || MISSING_PKGS=.github/scripts/missing-pkgs.py
+          missing="$(python3 "$MISSING_PKGS" \
               --list .github/packages/${LIST}.json \
               --packages-dir workspace/packages \
               --platform "$ATESOR_PLATFORM" \
@@ -249,7 +254,12 @@ jobs:
               echo "${platform}_groups=[]" >> "$GITHUB_OUTPUT"
               continue
             fi
-            python3 .github/scripts/plan-shards.py \
+            # The retry checks out the TRIGGERING run's SHA, whose tree may
+            # use either the old hyphenated or new snake_case script names
+            # (renamed 2026-07-02). Resolve whichever exists.
+            PLAN_SHARDS=.github/scripts/plan_shards.py
+            [ -f "$PLAN_SHARDS" ] || PLAN_SHARDS=.github/scripts/plan-shards.py
+            python3 "$PLAN_SHARDS" \
               --list "$f" \
               --group-size "$GROUP_SIZE" \
               --output-key-prefix "$platform" \
@@ -332,7 +342,12 @@ jobs:
             cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
           fi
 
-          missing="$(python3 .github/scripts/missing-pkgs.py \
+          # The retry checks out the TRIGGERING run's SHA, whose tree may
+          # use either the old hyphenated or new snake_case script names
+          # (renamed 2026-07-02). Resolve whichever exists.
+          MISSING_PKGS=.github/scripts/missing_pkgs.py
+          [ -f "$MISSING_PKGS" ] || MISSING_PKGS=.github/scripts/missing-pkgs.py
+          missing="$(python3 "$MISSING_PKGS" \
               --list "remaining/remaining-${ATESOR_PLATFORM}.json" \
               --packages-dir workspace/packages \
               --platform "$ATESOR_PLATFORM" \
@@ -480,7 +495,12 @@ jobs:
             cp -v "$src_dir"/*.zip workspace/packages/ 2>/dev/null || true
           fi
 
-          missing="$(python3 .github/scripts/missing-pkgs.py \
+          # The retry checks out the TRIGGERING run's SHA, whose tree may
+          # use either the old hyphenated or new snake_case script names
+          # (renamed 2026-07-02). Resolve whichever exists.
+          MISSING_PKGS=.github/scripts/missing_pkgs.py
+          [ -f "$MISSING_PKGS" ] || MISSING_PKGS=.github/scripts/missing-pkgs.py
+          missing="$(python3 "$MISSING_PKGS" \
               --list "remaining/remaining-${ATESOR_PLATFORM}.json" \
               --packages-dir workspace/packages \
               --platform "$ATESOR_PLATFORM" \
