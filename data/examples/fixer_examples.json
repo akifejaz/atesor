@@ -389,6 +389,54 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: unionfs-fuse - Install the missing FUSE3 development he",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "unionfs-fuse",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Install the missing FUSE3 development headers and pkg-config support",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add pkgconf fuse3-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from unionfs-fuse.",
+      "id": "fixer-auto-003",
+      "source": "auto",
+      "timestamp": "2026-07-02",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: tgpt - Install the missing X11 development head",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "tgpt",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\.\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ golang\\.design/x/cl",
+      "fix": {
+        "strategy": "Install the missing X11 development headers required by golang.design/x/clipboard",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libx11-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from tgpt.",
+      "id": "fixer-auto-004",
+      "source": "auto",
+      "timestamp": "2026-07-02",
+      "sandbox": "debian-riscv64"
     }
   ]
 }
