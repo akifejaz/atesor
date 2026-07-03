@@ -1,14 +1,35 @@
 name: release-zips
 description: |
   Publish all `*.zip` files in a given directory as assets of the current
-  monthly release. Tag format: `builds-YYYY-MM`. Idempotent: the release is
-  created on first use of the month and reused thereafter.
+  monthly release.
 
-  Per-package, per-platform dedupe: before uploading, any existing asset
-  matching `<package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip` for the same
-  `<package>` and `<platform>` is deleted from the release, so each
-  (package, platform) keeps exactly one asset (the newest). Different
-  platforms (e.g. `foo-*-alpine.zip` vs `foo-*-debian.zip`) are independent.
+  Tag format:
+    - Base: `builds-YYYY-MM`             — title: `<Month YYYY> builds`
+    - Overflow: `builds-YYYY-MM-NN`      — title: `<Month YYYY> builds NN`
+      (NN zero-padded, starting at 01)
+
+  GitHub caps releases at 1000 assets each. When the active release
+  for the month is full (or would be filled by the incoming zips),
+  this action automatically spills to the next overflow release for
+  the same month, creating it on demand. Each new month starts again
+  with the base tag (no suffix).
+
+  Idempotent: existing releases are reused. Releases are created lazily
+  on first upload that needs them.
+
+  Per-package, per-platform dedupe across all monthly releases: before
+  uploading, any existing asset matching
+  `<package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip` for the same
+  `<package>` and `<platform>` is deleted from every monthly release
+  (base + overflows), so each (package, platform) keeps exactly one
+  asset across the whole month. Different platforms
+  (e.g. `foo-*-alpine.zip` vs `foo-*-debian.zip`) are independent.
+
+  Race-safe: parallel shards may all see the active release at e.g.
+  990 assets and each try to upload 50. If `gh release upload` fails
+  (because a peer shard already filled the release), this action
+  re-queries which zips actually landed and spills the remainder to
+  the next overflow release.
 
   This action is intentionally a no-op when the source directory is empty
   or missing, so it can be wired with `if: always()` after a batch step
@@ -55,69 +76,200 @@ runs:
           exit 0
         fi
 
-        # Monthly tag — sortable, lexically chronological.
-        tag="builds-$(date -u +%Y-%m)"
-        title="$(date -u +'%B %Y') builds"
+        # GitHub's per-release asset cap; when reached we spill into the
+        # next overflow release for the same month.
+        MAX_ASSETS_PER_RELEASE=1000
 
-        echo "::group::Release target"
-        echo "  tag       : $tag"
-        echo "  title     : $title"
-        echo "  scope     : ${SCOPE:-(none)}"
-        echo "  zip count : ${#zips[@]}"
-        printf '  - %s\n' "${zips[@]}"
+        # Monthly identifiers.
+        month_prefix="builds-$(date -u +%Y-%m)"   # e.g. builds-2026-06
+        month_label="$(date -u +'%B %Y')"         # e.g. June 2026
+        base_title="${month_label} builds"
+
+        # Release notes (shared by base + overflow releases).
+        notes="**Atesor AI** is a LangGraph multi-agent system that autonomously ports x86/ARM packages to **RISC-V (riscv64)**. Each package below was cloned from upstream, built natively inside a riscv64 Docker sandbox (Alpine/musl or Debian/glibc), fixed where it broke, and packaged with a reproducible recipe."
+        notes+=$'\n\n'"Every \`*.zip\` asset contains the ported source tree, the porting \`build_recipe.md\`, and the per-package build logs. Assets are uploaded incrementally as CI jobs (and the nightly retry workflow) complete throughout **${month_label}** — no need to wait for a single \"green\" run."
+        notes+=$'\n\n'"Filename format: \`<package>-<YYYYMMDD>-<HHMMSS>-<alpine|debian>.zip\`."
+        notes+=$'\n\n'"GitHub caps each release at 1000 assets, so once a monthly release fills up the workflow rolls over to \`${month_prefix}-NN\` (\`${base_title} NN\`) — all overflow releases for the same month list the same packages, just split across releases."
+
+        # ---- helpers ---------------------------------------------------
+        tag_for_suffix() {
+          # 0 → base tag; N>0 → -NN suffix (zero-padded).
+          local n="$1"
+          if (( n == 0 )); then
+            printf '%s\n' "$month_prefix"
+          else
+            printf '%s-%02d\n' "$month_prefix" "$n"
+          fi
+        }
+        title_for_suffix() {
+          local n="$1"
+          if (( n == 0 )); then
+            printf '%s\n' "$base_title"
+          else
+            printf '%s %02d\n' "$base_title" "$n"
+          fi
+        }
+        release_assets() {
+          gh release view "$1" --repo "$GH_REPO" \
+            --json assets --jq '.assets[].name' 2>/dev/null
+        }
+        release_exists() {
+          gh release view "$1" --repo "$GH_REPO" >/dev/null 2>&1
+        }
+        asset_count() {
+          # `wc -l` on empty stdin returns 0; safe for missing releases.
+          release_assets "$1" 2>/dev/null | grep -c '.' || true
+        }
+        ensure_release() {
+          # Lazily create release $1 with title $2 if it doesn't exist yet.
+          local tag="$1" title="$2"
+          if ! release_exists "$tag"; then
+            echo "::group::Creating release $tag ($title)"
+            # `gh release create` is racy across parallel shards — the
+            # loser hits "already_exists"; we re-check and proceed.
+            if ! gh release create "$tag" \
+                --repo "$GH_REPO" \
+                --title "$title" \
+                --notes "$notes" 2>/tmp/gh_create.err; then
+              if release_exists "$tag"; then
+                echo "Release $tag created concurrently by another shard."
+              else
+                cat /tmp/gh_create.err >&2
+                return 1
+              fi
+            fi
+            echo "::endgroup::"
+          fi
+        }
+
+        # ---- enumerate existing month releases (base + overflows) -----
+        # `--limit 1000` is well above any plausible per-month overflow
+        # count; filter by exact-match regex for the month prefix.
+        echo "::group::Discover existing month releases for $month_prefix"
+        mapfile -t MONTH_TAGS < <(
+          gh release list --repo "$GH_REPO" --limit 1000 \
+            --json tagName --jq '.[].tagName' 2>/dev/null \
+          | grep -E "^${month_prefix}(-[0-9]+)?$" \
+          | awk -v base="$month_prefix" '
+              { if ($0 == base) { print "0\t" $0 }
+                else { n = $0; sub(/^.*-/, "", n); print n+0 "\t" $0 }
+              }
+            ' \
+          | sort -k1,1n \
+          | cut -f2
+        )
+        if (( ${#MONTH_TAGS[@]} == 0 )); then
+          echo "  (no monthly releases yet)"
+        else
+          printf '  - %s\n' "${MONTH_TAGS[@]}"
+        fi
         echo "::endgroup::"
 
-        # Create the release if it doesn't exist yet. `gh release view` exits
-        # non-zero on missing release — we treat that as "create".
-        if ! gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
-          echo "::group::Creating release $tag"
-          month_label="$(date -u +'%B %Y')"
-          notes="**Atesor AI** is a LangGraph multi-agent system that autonomously ports x86/ARM packages to **RISC-V (riscv64)**. Each package below was cloned from upstream, built natively inside a riscv64 Docker sandbox (Alpine/musl or Debian/glibc), fixed where it broke, and packaged with a reproducible recipe."
-          notes+=$'\n\n'"Every \`*.zip\` asset contains the ported source tree, the porting \`build_recipe.md\`, and the per-package build logs. Assets are uploaded incrementally as CI jobs (and the nightly retry workflow) complete throughout **${month_label}** — no need to wait for a single \"green\" run."
-          notes+=$'\n\n'"Filename format: \`<package>-<YYYYMMDD>-<HHMMSS>-<alpine|debian>.zip\`."
-          gh release create "$tag" \
-            --repo "$GH_REPO" \
-            --title "$title" \
-            --notes "$notes"
-          echo "::endgroup::"
-        else
-          echo "Release $tag already exists; appending assets."
-        fi
-
-        # Dedupe pass
-        echo "::group::Dedupe existing assets"
-        existing_assets="$(gh release view "$tag" --repo "$GH_REPO" \
-          --json assets --jq '.assets[].name' 2>/dev/null || true)"
-        for zip in "${zips[@]}"; do
-          fname="$(basename "$zip")"
-          if [[ ! "$fname" =~ ^(.+)-([0-9]{8})-([0-9]{6})-([A-Za-z0-9]+)\.zip$ ]]; then
-            echo "::warning::Unrecognized filename format: $fname (skipping dedupe)"
-            continue
+        # Highest existing overflow suffix (0 if only base / nothing yet).
+        highest_suffix=0
+        for t in "${MONTH_TAGS[@]:-}"; do
+          [[ -z "$t" || "$t" == "$month_prefix" ]] && continue
+          if [[ "$t" =~ -([0-9]+)$ ]]; then
+            s=$(( 10#${BASH_REMATCH[1]} ))
+            (( s > highest_suffix )) && highest_suffix=$s
           fi
-          pkg="${BASH_REMATCH[1]}"
-          platform="${BASH_REMATCH[4]}"
-          pattern="^${pkg}-[0-9]{8}-[0-9]{6}-${platform}\.zip$"
-          while IFS= read -r asset; do
-            [[ -z "$asset" ]] && continue
-            # Skip the exact filename we're about to upload — `--clobber`
-            # below handles the same-name overwrite atomically.
-            [[ "$asset" == "$fname" ]] && continue
-            if [[ "$asset" =~ $pattern ]]; then
-              echo "  - removing stale asset: $asset (superseded by $fname)"
-              gh release delete-asset "$tag" "$asset" \
-                --repo "$GH_REPO" --yes || \
-                echo "::warning::Failed to delete $asset (continuing)"
+        done
+
+        # ---- dedupe stale assets across ALL month releases ------------
+        echo "::group::Dedupe existing assets across month releases"
+        for tag in "${MONTH_TAGS[@]:-}"; do
+          [[ -z "$tag" ]] && continue
+          existing_assets="$(release_assets "$tag" || true)"
+          [[ -z "$existing_assets" ]] && continue
+          for zip in "${zips[@]}"; do
+            fname="$(basename "$zip")"
+            if [[ ! "$fname" =~ ^(.+)-([0-9]{8})-([0-9]{6})-([A-Za-z0-9]+)\.zip$ ]]; then
+              echo "::warning::Unrecognized filename format: $fname (skipping dedupe)"
+              continue
             fi
-          done <<< "$existing_assets"
+            pkg="${BASH_REMATCH[1]}"
+            platform="${BASH_REMATCH[4]}"
+            pattern="^${pkg}-[0-9]{8}-[0-9]{6}-${platform}\.zip$"
+            while IFS= read -r asset; do
+              [[ -z "$asset" ]] && continue
+              # Skip the exact filename we're about to upload — `--clobber`
+              # below handles the same-name overwrite atomically.
+              [[ "$asset" == "$fname" ]] && continue
+              if [[ "$asset" =~ $pattern ]]; then
+                echo "  - $tag: removing stale asset $asset (superseded by $fname)"
+                gh release delete-asset "$tag" "$asset" \
+                  --repo "$GH_REPO" --yes || \
+                  echo "::warning::Failed to delete $asset from $tag (continuing)"
+              fi
+            done <<< "$existing_assets"
+          done
         done
         echo "::endgroup::"
 
-        # Upload with --clobber so re-runs of the exact same filename
-        # overwrite cleanly.
-        echo "::group::Uploading ${#zips[@]} asset(s)"
-        gh release upload "$tag" "${zips[@]}" \
-          --repo "$GH_REPO" \
-          --clobber
+        # ---- upload with overflow spill -------------------------------
+        echo "::group::Upload ${#zips[@]} asset(s) with overflow handling"
+        zips_pending=("${zips[@]}")
+        # Start at the lowest-suffix release and walk up only when full.
+        suffix=0
+        attempts=0
+        # Bound the walk to avoid infinite loops on persistent upload errors.
+        max_attempts=$(( highest_suffix + 64 ))
+        while (( ${#zips_pending[@]} > 0 )); do
+          if (( attempts >= max_attempts )); then
+            echo "::error::Exceeded $max_attempts spill attempts; aborting with ${#zips_pending[@]} zip(s) un-uploaded."
+            exit 1
+          fi
+          attempts=$(( attempts + 1 ))
+
+          tag="$(tag_for_suffix "$suffix")"
+          title="$(title_for_suffix "$suffix")"
+          ensure_release "$tag" "$title"
+
+          current_count="$(asset_count "$tag")"
+          remaining_capacity=$(( MAX_ASSETS_PER_RELEASE - current_count ))
+          if (( remaining_capacity <= 0 )); then
+            echo "  $tag: full ($current_count/$MAX_ASSETS_PER_RELEASE) — spilling to next overflow"
+            suffix=$(( suffix + 1 ))
+            (( suffix > highest_suffix )) && highest_suffix=$suffix
+            continue
+          fi
+
+          # Slice the next batch up to remaining capacity.
+          if (( ${#zips_pending[@]} <= remaining_capacity )); then
+            batch=("${zips_pending[@]}")
+            zips_pending=()
+          else
+            batch=("${zips_pending[@]:0:remaining_capacity}")
+            zips_pending=("${zips_pending[@]:remaining_capacity}")
+          fi
+
+          echo "  $tag: uploading ${#batch[@]} asset(s) (capacity left $remaining_capacity, current $current_count)"
+          if gh release upload "$tag" "${batch[@]}" \
+              --repo "$GH_REPO" --clobber; then
+            continue
+          fi
+
+          # Upload failed — likely because a parallel shard filled
+          # the release. Re-query which assets actually made it in
+          # and re-queue only the ones that didn't, on next overflow.
+          echo "::warning::Upload to $tag failed; reconciling and spilling remainder"
+          uploaded_now="$(release_assets "$tag" || true)"
+          retry=()
+          for zip in "${batch[@]}"; do
+            fname="$(basename "$zip")"
+            if grep -qFx "$fname" <<< "$uploaded_now"; then
+              continue
+            fi
+            retry+=("$zip")
+          done
+          echo "  $tag: ${#retry[@]} zip(s) need retry on next overflow"
+          # Prepend retry batch to pending list so they're handled first.
+          if (( ${#retry[@]} > 0 )); then
+            zips_pending=("${retry[@]}" "${zips_pending[@]}")
+          fi
+          suffix=$(( suffix + 1 ))
+          (( suffix > highest_suffix )) && highest_suffix=$suffix
+        done
         echo "::endgroup::"
 
-        echo "::notice::Uploaded ${#zips[@]} asset(s) to release $tag (scope=${SCOPE:-n/a})"
+        echo "::notice::Uploaded ${#zips[@]} asset(s) across month=$month_prefix release(s) (scope=${SCOPE:-n/a})"

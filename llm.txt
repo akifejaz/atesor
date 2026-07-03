@@ -2,15 +2,15 @@
 
 > Atesor AI is a LangGraph-based, multi-agent orchestration system that ports upstream software projects to RISC-V inside a Dockerized Alpine/riscv64 sandbox, combining deterministic scripted analysis with LLM-guided planning, build execution, fixing, and escalation.
 
-Atesor has two execution layers: deterministic scripted ops (clone/update, detection, dependency extraction, environment probing) and agentic orchestration (planner/supervisor/scout/builder/fixer/summarizer). For implementation work, state (`AgentState`) is the system contract and routing decisions in the graph should stay consistent with error severity and escalation behavior.
+Atesor has two execution layers: deterministic scripted ops (clone/update, detection, dependency extraction, environment probing, evidence bundling) and agentic orchestration (analyst/supervisor/scout/builder/fixer/summarizer). The analyst reads the repo's real build files and its PackageAnalysis is consumed by planning, scouting, fixing, and verification. For implementation work, state (`AgentState`) is the system contract and routing decisions in the graph should stay consistent with error severity and escalation behavior.
 
 Important current behavior:
 
 
 ## Core Docs
 
+- [PROJECT.md](./PROJECT.md): Canonical LLM context — goal, scope, architecture, path map, flows, configuration, changelog. Read this first.
 - [README.md](./README.md): Architecture overview, quickstart, usage, and project structure.
-- [ROADMAP.md](./ROADMAP.md): Planned capabilities and current priorities.
 - [LICENSE](./LICENSE): MIT license.
 
 ## Entrypoints
@@ -36,6 +36,7 @@ Important current behavior:
 ## Scripted Ops Layer
 
 - [src/scripted_ops.py](./src/scripted_ops.py): Deterministic repo analysis, build-system/dependency detection, system probing.
+- [src/evidence.py](./src/evidence.py): Repo evidence bundles for LLM prompts (real build-file/doc excerpts) and error-source excerpts for the fixer.
 - [src/artifact_scanner.py](./src/artifact_scanner.py): Build artifact detection, RISC-V architecture verification.
 - [src/tools.py](./src/tools.py): Safe command execution, Docker command wrapper, file I/O, patch application.
 - [src/config.py](./src/config.py): Environment detection and workspace path configuration.

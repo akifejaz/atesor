@@ -90,7 +90,7 @@ def _fmt_duration(seconds: float) -> str:
 def _short_container(name: str) -> str:
     """Strip the verbose base prefix so worker IDs read as ``w3``."""
     if name.startswith(_BASE_CONTAINER + "-"):
-        return name[len(_BASE_CONTAINER) + 1:]
+        return name[len(_BASE_CONTAINER) + 1 :]
     return name
 
 
@@ -211,6 +211,7 @@ def _emit(line: str) -> None:
         print(line)
         _redraw_bar()
 
+
 # ----------------------------------------------------------------------------
 # Per-worker container pool
 # ----------------------------------------------------------------------------
@@ -254,6 +255,7 @@ def _populate_container_pool(n: int) -> None:
     for i in range(n):
         _container_pool.put(f"{_BASE_CONTAINER}-w{i + 1}")
 
+
 # ----------------------------------------------------------------------------
 # Package-list loading
 # ----------------------------------------------------------------------------
@@ -282,7 +284,9 @@ def _resolve_list_path(value: str) -> str:
     return os.path.join(_PACKAGES_DIR, f"{value}.json")
 
 
-def _load_package_list(path: str) -> tuple[list[tuple[str, str]], dict[str, Any], str]:
+def _load_package_list(
+    path: str,
+) -> tuple[list[tuple[str, str]], dict[str, Any], str]:
     """Load and validate a package list JSON file.
 
     Returns ``(packages, defaults, description)`` where ``packages`` is a
@@ -309,27 +313,37 @@ def _load_package_list(path: str) -> tuple[list[tuple[str, str]], dict[str, Any]
 
     raw_packages = data.get("packages")
     if not isinstance(raw_packages, list) or not raw_packages:
-        raise SystemExit(f"[ERROR] {path}: 'packages' must be a non-empty list")
+        raise SystemExit(
+            f"[ERROR] {path}: 'packages' must be a non-empty list"
+        )
 
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
     for idx, entry in enumerate(raw_packages):
         if not isinstance(entry, dict):
-            raise SystemExit(f"[ERROR] {path}: packages[{idx}] is not an object")
+            raise SystemExit(
+                f"[ERROR] {path}: packages[{idx}] is not an object"
+            )
         name = entry.get("name")
         url = entry.get("url")
         if not isinstance(name, str) or not name:
             raise SystemExit(f"[ERROR] {path}: packages[{idx}] missing 'name'")
         if not isinstance(url, str) or not url:
-            raise SystemExit(f"[ERROR] {path}: packages[{idx}] ({name}) missing 'url'")
+            raise SystemExit(
+                f"[ERROR] {path}: packages[{idx}] ({name}) missing 'url'"
+            )
         if name in seen:
-            raise SystemExit(f"[ERROR] {path}: duplicate package name {name!r}")
+            raise SystemExit(
+                f"[ERROR] {path}: duplicate package name {name!r}"
+            )
         seen.add(name)
         out.append((name, url))
 
     defaults = data.get("defaults") or {}
     if not isinstance(defaults, dict):
-        raise SystemExit(f"[ERROR] {path}: 'defaults' must be an object if present")
+        raise SystemExit(
+            f"[ERROR] {path}: 'defaults' must be an object if present"
+        )
 
     description = data.get("description", "")
     if not isinstance(description, str):
@@ -600,9 +614,7 @@ def _install_signal_handlers(future_map: dict) -> None:
     signal.signal(signal.SIGINT, _handler)
 
 
-def run_agent(
-    repo_url: str, repo_name: str
-) -> tuple[bool, str, float]:
+def run_agent(repo_url: str, repo_name: str) -> tuple[bool, str, float]:
     """Run the agent on a single repository, streaming to a log file.
 
     Thread-safe: leases one container name from the per-worker pool, runs
@@ -675,9 +687,7 @@ def run_agent(
                 )
                 _kill_proc_group(proc.pid)
                 proc.wait()
-                log_fh.write(
-                    f"\n\n=== TIMED OUT after {mins} minutes ===\n"
-                )
+                log_fh.write(f"\n\n=== TIMED OUT after {mins} minutes ===\n")
                 duration = time.time() - start_time
                 return (
                     False,
@@ -699,8 +709,7 @@ def run_agent(
         except OSError:
             pass
         _emit(
-            f"  {_red('ERROR  ')} {_cyan(repo_name):<40} "
-            f"{_dim(str(exc))}"
+            f"  {_red('ERROR  ')} {_cyan(repo_name):<40} " f"{_dim(str(exc))}"
         )
         return False, msg, duration
     finally:
@@ -772,6 +781,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--platform",
+        dest="platform",
+        default=None,
+        choices=sorted(_PLATFORM_CONTAINERS),
+        help=(
+            "Sandbox distro to run against. Overrides ATESOR_PLATFORM "
+            "for this invocation and picks the matching container "
+            "image + per-worker container names. "
+            f"Default: value of ATESOR_PLATFORM (currently {PLATFORM!r})."
+        ),
+    )
+    parser.add_argument(
         "names",
         nargs="*",
         help="Optional package names to filter from the chosen list.",
@@ -805,6 +826,14 @@ def _apply_shard(
 def main() -> int:
     """Run the configured packages through the agent in parallel."""
     args = _parse_args(sys.argv[1:])
+
+    global PLATFORM, _BASE_CONTAINER
+    if args.platform and args.platform != PLATFORM:
+        PLATFORM = args.platform
+        _BASE_CONTAINER = _PLATFORM_CONTAINERS[PLATFORM]
+        # Downstream helpers read ATESOR_PLATFORM (e.g. main.py); keep
+        # env and module state in sync so child processes agree with us.
+        os.environ["ATESOR_PLATFORM"] = PLATFORM
 
     global MAX_WORKERS
     if args.workers < 1:
@@ -921,14 +950,17 @@ def main() -> int:
     logs_abs = os.path.abspath(BATCH_LOGS_DIR)
     home = os.path.expanduser("~")
     logs_disp = (
-        "~" + logs_abs[len(home):]
+        "~" + logs_abs[len(home) :]
         if logs_abs.startswith(home + "/")
         else logs_abs
     )
 
     rows: list[tuple[str, str]] = [
         ("Started", started_human),
-        ("List", f"{os.path.basename(list_path)}  ({len(packages_to_run)} pkgs)"),
+        (
+            "List",
+            f"{os.path.basename(list_path)}  ({len(packages_to_run)} pkgs)",
+        ),
         ("Packages", str(len(packages_to_run))),
         ("Workers", str(MAX_WORKERS)),
         ("Platform", f"{PLATFORM}  (image: {_BASE_CONTAINER})"),
@@ -950,11 +982,7 @@ def main() -> int:
     inner = min(inner, max(term_cols - 2, 40))
 
     print(_bold("╔" + "═" * inner + "╗"))
-    print(
-        _bold("║")
-        + _bold(_cyan(title.center(inner)))
-        + _bold("║")
-    )
+    print(_bold("║") + _bold(_cyan(title.center(inner))) + _bold("║"))
     print(_bold("╠" + "═" * inner + "╣"))
 
     def _row(label: str, value: str) -> None:
@@ -1002,9 +1030,7 @@ def main() -> int:
 
                 results.append((name, success, duration, output))
                 log_path = os.path.join(BATCH_LOGS_DIR, f"{name}.log")
-                is_timeout = (
-                    not success and output.startswith("Timeout")
-                )
+                is_timeout = not success and output.startswith("Timeout")
                 with _print_lock:
                     _progress_counter += 1
                     _progress_active = max(_progress_active - 1, 0)
@@ -1044,9 +1070,7 @@ def main() -> int:
     elapsed = time.time() - started_at
 
     # Sort: failures first, then by duration desc, keeps eyes on what matters.
-    sorted_results = sorted(
-        results, key=lambda r: (r[1], -r[2])
-    )
+    sorted_results = sorted(results, key=lambda r: (r[1], -r[2]))
 
     # ---- Results table ----
     col_idx, col_status, col_pkg, col_dur = 4, 9, 36, 12
@@ -1096,9 +1120,7 @@ def main() -> int:
 
     # ---- Stats panel ----
     rate = (passed / len(results) * 100) if results else 0.0
-    rate_color = (
-        _green if rate >= 80 else (_yellow if rate >= 50 else _red)
-    )
+    rate_color = _green if rate >= 80 else (_yellow if rate >= 50 else _red)
 
     print()
     print(_bold("╔" + "═" * (table_w - 2) + "╗"))
@@ -1128,9 +1150,7 @@ def main() -> int:
     _stat_row_colored(rate_plain, rate_colored)
 
     _stat_row(f"ELAPSED        {_fmt_duration(elapsed)}")
-    _stat_row(
-        f"FINISHED       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    )
+    _stat_row(f"FINISHED       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     _stat_row(f"LOGS           {logs_abs}")
     print(_bold("╚" + "═" * (table_w - 2) + "╝"))
 

@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+# Post-install guidance. Dependency packages (docker, qemu-user-static,
+# binfmt-support, python3) are pulled in by the control "Depends" field.
+
+cat <<'MSG'
+
+atesor-ai installed to /opt/atesor-ai (launcher: /usr/bin/atesor-ai).
+
+Before first use:
+  1. Ensure the Docker daemon is running and your user can reach it:
+       sudo usermod -aG docker "$USER"   # then re-login / newgrp docker
+  2. riscv64 emulation is provided by qemu-user-static + binfmt-support
+     (installed as dependencies). Verify with:
+       ls /proc/sys/fs/binfmt_misc/ | grep -i riscv
+  3. Provide an LLM API key via the environment, a .env in your CWD, or
+     ~/.config/atesor-ai/.env (all loaded automatically):
+       export GOOGLE_API_KEY=...        # or OPENAI_API_KEY / OPENROUTER_API_KEY
+
+Quick start:
+  atesor-ai --setup-only
+  atesor-ai --repo https://github.com/madler/zlib --verbose
+
+Runtime state is written to $ATESOR_HOME or ~/.local/share/atesor-ai.
+
+MSG
+
+exit 0

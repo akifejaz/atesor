@@ -1,4 +1,7 @@
 
+# Build artifacts
+/dist/
+
 # Workspace directories (host-side)
 /workspace/
 *.pyc

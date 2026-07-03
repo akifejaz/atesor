@@ -5,7 +5,9 @@ Given:
 
 * a package list JSON (e.g. ``.github/packages/full.json``),
 * the set of asset filenames already published under the current
-  monthly release tag (one name per line in ``--released-assets``),
+  monthly release tag and any overflow tags
+  (``builds-YYYY-MM``, ``builds-YYYY-MM-01``, ``builds-YYYY-MM-02``,
+  …; one name per line in ``--released-assets``),
 * a target ``--platform`` slug (``alpine`` or ``debian``), and
 * a shard ``--group-size``,
 
@@ -21,9 +23,10 @@ where ``<prefix>`` defaults to the platform name. ``N`` is the number
 of shards needed to cover the remaining packages at ``--group-size``
 each (``ceil(remaining / group_size)``).
 
-"Already released" means an asset under the current monthly tag whose
-filename matches the canonical pattern produced by
-``src.packager.package_build``::
+"Already released" means an asset under the current monthly tag (or
+any of its ``-NN`` overflow tags created when a release fills its
+1000-asset cap) whose filename matches the canonical pattern produced
+by ``src.packager.package_build``::
 
     <package>-<YYYYMMDD>-<HHMMSS>-<platform>.zip
 
@@ -53,7 +56,7 @@ _PACKAGES_DIR = os.path.normpath(
 def _resolve_list_path(value: str) -> str:
     """Bare name resolves under ``.github/packages/<name>.json``.
 
-    Mirrors ``plan-shards.py::_resolve_list_path`` so the workflow can
+    Mirrors ``plan_shards.py::_resolve_list_path`` so the workflow can
     pass either ``--list full`` (production) or an explicit file path
     (tests, ad-hoc invocations).
     """
@@ -62,22 +65,47 @@ def _resolve_list_path(value: str) -> str:
     return os.path.join(_PACKAGES_DIR, f"{value}.json")
 
 
-def _load_package_names(list_path: str) -> list[str]:
-    """Return the ordered package names declared in a list JSON file."""
+def _zip_stem_from_url(url: str) -> str:
+    """Derive the zip filename stem the packager will actually use.
+
+    MUST mirror ``src.state.create_initial_state``/``sanitize_repo_name``:
+    the zip is named after the sanitized URL basename, NOT the list
+    ``name`` field. 91 of 705 ``full.json`` entries have
+    ``name != url basename`` (e.g. ``nginx`` vs ``nginx-binaries``);
+    matching on ``name`` marked those as never-released and rebuilt
+    them on every run, forever.
+    """
+    base = (url or "").rstrip("/").split("/")[-1]
+    if base.endswith(".git"):
+        base = base[: -len(".git")]
+    stem = re.sub(r"[^A-Za-z0-9._-]", "-", base).lstrip(".")
+    return stem or "repo"
+
+
+def _load_packages(list_path: str) -> list[tuple[str, str]]:
+    """Return ordered ``(name, zip_stem)`` pairs from a list JSON file.
+
+    ``zip_stem`` is derived from the entry's ``url`` (what the packager
+    names the zip after); it falls back to ``name`` when no URL is
+    declared.
+    """
     with open(list_path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     pkgs = data.get("packages", [])
-    out: list[str] = []
+    out: list[tuple[str, str]] = []
     for p in pkgs:
         name = p.get("name")
         if not name:
             continue
-        out.append(name)
+        url = p.get("url") or p.get("repo") or ""
+        stem = _zip_stem_from_url(url) if url else name
+        out.append((name, stem))
     return out
 
 
 def _released_names(
-    asset_names: Iterable[str], platform: str,
+    asset_names: Iterable[str],
+    platform: str,
 ) -> set[str]:
     """Return the set of package names already released for ``platform``.
 
@@ -115,56 +143,87 @@ def compute_plan(
     declared: list[str],
     released: set[str],
     group_size: int,
+    stem_of: dict[str, str] | None = None,
 ) -> tuple[list[str], int, list[int]]:
     """Return ``(remaining, total_shards, group_indices)``.
 
     ``remaining`` preserves the declared order; ``total_shards`` is
-    ``ceil(len(remaining) / group_size)`` (0 when empty).
+    ``ceil(len(remaining) / group_size)`` (0 when empty). ``stem_of``
+    maps a declared name to the zip filename stem to match against
+    ``released`` (defaults to the name itself).
     """
     if group_size < 1:
         raise ValueError(f"group-size must be >= 1 (got {group_size})")
-    remaining = [n for n in declared if n not in released]
+    stems = stem_of or {}
+    remaining = [n for n in declared if stems.get(n, n) not in released]
     if not remaining:
         return remaining, 0, []
     total = math.ceil(len(remaining) / group_size)
     return remaining, total, list(range(total))
 
 
-def _write_remaining(path: str, remaining: list[str]) -> None:
-    """Persist the remaining list as ``{"packages": [...]}`` JSON."""
+def _write_remaining(
+    path: str,
+    remaining: list[str],
+    stem_of: dict[str, str] | None = None,
+) -> None:
+    """Persist the remaining list as ``{"packages": [...]}`` JSON.
+
+    The additive ``stems`` map (name → zip filename stem) lets the
+    retry workflow's ``missing_pkgs.py`` match zips correctly for
+    entries whose name differs from the URL basename. Readers that only
+    consume ``packages`` are unaffected.
+    """
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    payload: dict = {"packages": remaining}
+    if stem_of:
+        payload["stems"] = {
+            n: stem_of[n]
+            for n in remaining
+            if n in stem_of and stem_of[n] != n
+        }
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"packages": remaining}, fh, indent=2)
+        json.dump(payload, fh, indent=2)
         fh.write("\n")
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI entry point."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--list", required=True,
+        "--list",
+        required=True,
         help="Path to a package-list JSON (e.g. .github/packages/full.json).",
     )
     p.add_argument(
-        "--released-assets", required=False, default=None,
+        "--released-assets",
+        required=False,
+        default=None,
         help=(
             "Path to a file containing released asset filenames, one "
             "per line. Missing or empty file = no skips."
         ),
     )
     p.add_argument(
-        "--platform", required=True, choices=["alpine", "debian"],
+        "--platform",
+        required=True,
+        choices=["alpine", "debian"],
         help="Platform slug used in zip filenames.",
     )
     p.add_argument(
-        "--group-size", required=True, type=int,
+        "--group-size",
+        required=True,
+        type=int,
         help="Max packages per shard (matches main workflow's input).",
     )
     p.add_argument(
-        "--remaining-out", required=True,
+        "--remaining-out",
+        required=True,
         help="Where to write the ordered remaining list as JSON.",
     )
     p.add_argument(
-        "--output-key-prefix", default=None,
+        "--output-key-prefix",
+        default=None,
         help=(
             "Prefix for the emitted KEY=VALUE lines. Defaults to "
             "the platform slug, yielding e.g. ``debian_total`` and "
@@ -175,15 +234,20 @@ def main(argv: list[str] | None = None) -> int:
 
     prefix = args.output_key_prefix or args.platform
 
-    declared = _load_package_names(_resolve_list_path(args.list))
+    declared_pairs = _load_packages(_resolve_list_path(args.list))
+    declared = [name for name, _stem in declared_pairs]
+    stem_of = {name: stem for name, stem in declared_pairs}
     released_all = _load_released_assets(args.released_assets)
     released = _released_names(released_all, args.platform)
 
     remaining, total, groups = compute_plan(
-        declared, released, args.group_size,
+        declared,
+        released,
+        args.group_size,
+        stem_of=stem_of,
     )
 
-    _write_remaining(args.remaining_out, remaining)
+    _write_remaining(args.remaining_out, remaining, stem_of=stem_of)
 
     print(f"{prefix}_total={total}")
     print(f"{prefix}_groups={json.dumps(groups)}")

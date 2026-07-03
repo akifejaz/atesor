@@ -50,15 +50,51 @@ def is_running_in_docker() -> bool:
     return False
 
 
+def get_state_home() -> str:
+    """Return the writable base directory for all runtime state.
+
+    Resolution order: the ``ATESOR_HOME`` environment variable, then
+    ``/workspace`` inside the sandbox container, then the source
+    checkout root when running from a clone, and finally
+    ``$XDG_DATA_HOME/atesor-ai`` (default ``~/.local/share/atesor-ai``).
+    Keeping mutable state out of the install tree lets the tool run from
+    a read-only system location such as ``/opt``.
+    """
+    override = os.environ.get("ATESOR_HOME")
+    if override:
+        base = os.path.abspath(os.path.expanduser(override))
+    elif is_running_in_docker():
+        base = "/workspace"
+    else:
+        repo_root = Path(__file__).resolve().parent.parent
+        is_source = (repo_root / ".git").exists() or (
+            repo_root / "tests"
+        ).is_dir()
+        if is_source and os.access(str(repo_root), os.W_OK):
+            base = str(repo_root)
+        else:
+            xdg = os.environ.get("XDG_DATA_HOME") or os.path.join(
+                os.path.expanduser("~"), ".local", "share"
+            )
+            base = os.path.join(xdg, "atesor-ai")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
 def get_workspace_root() -> str:
     """Get appropriate workspace root based on environment."""
     if is_running_in_docker():
         return "/workspace"
-    else:
-        project_root = Path(__file__).parent.parent.absolute()
-        workspace = project_root / "workspace"
-        workspace.mkdir(exist_ok=True)
-        return str(workspace)
+    workspace = os.path.join(get_state_home(), "workspace")
+    os.makedirs(workspace, exist_ok=True)
+    return workspace
+
+
+def get_data_dir() -> str:
+    """Get the writable directory for examples and the recipe cache."""
+    data_dir = os.path.join(get_state_home(), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
 
 
 def get_output_dir() -> str:
@@ -103,16 +139,38 @@ def get_packages_dir() -> str:
 
 # Global configuration
 _IN_DOCKER = is_running_in_docker()
+STATE_HOME = get_state_home()
 WORKSPACE_ROOT = get_workspace_root()
 OUTPUT_DIR = get_output_dir()
 REPOS_DIR = get_repos_dir()
 CACHE_DIR = get_cache_dir()
 LOGS_DIR = get_logs_dir()
 PACKAGES_DIR = get_packages_dir()
+DATA_DIR = get_data_dir()
 
 # Docker Configuration
 CONTAINER_NAME = "atesor-ai-sandbox"
 IMAGE_NAME = "atesor-ai-sandbox:latest"
+
+
+def to_host_path(path: str) -> str:
+    """Translate a ``/workspace`` container path to a host path.
+
+    Canonical translator — every module that needs host-side access to
+    sandbox files must use this (or delegate to it) so container/host
+    path mapping stays consistent in one place.
+
+    Args:
+        path: A path that may start with the in-container ``/workspace``
+            prefix.
+
+    Returns:
+        The equivalent host path, or ``path`` unchanged when it is not
+        a container path (or when we ARE running inside the container).
+    """
+    if path.startswith("/workspace") and not os.path.exists("/workspace"):
+        return path.replace("/workspace", WORKSPACE_ROOT, 1)
+    return path
 
 
 def print_config() -> None:
@@ -132,12 +190,17 @@ __all__ = [
     "get_cache_dir",
     "get_logs_dir",
     "get_packages_dir",
+    "get_state_home",
+    "get_data_dir",
+    "STATE_HOME",
+    "DATA_DIR",
     "WORKSPACE_ROOT",
     "OUTPUT_DIR",
     "REPOS_DIR",
     "CACHE_DIR",
     "LOGS_DIR",
     "PACKAGES_DIR",
+    "to_host_path",
     "print_config",
     "CONTAINER_NAME",
     "IMAGE_NAME",
