@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit a GitHub Actions matrix plan for a sharded package list.
+r"""Emit a GitHub Actions matrix plan for a sharded package list.
 
 Reads a package list JSON and prints two ``KEY=VALUE`` lines suitable
 for ``$GITHUB_OUTPUT``:
@@ -9,7 +9,7 @@ for ``$GITHUB_OUTPUT``:
 
 Example::
 
-    python .github/scripts/plan-shards.py \\
+    python .github/scripts/plan_shards.py \\
         --list full --group-size 50 >> "$GITHUB_OUTPUT"
 
 then::
@@ -70,6 +70,7 @@ def compute_plan(count: int, group_size: int) -> tuple[int, list[int]]:
 
 
 def main(argv: list[str]) -> int:
+    """Run the CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--list",

@@ -235,6 +235,37 @@ class BuildSystemInfo:
 
 
 @dataclass
+class PackageAnalysis:
+    """The analyst agent's understanding of the package.
+
+    Produced from ACTUAL repo evidence (README, build files) by one LLM
+    call, and consumed downstream — the heuristic planner uses
+    ``dependencies``/``needs_custom_plan`` to decide whether a default
+    recipe is safe, the scout grounds its BuildPlan in
+    ``build_strategy``/``riscv_risks``, the fixer gets ``purpose`` and
+    risks as diagnosis context, and verification checks
+    ``expected_artifacts``.
+    """
+
+    purpose: str = ""  # what the package is/does (one sentence)
+    language: str = ""  # dominant implementation language
+    build_system: str = "unknown"
+    build_system_confidence: float = 0.0
+    build_system_reasoning: str = ""  # file evidence for the call
+    dependencies: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # [{"name": canonical, "reason": file evidence}]
+    riscv_risks: List[str] = field(default_factory=list)
+    build_strategy: str = ""  # how to build, grounded in files read
+    expected_artifacts: List[str] = field(
+        default_factory=list
+    )  # binary/library names the build should produce
+    needs_custom_plan: bool = False  # True → defer to LLM scout
+    complexity: int = 5  # 1-10
+    llm_grounded: bool = False  # False → deterministic fallback
+
+
+@dataclass
 class AgentState:
     """Comprehensive state for the RISC-V porting agent.
 
@@ -249,6 +280,7 @@ class AgentState:
 
     # ========== Task Planning ==========
     task_plan: Optional[TaskPlan] = None
+    package_analysis: Optional[PackageAnalysis] = None
     current_phase: str = "initialization"
 
     # ========== Build Information ==========
@@ -278,6 +310,8 @@ class AgentState:
     # ========== Performance Tracking ==========
     api_calls_made: int = 0
     api_cost_usd: float = 0.0
+    api_tokens_in: int = 0
+    api_tokens_out: int = 0
     scripted_ops_count: int = 0
     execution_start_time: datetime = field(default_factory=datetime.now)
 
@@ -286,6 +320,16 @@ class AgentState:
     file_content_cache: Dict[str, str] = field(default_factory=dict)
     command_results_cache: Dict[str, CommandResult] = field(
         default_factory=dict
+    )
+
+    # ========== Parallel Scout Results ==========
+    scout_build_system_result: Optional[Dict[str, Any]] = None
+    scout_deps_result: Optional[Dict[str, Any]] = None
+    scout_arch_issues_result: Optional[Dict[str, Any]] = None
+
+    # ========== Subgraph status (read by the parent graph) ==========
+    subgraph_outcome: Optional[str] = (
+        None  # "success" | "failure" | "fix_needed"
     )
 
     # ========== Agent Communication ==========
@@ -327,10 +371,26 @@ class AgentState:
         self.fixes_attempted.append(fix)
         self.update_timestamp()
 
-    def log_api_call(self, cost: float = 0.0) -> None:
-        """Track API usage."""
-        self.api_calls_made += 1
+    def log_api_call(
+        self,
+        cost: float = 0.0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        calls: int = 1,
+    ) -> None:
+        """Track API usage with real token counts and cost.
+
+        Args:
+            cost: Real USD cost of the call(s), from token usage.
+            tokens_in: Billed prompt tokens.
+            tokens_out: Billed completion tokens.
+            calls: Number of LLM invocations this covers (a validated
+                call may retry several times).
+        """
+        self.api_calls_made += max(1, calls)
         self.api_cost_usd += cost
+        self.api_tokens_in += tokens_in
+        self.api_tokens_out += tokens_out
         self.update_timestamp()
 
     def log_scripted_op(self, operation: str = "unknown") -> None:
@@ -455,12 +515,50 @@ class AgentState:
 # ============================================================================
 
 
+def sanitize_repo_name(raw: str) -> str:
+    """Reduce a repo name to a shell- and path-safe token.
+
+    ``repo_name`` is interpolated into shell strings (``rm -rf``,
+    ``git clone``, ``cd``) and filesystem paths throughout the
+    pipeline, so it must never contain shell metacharacters or path
+    traversal. Anything outside ``[A-Za-z0-9._-]`` is replaced with
+    ``-``; leading dots are stripped so the name can never be ``..``
+    or a hidden file.
+
+    Args:
+        raw: The raw name segment derived from the repo URL.
+
+    Returns:
+        A safe, non-empty repo name.
+    """
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", raw or "").lstrip(".")
+    return name or "repo"
+
+
 def create_initial_state(repo_url: str, max_attempts: int = 5) -> AgentState:
-    """Create initial state for a new porting task."""
-    repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+    """Create initial state for a new porting task.
+
+    Raises:
+        ValueError: If ``repo_url`` is not a plain http(s) URL. URLs
+            are interpolated into in-container shell commands, so
+            anything else (shell metacharacters, other schemes) is
+            rejected up front.
+    """
+    url = (repo_url or "").strip()
+    # Allowlist: scheme + URL-safe chars only. Deliberately excludes
+    # every shell metacharacter (quotes, $, ;, |, &, spaces, ...).
+    if not re.fullmatch(r"https?://[A-Za-z0-9._~:/?#@!+,=%\-]+", url):
+        raise ValueError(
+            f"Unsupported or unsafe repository URL: {repo_url!r} "
+            "(expected a plain http(s) URL without shell metacharacters)"
+        )
+
+    repo_name = sanitize_repo_name(
+        url.rstrip("/").split("/")[-1].removesuffix(".git")
+    )
 
     return AgentState(
-        repo_url=repo_url,
+        repo_url=url,
         repo_name=repo_name,
         repo_path=f"/workspace/repos/{repo_name}",
         max_attempts=max_attempts,
@@ -491,6 +589,23 @@ def classify_error(error_message: str) -> ErrorCategory:
         ]
     ):
         return ErrorCategory.RATE_LIMIT
+
+    # Git clone auth failures (sandbox has no git credentials)
+    if any(
+        term in error_lower
+        for term in [
+            "could not read username",
+            "could not read password",
+            "no such device or address",
+            "authentication failed",
+            "could not read from remote",
+        ]
+    ):
+        return ErrorCategory.NETWORK
+
+    # Bad repository URL (not a real repo)
+    if re.search(r"repository\s+['\"][^'\"]+['\"]\s+not\s+found", error_lower):
+        return ErrorCategory.CONFIGURATION
 
     # Network errors
     if any(
@@ -547,22 +662,17 @@ def classify_error(error_message: str) -> ErrorCategory:
     ):
         return ErrorCategory.COMPILATION
 
-    # Architecture-specific errors. Keep this strict: broad substring
-    # checks (e.g. plain "arch") misclassify unrelated messages.
-    if any(
-        term in error_lower
-        for term in [
-            "architecture",
-            "sse",
-            "avx",
-            "neon",
-            "simd",
-            "unsupported instruction",
-            "illegal instruction",
-            "x86_64",
-            "amd64",
-        ]
-    ) or re.search(r"\barch\b", error_lower):
+    # Architecture-specific errors. Word boundaries are mandatory:
+    # bare substring checks misclassify ordinary words and REPO NAMES —
+    # "sse" matches inside "assetfinder", so every error mentioning
+    # that repo's path was tagged ARCHITECTURE (observed in the
+    # 2026-07-02 smoke run).
+    if re.search(
+        r"\b(architecture|sse\d?|avx\d*|neon|simd"
+        r"|unsupported instruction|illegal instruction"
+        r"|x86[-_]64|amd64|arch)\b",
+        error_lower,
+    ):
         return ErrorCategory.ARCHITECTURE
 
     # Configuration errors
@@ -656,9 +766,21 @@ def classify_error(error_message: str) -> ErrorCategory:
             "unable to locate package",
             "unable to lock database",
             "broken packages",
+            "has no installation candidate",
         ]
     ):
         return ErrorCategory.DEPENDENCY
+
+    # Empty repository (git clone succeeded but no commits)
+    if any(
+        term in error_lower
+        for term in [
+            "does not have any commits",
+            "does not have any commits yet",
+            "empty repository",
+        ]
+    ):
+        return ErrorCategory.CONFIGURATION
 
     # Go toolchain version mismatch
     if any(

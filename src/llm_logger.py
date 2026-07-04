@@ -101,6 +101,8 @@ class LLMCallLogger:
         response: str,
         model: str,
         cost_usd: float = 0.0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Log an LLM call with complete context.
@@ -111,7 +113,11 @@ class LLMCallLogger:
             prompt: The full prompt sent to the LLM.
             response: The response received from the LLM.
             model: The model used.
-            cost_usd: Estimated cost of the call.
+            cost_usd: Real cost of the call from token usage (0 for
+                free-tier models).
+            tokens_in: Billed prompt tokens (0 when the provider did
+                not report usage).
+            tokens_out: Billed completion tokens.
             metadata: Additional metadata about the call.
 
         Returns:
@@ -126,6 +132,8 @@ class LLMCallLogger:
             "agent_role": agent_role,
             "model": model,
             "cost_usd": cost_usd,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
             "prompt_length": len(prompt),
             "response_length": len(response),
             "metadata": metadata or {},
@@ -144,6 +152,7 @@ class LLMCallLogger:
                         f.write(f"AGENT: {agent_role}\n")
                         f.write(f"MODEL: {model}\n")
                         f.write(f"COST: ${cost_usd:.6f}\n")
+                        f.write(f"TOKENS: in={tokens_in} out={tokens_out}\n")
 
                         if metadata:
                             meta_json = json.dumps(metadata, indent=2)
@@ -184,11 +193,20 @@ def log_llm_call(
     response: str,
     model: str,
     cost_usd: float = 0.0,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Log an LLM call through the global logger instance."""
     return _llm_logger.log_call(
-        agent_role, prompt, response, model, cost_usd, metadata
+        agent_role,
+        prompt,
+        response,
+        model,
+        cost_usd,
+        tokens_in,
+        tokens_out,
+        metadata,
     )
 
 

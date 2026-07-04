@@ -3,14 +3,18 @@
 Covers build plan, fix command, fixer response, and predictions.
 """
 
+import os
 import unittest
 
 from src.graph import (
+    _download_go_toolchain_cmd,
     _inject_go_flag,
     _inject_go_output,
     _is_go_build_command,
     _is_suspected_oom,
+    _npm_scripts,
     _replan_signature,
+    _repo_has_gitmodules,
     _resolve_header_to_packages,
     _resolve_missing_python_modules,
     _serialize_build_command,
@@ -490,6 +494,29 @@ class TestSerializeBuildCommand(unittest.TestCase):
         out = _serialize_build_command("cmake --build build")
         self.assertEqual(out, "cmake --build build")
 
+    def test_cargo_fetch_gets_env_only(self) -> None:
+        """Verify cargo fetch gets env only (it has no -j flag)."""
+        out = _serialize_build_command("cargo fetch")
+        self.assertIn("CARGO_BUILD_JOBS=1", out)
+        # `cargo fetch` must not gain a spurious -j 1 flag.
+        self.assertNotIn(" -j ", out)
+
+    def test_cargo_build_gets_j_and_env(self) -> None:
+        """Verify cargo build gets both -j 1 and CARGO_BUILD_JOBS."""
+        out = _serialize_build_command("cargo build --release")
+        self.assertIn("cargo build -j 1", out)
+        self.assertIn("CARGO_BUILD_JOBS=1", out)
+
+    def test_pip_install_gets_makeflags(self) -> None:
+        """Verify pip install serializes via MAKEFLAGS."""
+        out = _serialize_build_command("pip install .")
+        self.assertIn("MAKEFLAGS=-j1", out)
+
+    def test_npm_install_gets_jobs_flag(self) -> None:
+        """Verify npm install gains --jobs 1."""
+        out = _serialize_build_command("npm install")
+        self.assertIn("npm install --jobs 1", out)
+
 
 class TestSuspectedOOM(unittest.TestCase):
     """Tests for the suspected-OOM detector."""
@@ -512,10 +539,24 @@ class TestSuspectedOOM(unittest.TestCase):
             _is_suspected_oom(_Res(1, "", "boom", False), "go build ./x")
         )
 
-    def test_non_build_command_not_oom(self) -> None:
-        """Non-build commands are not treated as suspected OOM."""
-        self.assertFalse(
-            _is_suspected_oom(_Res(137, "", "", False), "git clone x")
+    def test_exit_137_any_command(self) -> None:
+        """Exit 137 is treated as OOM even for non-build commands."""
+        self.assertTrue(
+            _is_suspected_oom(
+                _Res(137, "", "", False), "git clone https://x /tmp/y"
+            )
+        )
+
+    def test_cargo_fetch_exit137(self) -> None:
+        """Verify cargo fetch OOM (exit 137) is caught."""
+        self.assertTrue(
+            _is_suspected_oom(_Res(137, "", "", False), "cargo fetch")
+        )
+
+    def test_npm_install_empty_output(self) -> None:
+        """Verify npm install with no output is treated as OOM."""
+        self.assertTrue(
+            _is_suspected_oom(_Res(1, "", "", False), "npm install")
         )
 
 
@@ -577,6 +618,95 @@ class TestPythonModuleResolution(unittest.TestCase):
     def test_no_module_error(self) -> None:
         """Errors without module names produce no Python packages."""
         self.assertEqual(_resolve_missing_python_modules("some error"), [])
+
+
+class TestGoToolchainDownloadCommand(unittest.TestCase):
+    """Tests for the go.dev tarball installer shell command."""
+
+    def test_version_appears_in_url(self) -> None:
+        """The command references the requested Go version in the URL."""
+        cmd = _download_go_toolchain_cmd("1.25.0")
+        self.assertIn("go1.25.0.linux-riscv64.tar.gz", cmd)
+        self.assertIn("https://go.dev/dl/", cmd)
+
+    def test_command_replaces_usr_local_go(self) -> None:
+        """The command wipes /usr/local/go before untar to avoid mixing."""
+        cmd = _download_go_toolchain_cmd("1.26.3")
+        self.assertIn("rm -rf /usr/local/go", cmd)
+        self.assertIn("tar -xzf", cmd)
+        self.assertIn("/usr/local/go/bin/go version", cmd)
+
+    def test_command_uses_set_e(self) -> None:
+        """The command uses ``set -e`` so any step failing aborts install."""
+        cmd = _download_go_toolchain_cmd("1.25.0")
+        self.assertTrue(cmd.startswith("set -e && "))
+
+
+class TestRepoGitmodules(unittest.TestCase):
+    """Tests for ``.gitmodules`` presence detection."""
+
+    def test_present(self) -> None:
+        """Returns True when the file exists."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, ".gitmodules"), "w") as f:
+                f.write("x")
+            self.assertTrue(_repo_has_gitmodules(d))
+
+    def test_absent(self) -> None:
+        """Returns False when the file does not exist."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(_repo_has_gitmodules(d))
+
+    def test_none_path_is_safe(self) -> None:
+        """Passing ``None`` does not raise."""
+        self.assertFalse(_repo_has_gitmodules(None))
+
+
+class TestNpmScripts(unittest.TestCase):
+    """Tests for reading npm scripts from package.json."""
+
+    def _write_pkg(self, repo, payload) -> None:
+        """Helper: write ``package.json`` inside ``repo`` from a dict."""
+        with open(os.path.join(repo, "package.json"), "w") as f:
+            import json as _json
+
+            _json.dump(payload, f)
+
+    def test_missing_package_json(self) -> None:
+        """No package.json → empty list."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(_npm_scripts(d), [])
+
+    def test_present_scripts(self) -> None:
+        """Scripts dict is returned as an ordered list."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._write_pkg(d, {"scripts": {"test": "jest", "prod": "x"}})
+            self.assertEqual(_npm_scripts(d), ["test", "prod"])
+
+    def test_no_scripts_key(self) -> None:
+        """Missing scripts key → empty list, not KeyError."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self._write_pkg(d, {"name": "foo"})
+            self.assertEqual(_npm_scripts(d), [])
+
+    def test_unparseable_json(self) -> None:
+        """Garbage in package.json → empty list, no crash."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "package.json"), "w") as f:
+                f.write("{ not json")
+            self.assertEqual(_npm_scripts(d), [])
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ directory. The default is `smoke.json` (fast sanity check); pass
 | File         | Size       | When to use                                          |
 | ------------ | ---------- | ---------------------------------------------------- |
 | `smoke.json` | ~9 pkgs    | Default. Fast Go + C mix to catch regressions early. |
-| `full.json`  | ~170 pkgs  | Nightly / pre-release full sweep.                    |
+| `full.json`  | ~700 pkgs  | Nightly / pre-release full sweep.                    |
 
 Add your own lists by dropping a new `*.json` file here that matches the
 schema below — `batch_test.py --list <name>` will pick it up
@@ -74,6 +74,10 @@ missing).
    them quickly with `--tag simd` etc. when triaging.
 6. **Do not add per-package timeout overrides** — bump `defaults` or
    move the slow package to its own list instead.
+7. **Keep the aligned spacing style** used in `full.json`:
+   `name` is left-padded to the widest package name, `url` to the widest
+   URL, `lang` to 4 chars, and `group` to the widest group name so the
+   table stays easy to scan.
 
 ## CLI quick reference
 

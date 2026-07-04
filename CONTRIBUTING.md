@@ -96,11 +96,9 @@ These are the rules that keep the graph correct. Break one and tests will (or sh
 ### Adding a new agent / routing phase
 
 1. Add the node function in `src/graph.py` and decorate it with `@agent_node(AgentRole.X)`.
-2. Register it in `create_workflow()`.
-3. Add the phase string → node name mapping in `route_next()`'s `routing_map`.
-4. Set `state.current_phase = "<your_phase>"` at the end of any node that should route to it.
-
-Forgetting step 3 silently lands you in an infinite supervisor loop.
+2. Add the node in `create_workflow()`.
+3. Write a per-node routing function (e.g. `route_my_node_to_next`) that inspects `AgentState` fields and returns the next node name.
+4. Wire it with `add_conditional_edges("my_node", route_my_node_to_next, {dest1: dest1, dest2: dest2})`.
 
 ### Adding a new platform (distro)
 

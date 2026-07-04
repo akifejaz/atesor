@@ -1,0 +1,10 @@
+[tool.black]
+# House style: 79-char hard limit (PEP 8), double quotes, trailing
+# commas. See .github/skills/python-standards/SKILL.md.
+line-length = 79
+target-version = ["py310"]
+
+[tool.isort]
+# stdlib -> third-party -> local, blank-line separated; black-compatible.
+profile = "black"
+line_length = 79

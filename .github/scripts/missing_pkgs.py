@@ -23,14 +23,30 @@ import sys
 from typing import Iterable
 
 
-def _load_package_names(list_path: str) -> list[str]:
-    """Return the ordered package names declared in a list JSON file.
+def _zip_stem_from_url(url: str) -> str:
+    """Derive the zip filename stem the packager will actually use.
+
+    MUST mirror ``src.state.sanitize_repo_name`` — see the twin helper
+    in ``plan_remaining.py``. Zip filenames come from the sanitized URL
+    basename, not the list ``name`` field.
+    """
+    base = (url or "").rstrip("/").split("/")[-1]
+    if base.endswith(".git"):
+        base = base[: -len(".git")]
+    stem = re.sub(r"[^A-Za-z0-9._-]", "-", base).lstrip(".")
+    return stem or "repo"
+
+
+def _load_packages(list_path: str) -> list[tuple[str, str]]:
+    """Return ordered ``(name, zip_stem)`` pairs from a list JSON file.
 
     Accepts both schemas in use across the workflow:
 
-    * ``.github/packages/*.json`` — ``{"packages": [{"name": ...}, ...]}``
-    * ``remaining-<platform>.json`` (from ``plan-remaining.py``) —
-      ``{"packages": ["name1", "name2", ...]}``
+    * ``.github/packages/*.json`` — ``{"packages": [{"name": ...,
+      "url": ...}, ...]}``; the stem is derived from the URL.
+    * ``remaining-<platform>.json`` (from ``plan_remaining.py``) —
+      ``{"packages": ["name1", ...], "stems": {"name1": "stem1", ...}}``;
+      the optional ``stems`` map covers names whose zip stem differs.
 
     Mixed lists are tolerated; entries with neither a ``name`` key nor
     a string value are silently skipped.
@@ -38,22 +54,30 @@ def _load_package_names(list_path: str) -> list[str]:
     with open(list_path) as fh:
         data = json.load(fh)
     pkgs = data.get("packages", [])
-    out: list[str] = []
+    stems_map = data.get("stems") or {}
+    out: list[tuple[str, str]] = []
     for p in pkgs:
         if isinstance(p, str):
             if p:
-                out.append(p)
+                out.append((p, stems_map.get(p, p)))
             continue
         if isinstance(p, dict):
             name = p.get("name")
-            if name:
-                out.append(name)
+            if not name:
+                continue
+            url = p.get("url") or p.get("repo") or ""
+            stem = (
+                _zip_stem_from_url(url) if url else stems_map.get(name, name)
+            )
+            out.append((name, stem))
     return out
 
 
 def _apply_shard(
-    names: list[str], shard_index: int, shard_total: int,
-) -> list[str]:
+    names: list,
+    shard_index: int,
+    shard_total: int,
+) -> list:
     """Return the contiguous slice of ``names`` for one shard.
 
     Must mirror ``batch_test._apply_shard``: ceil-division chunks so
@@ -93,6 +117,7 @@ def _emit(names: Iterable[str], fmt: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI entry point."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--list",
@@ -163,11 +188,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    declared = _load_package_names(args.list)
+    declared_pairs = _load_packages(args.list)
     if shard_total is not None:
-        declared = _apply_shard(declared, shard_index, shard_total)
+        declared_pairs = _apply_shard(declared_pairs, shard_index, shard_total)
+    declared = [name for name, _stem in declared_pairs]
     built = _built_names(args.packages_dir, args.platform)
-    missing = [n for n in declared if n not in built]
+    missing = [name for name, stem in declared_pairs if stem not in built]
 
     _emit(missing, args.format)
 
