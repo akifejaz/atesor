@@ -389,6 +389,129 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: tmux - Generate a missing ./configure script wi",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "tmux",
+      "error_pattern": "Build\\ command\\ failed:\\ \\./configure\\ \\(exit\\ 1\\)\\ \\-\\ configure:\\ error:\\ \"curses\\ not\\ found",
+      "fix": {
+        "strategy": "Generate a missing ./configure script with autotools",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add automake autoconf libtool"
+          },
+          {
+            "type": "command",
+            "command": "autoreconf -i"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from tmux.",
+      "id": "fixer-auto-003",
+      "source": "auto",
+      "timestamp": "2026-07-04",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: daytona - Add a minimal Makefile with a default ta",
+      "tags": [
+        "unknown",
+        "auto-fix"
+      ],
+      "build_system": "unknown",
+      "repo_name": "daytona",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ make:\\ \\*\\*\\*\\ No\\ targets\\ specified\\ ",
+      "fix": {
+        "strategy": "Add a minimal Makefile with a default target to satisfy the build step.",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from daytona.",
+      "id": "fixer-auto-004",
+      "source": "auto",
+      "timestamp": "2026-07-04",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: devbox - Force the Go build to use the native RIS",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "devbox",
+      "error_pattern": "Artifact\\ verification\\ failed:\\ Build\\ produced\\ artifacts\\ but\\ not\\ for\\ RISC\\-V\\ \\(found",
+      "fix": {
+        "strategy": "Force the Go build to use the native RISC\u2011V architecture instead of the stale GOARCH=arm64 that is set in the default build command.",
+        "actions": [
+          {
+            "type": "command",
+            "command": "GOARCH=$(go env GOARCH) GOOS=$(go env GOOS) go build -v -o devbox ./cmd/devbox"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from devbox.",
+      "id": "fixer-auto-005",
+      "source": "auto",
+      "timestamp": "2026-07-04",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: massdns - Install the libpcap development package ",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "massdns",
+      "error_pattern": "Build\\ command\\ failed:\\ cd\\ build\\ \\&\\&\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ In\\ file\\ included\\ fr",
+      "fix": {
+        "strategy": "Install the libpcap development package to provide pcap.h",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add libpcap-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from massdns.",
+      "id": "fixer-auto-006",
+      "source": "auto",
+      "timestamp": "2026-07-04",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: htop - Generate missing configure script with a",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "htop",
+      "error_pattern": "Build\\ command\\ failed:\\ \\./configure\\ \\(exit\\ 1\\)\\ \\-\\ configure:\\ error:\\ cannot\\ find\\ requi",
+      "fix": {
+        "strategy": "Generate missing configure script with autotools",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add automake autoconf libtool"
+          },
+          {
+            "type": "command",
+            "command": "autoreconf -i"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from htop.",
+      "id": "fixer-auto-007",
+      "source": "auto",
+      "timestamp": "2026-07-04",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }
