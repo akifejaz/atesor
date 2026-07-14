@@ -410,54 +410,6 @@
       "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: gogo - Remove broken local replacement for gith",
-      "tags": [
-        "go",
-        "auto-fix"
-      ],
-      "build_system": "go",
-      "repo_name": "gogo",
-      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/tinygo\\ \\(exit\\ 1\\)\\ \\-\\ stat\\ /wor",
-      "fix": {
-        "strategy": "Remove broken local replacement for github.com/chainreactors/rem in go.mod",
-        "actions": [
-          {
-            "type": "command",
-            "command": "if [ -f go.mod ]; then sed -i '/github.com\\/chainreactors\\/rem.*=>/d' go.mod; fi; if [ -f v2/go.mod ]; then sed -i '/github.com\\/chainreactors\\/rem.*=>/d' v2/go.mod; fi"
-          }
-        ]
-      },
-      "reasoning": "Auto-learned fix from gogo.",
-      "id": "fixer-auto-004",
-      "source": "auto",
-      "timestamp": "2026-07-06",
-      "sandbox": "debian-riscv64"
-    },
-    {
-      "name": "Auto: ksubdomain - Install libpcap development headers requ",
-      "tags": [
-        "go",
-        "auto-fix"
-      ],
-      "build_system": "go",
-      "repo_name": "ksubdomain",
-      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/ksubdomain\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ git",
-      "fix": {
-        "strategy": "Install libpcap development headers required by gopacket",
-        "actions": [
-          {
-            "type": "command",
-            "command": "apt-get update && apt-get install -y --no-install-recommends libpcap-dev"
-          }
-        ]
-      },
-      "reasoning": "Auto-learned fix from ksubdomain.",
-      "id": "fixer-auto-005",
-      "source": "auto",
-      "timestamp": "2026-07-06",
-      "sandbox": "debian-riscv64"
-    },
-    {
       "name": "Auto: doggo - Install a newer Go toolchain (1.26.4) th",
       "tags": [
         "go",
@@ -490,7 +442,31 @@
       "sandbox": "debian-riscv64"
     },
     {
-      "name": "Auto: arc - Add a top‑level go.mod and a minimal cmd",
+      "name": "Auto: ksubdomain - Install libpcap development headers requ",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "ksubdomain",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/ksubdomain\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ git",
+      "fix": {
+        "strategy": "Install libpcap development headers required by gopacket",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libpcap-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from ksubdomain.",
+      "id": "fixer-auto-005",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: arc - Add a top\u2011level go.mod and a minimal cmd",
       "tags": [
         "go",
         "auto-fix"
@@ -499,7 +475,7 @@
       "repo_name": "arc",
       "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/arc\\ \\(exit\\ 1\\)\\ \\-\\ go:\\ cannot\\ f",
       "fix": {
-        "strategy": "Add a top‑level go.mod and a minimal cmd/arc package so that the existing build command finds a module and a main package to compile.",
+        "strategy": "Add a top\u2011level go.mod and a minimal cmd/arc package so that the existing build command finds a module and a main package to compile.",
         "actions": []
       },
       "reasoning": "Auto-learned fix from arc.",
@@ -693,6 +669,97 @@
       "source": "auto",
       "timestamp": "2026-07-07",
       "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libavif - Install libyuv development package",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Install libyuv development package",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add libyuv-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from libavif.",
+      "id": "fixer-auto-015",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: busybox - Generate default .config before building",
+      "tags": [
+        "make",
+        "auto-fix"
+      ],
+      "build_system": "make",
+      "repo_name": "busybox",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ networking/tc\\.c:\\ In\\ function\\ 'c",
+      "fix": {
+        "strategy": "Generate default .config before building busybox",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from busybox.",
+      "id": "fixer-auto-016",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: less - Install groff (provides nroff) plus ncur",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "less",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-f\\ Makefile\\.aut\\ distfiles\\ \\&\\&\\ sh\\ configure\\ \\(exit\\ 2\\)\\ \\-\\ ",
+      "fix": {
+        "strategy": "Install groff (provides nroff) plus ncurses-dev and autotools so the distfiles target and configure step can complete",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add groff ncurses-dev autoconf automake libtool"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from less.",
+      "id": "fixer-auto-017",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: overlayfs-tools - Install sudo, attr (provides setfattr), ",
+      "tags": [
+        "meson",
+        "auto-fix"
+      ],
+      "build_system": "meson",
+      "repo_name": "overlayfs-tools",
+      "error_pattern": "Build\\ command\\ failed:\\ meson\\ setup\\ build\\ \\(exit\\ 1\\)\\ \\-\\ The\\ Meson\\ build\\ system\\\nVersio",
+      "fix": {
+        "strategy": "Install sudo, attr (provides setfattr), and tar so meson's configure-time program lookups for test/custom targets succeed",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add sudo attr tar"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from overlayfs-tools.",
+      "id": "fixer-auto-018",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }
