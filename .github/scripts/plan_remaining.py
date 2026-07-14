@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{prefix}_groups={json.dumps(groups)}")
 
     print(
-        f"[plan-remaining] list={os.path.basename(args.list)} "
+        f"[plan_remaining] list={os.path.basename(args.list)} "
         f"platform={args.platform} declared={len(declared)} "
         f"released_assets={len(released)} "
         f"skipped={len(declared) - len(remaining)} "

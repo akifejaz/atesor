@@ -389,6 +389,377 @@
       "source": "auto",
       "timestamp": "2026-07-02",
       "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: bearer - Add a minimal Go source file so that `go",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "bearer",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\.\\ \\(exit\\ 1\\)\\ \\-\\ no\\ Go\\ files\\ in\\ /work",
+      "fix": {
+        "strategy": "Add a minimal Go source file so that `go build -buildvcs=false .` finds a package to compile.",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from bearer.",
+      "id": "fixer-auto-003",
+      "source": "auto",
+      "timestamp": "2026-07-03",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: doggo - Install a newer Go toolchain (1.26.4) th",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "doggo",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ mod\\ tidy\\ \\(exit\\ 1\\)\\ \\-\\ go:\\ go\\.mod\\ requires\\ go\\ >=\\ 1\\.26\\.4\\ \\(r",
+      "fix": {
+        "strategy": "Install a newer Go toolchain (1.26.4) that satisfies go.mod requirement",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends wget ca-certificates"
+          },
+          {
+            "type": "command",
+            "command": "wget -q https://go.dev/dl/go1.26.4.linux-riscv64.tar.gz && tar -C /usr/local -xzf go1.26.4.linux-riscv64.tar.gz && rm go1.26.4.linux-riscv64.tar.gz"
+          },
+          {
+            "type": "command",
+            "command": "export PATH=/usr/local/go/bin:$PATH && go version && go mod tidy"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from doggo.",
+      "id": "fixer-auto-004",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: ksubdomain - Install libpcap development headers requ",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "ksubdomain",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/ksubdomain\\ \\(exit\\ 1\\)\\ \\-\\ \\#\\ git",
+      "fix": {
+        "strategy": "Install libpcap development headers required by gopacket",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libpcap-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from ksubdomain.",
+      "id": "fixer-auto-005",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: arc - Add a top\u2011level go.mod and a minimal cmd",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "arc",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\./cmd/arc\\ \\(exit\\ 1\\)\\ \\-\\ go:\\ cannot\\ f",
+      "fix": {
+        "strategy": "Add a top\u2011level go.mod and a minimal cmd/arc package so that the existing build command finds a module and a main package to compile.",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from arc.",
+      "id": "fixer-auto-006",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: daytona - Add a minimal Go module and source file ",
+      "tags": [
+        "other",
+        "auto-fix"
+      ],
+      "build_system": "other",
+      "repo_name": "daytona",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\./\\.\\.\\.\\ \\(exit\\ 1\\)\\ \\-\\ pattern\\ \\./\\.\\.\\.:\\ directory\\ prefix\\ ",
+      "fix": {
+        "strategy": "Add a minimal Go module and source file so that `go build ./...` succeeds.",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from daytona.",
+      "id": "fixer-auto-007",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: ecoji - Add a minimal Go module and a trivial ma",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "ecoji",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ build\\ \\-buildvcs=false\\ \\.\\ \\(exit\\ 1\\)\\ \\-\\ go:\\ cannot\\ find\\ main",
+      "fix": {
+        "strategy": "Add a minimal Go module and a trivial main package so that `go build -buildvcs=false .` succeeds.",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from ecoji.",
+      "id": "fixer-auto-008",
+      "source": "auto",
+      "timestamp": "2026-07-06",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: vim - Install the ncurses development package ",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "vim",
+      "error_pattern": "Build\\ command\\ failed:\\ \\./configure\\ \\(exit\\ 1\\)\\ \\-\\ configure:\\ error:\\ NOT\\ FOUND!\\\n\\ \\ \\ \\ \\ \\ ",
+      "fix": {
+        "strategy": "Install the ncurses development package required by Vim's configure script.",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libncurses-dev"
+          },
+          {
+            "type": "command",
+            "command": "./configure"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from vim.",
+      "id": "fixer-auto-009",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: netmaker - Install missing VCS tool (git) required ",
+      "tags": [
+        "go",
+        "auto-fix"
+      ],
+      "build_system": "go",
+      "repo_name": "netmaker",
+      "error_pattern": "Build\\ command\\ failed:\\ go\\ mod\\ tidy\\ \\(exit\\ 1\\)\\ \\-\\ go:\\ downloading\\ google\\.golang\\.org/p",
+      "fix": {
+        "strategy": "Install missing VCS tool (git) required by go mod tidy",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends git"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from netmaker.",
+      "id": "fixer-auto-010",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: iproute2 - Install missing parser generator tools (",
+      "tags": [
+        "make",
+        "auto-fix"
+      ],
+      "build_system": "make",
+      "repo_name": "iproute2",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ /bin/sh:\\ 1:\\ bison:\\ not\\ found\\\nma",
+      "fix": {
+        "strategy": "Install missing parser generator tools (bison and flex) required by iproute2 build.",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends bison flex"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from iproute2.",
+      "id": "fixer-auto-011",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: massdns - Install libpcap development headers",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "massdns",
+      "error_pattern": "Build\\ command\\ failed:\\ cd\\ build\\ \\&\\&\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ In\\ file\\ included\\ fr",
+      "fix": {
+        "strategy": "Install libpcap development headers",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libpcap-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from massdns.",
+      "id": "fixer-auto-012",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libavif - Install the libyuv development headers",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Install the libyuv development headers",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends libyuv-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from libavif.",
+      "id": "fixer-auto-013",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: whois - Install missing gettext tools (xgettext)",
+      "tags": [
+        "make",
+        "auto-fix"
+      ],
+      "build_system": "make",
+      "repo_name": "whois",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ make\\[1\\]:\\ xgettext:\\ No\\ such\\ file",
+      "fix": {
+        "strategy": "Install missing gettext tools (xgettext) required for building whois",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apt-get update && apt-get install -y --no-install-recommends gettext"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from whois.",
+      "id": "fixer-auto-014",
+      "source": "auto",
+      "timestamp": "2026-07-07",
+      "sandbox": "debian-riscv64"
+    },
+    {
+      "name": "Auto: libavif - Install libyuv development package",
+      "tags": [
+        "cmake",
+        "auto-fix"
+      ],
+      "build_system": "cmake",
+      "repo_name": "libavif",
+      "error_pattern": "Build\\ command\\ failed:\\ mkdir\\ \\-p\\ build\\ \\&\\&\\ cd\\ build\\ \\&\\&\\ cmake\\ \\.\\.\\ \\-DCMAKE_BUILD_TYPE=",
+      "fix": {
+        "strategy": "Install libyuv development package",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add libyuv-dev"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from libavif.",
+      "id": "fixer-auto-015",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: busybox - Generate default .config before building",
+      "tags": [
+        "make",
+        "auto-fix"
+      ],
+      "build_system": "make",
+      "repo_name": "busybox",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-j\\$\\(nproc\\)\\ \\(exit\\ 2\\)\\ \\-\\ networking/tc\\.c:\\ In\\ function\\ 'c",
+      "fix": {
+        "strategy": "Generate default .config before building busybox",
+        "actions": []
+      },
+      "reasoning": "Auto-learned fix from busybox.",
+      "id": "fixer-auto-016",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: less - Install groff (provides nroff) plus ncur",
+      "tags": [
+        "autotools",
+        "auto-fix"
+      ],
+      "build_system": "autotools",
+      "repo_name": "less",
+      "error_pattern": "Build\\ command\\ failed:\\ make\\ \\-f\\ Makefile\\.aut\\ distfiles\\ \\&\\&\\ sh\\ configure\\ \\(exit\\ 2\\)\\ \\-\\ ",
+      "fix": {
+        "strategy": "Install groff (provides nroff) plus ncurses-dev and autotools so the distfiles target and configure step can complete",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add groff ncurses-dev autoconf automake libtool"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from less.",
+      "id": "fixer-auto-017",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
+    },
+    {
+      "name": "Auto: overlayfs-tools - Install sudo, attr (provides setfattr), ",
+      "tags": [
+        "meson",
+        "auto-fix"
+      ],
+      "build_system": "meson",
+      "repo_name": "overlayfs-tools",
+      "error_pattern": "Build\\ command\\ failed:\\ meson\\ setup\\ build\\ \\(exit\\ 1\\)\\ \\-\\ The\\ Meson\\ build\\ system\\\nVersio",
+      "fix": {
+        "strategy": "Install sudo, attr (provides setfattr), and tar so meson's configure-time program lookups for test/custom targets succeed",
+        "actions": [
+          {
+            "type": "command",
+            "command": "apk update && apk add sudo attr tar"
+          }
+        ]
+      },
+      "reasoning": "Auto-learned fix from overlayfs-tools.",
+      "id": "fixer-auto-018",
+      "source": "auto",
+      "timestamp": "2026-07-14",
+      "sandbox": "alpine-riscv64"
     }
   ]
 }
