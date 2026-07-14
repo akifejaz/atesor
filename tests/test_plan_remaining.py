@@ -321,7 +321,7 @@ class TestPlanRemainingWritesArtifact(unittest.TestCase):
                     "stems": {"b": "b-binaries"},
                 },
             )
-            # And the loader missing_pkgs uses must see the same names
+            # And the loader missing-pkgs uses must see the same names
             # plus the divergent stem for zip matching.
             self.assertEqual(
                 missing_pkgs._load_packages(out),
