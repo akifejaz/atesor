@@ -103,7 +103,7 @@ def main(argv: list[str]) -> int:
     print(f"{prefix}groups={json.dumps(groups)}")
     # Stderr summary for the CI log (won't pollute $GITHUB_OUTPUT).
     print(
-        f"[plan-shards] list={list_path} packages={count} "
+        f"[plan_shards] list={list_path} packages={count} "
         f"group_size={args.group_size} shards={total}"
         + (f" prefix={args.output_key_prefix}" if prefix else ""),
         file=sys.stderr,
