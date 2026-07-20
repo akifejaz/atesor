@@ -16,5 +16,16 @@
 APP_DIR=/opt/atesor-ai/app
 VENV_PYTHON=/opt/atesor-ai/venv/bin/python3
 
+if [ ! -x "${VENV_PYTHON}" ]; then
+    echo "atesor-ai: bundled interpreter missing at ${VENV_PYTHON}." >&2
+    echo "The install tree is damaged; reinstall with:" >&2
+    echo "  sudo apt-get install --reinstall atesor-ai" >&2
+    exit 1
+fi
+
+# Never write bytecode caches into /opt: keeps the install tree
+# byte-identical to the package (dpkg -V stays clean) even when the
+# CLI is run as root, and guarantees clean removal.
+export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="${APP_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 exec "${VENV_PYTHON}" "${APP_DIR}/main.py" "$@"

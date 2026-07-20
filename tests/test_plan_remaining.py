@@ -233,7 +233,7 @@ class TestLoadReleasedAssets(unittest.TestCase):
 
 
 class TestMissingPkgsPolymorphicLoader(unittest.TestCase):
-    """missing-pkgs must read both full.json and remaining-*.json."""
+    """missing_pkgs must read both full.json and remaining-*.json."""
 
     def _write_json(self, payload: dict) -> str:
         fh = tempfile.NamedTemporaryFile(
@@ -303,7 +303,7 @@ class TestMissingPkgsPolymorphicLoader(unittest.TestCase):
 
 
 class TestPlanRemainingWritesArtifact(unittest.TestCase):
-    """End-to-end: ``_write_remaining`` + reload via missing-pkgs."""
+    """End-to-end: ``_write_remaining`` + reload via missing_pkgs."""
 
     def test_roundtrip(self) -> None:
         """Written remaining packages round-trip through the loader."""
@@ -330,7 +330,7 @@ class TestPlanRemainingWritesArtifact(unittest.TestCase):
 
 
 class TestSlicePkgs(unittest.TestCase):
-    """slice-pkgs must match the canonical ceil-division chunking."""
+    """slice_pkgs must match the canonical ceil-division chunking."""
 
     def test_total_one_returns_full_list(self) -> None:
         """A single shard returns the full package list."""
@@ -352,7 +352,7 @@ class TestSlicePkgs(unittest.TestCase):
                 self.assertEqual(rebuilt, names)
 
     def test_matches_missing_pkgs_apply_shard(self) -> None:
-        """Slice-pkgs sharding matches missing-pkgs sharding."""
+        """slice_pkgs sharding matches missing_pkgs sharding."""
         names = [f"p{i}" for i in range(50)]
         for total in [1, 2, 3, 7]:
             for idx in range(total):

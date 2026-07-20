@@ -1,0 +1,169 @@
+name: Package .deb
+
+# Manually-triggered packaging workflow. Mirrors the local flow exactly:
+#
+#   bash packaging/deb/build_deb.sh [base-image]     -> dist/*.deb + build log
+#   bash packaging/deb/validate_deb.sh [base-image]  -> 9-step contract check
+#
+# The version input (X.Y.Z) is written into src/__init__.py BEFORE the
+# build so the Debian control file and `atesor-ai --version` agree —
+# validation step 4 asserts exactly that. Leave it empty to package
+# whatever version the checked-out source already declares.
+#
+# Artifacts: the .deb, its sha256, and the full container build log.
+# Optionally drafts a GitHub release v<version> with the same files.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Package version (X.Y.Z, optional suffix like 0.2.0~rc1).
+          Empty = use the version already in src/__init__.py.
+        type: string
+        required: false
+        default: ""
+      base_image:
+        description: >-
+          Base image the venv is built against AND validated in
+          (must provide python3 >= 3.10).
+        type: string
+        required: false
+        default: "ubuntu:22.04"
+      create_release:
+        description: "Draft a GitHub release v<version> with the artifacts."
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write   # only used by the optional draft-release step
+
+concurrency:
+  # One packaging run at a time per ref: two builds would race the
+  # shared dist/ artifact name and the release tag.
+  group: package-deb-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  package:
+    name: build + validate .deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve and apply version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION}" ]; then
+            # Debian-compatible: digits.digits.digits + optional suffix.
+            if ! echo "${INPUT_VERSION}" | \
+                grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([~+.-][A-Za-z0-9.~+-]+)?$'; then
+              echo "ERROR: version '${INPUT_VERSION}' is not a valid" \
+                   "X.Y.Z[-suffix] version." >&2
+              exit 1
+            fi
+            python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = os.environ["INPUT_VERSION"]
+          path = pathlib.Path("src/__init__.py")
+          text = path.read_text()
+          new, n = re.subn(
+              r'^__version__ = ".*"$',
+              f'__version__ = "{version}"',
+              text,
+              flags=re.M,
+          )
+          if n != 1:
+              raise SystemExit(
+                  f"expected exactly one __version__ line, found {n}"
+              )
+          path.write_text(new)
+          PY
+          fi
+          resolved=$(PYTHONPATH=. python3 -c \
+              "from src import __version__; print(__version__)")
+          echo "Building version: ${resolved}"
+          echo "version=${resolved}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build .deb
+        env:
+          BASE_IMAGE: ${{ inputs.base_image }}
+        run: bash packaging/deb/build_deb.sh "${BASE_IMAGE}"
+
+      - name: Validate .deb
+        env:
+          BASE_IMAGE: ${{ inputs.base_image }}
+        run: bash packaging/deb/validate_deb.sh "${BASE_IMAGE}"
+
+      - name: Checksums and summary
+        id: artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          deb_path=$(ls dist/atesor-ai_"${VERSION}"_*.deb)
+          sha256sum "${deb_path}" > "${deb_path}.sha256"
+          echo "deb_path=${deb_path}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## atesor-ai .deb package"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | ${VERSION} |"
+            echo "| Artifact | \`$(basename "${deb_path}")\` |"
+            echo "| Size | $(du -h "${deb_path}" | cut -f1) |"
+            echo "| SHA256 | \`$(cut -d' ' -f1 "${deb_path}.sha256")\` |"
+            echo
+            echo "Validation: all 9 contract checks passed" \
+                 "(see the 'Validate .deb' step log)."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: atesor-ai-deb-${{ steps.version.outputs.version }}
+          path: |
+            dist/atesor-ai_${{ steps.version.outputs.version }}_*.deb
+            dist/atesor-ai_${{ steps.version.outputs.version }}_*.deb.sha256
+            dist/atesor-ai_${{ steps.version.outputs.version }}_build.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Draft GitHub release
+        if: ${{ inputs.create_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DEB_PATH: ${{ steps.artifact.outputs.deb_path }}
+          BASE_IMAGE: ${{ inputs.base_image }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          notes="Debian package for atesor-ai ${VERSION}."
+          notes="${notes}
+          Built from ${GITHUB_SHA} with base image ${BASE_IMAGE}.
+          Install: sudo apt-get install ./$(basename "${DEB_PATH}")"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} exists; uploading assets (clobber)."
+            gh release upload "${tag}" \
+                "${DEB_PATH}" "${DEB_PATH}.sha256" --clobber
+          else
+            gh release create "${tag}" \
+                "${DEB_PATH}" "${DEB_PATH}.sha256" \
+                --draft \
+                --title "atesor-ai ${VERSION}" \
+                --notes "${notes}"
+          fi

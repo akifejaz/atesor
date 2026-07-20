@@ -2,7 +2,8 @@
 set -e
 
 # Post-install guidance. Dependency packages (docker, qemu-user-static,
-# binfmt-support, python3) are pulled in by the control "Depends" field.
+# binfmt-support, python3, ca-certificates) are pulled in by the
+# control "Depends" field.
 
 cat <<'MSG'
 
@@ -17,12 +18,15 @@ Before first use:
   3. Provide an LLM API key via the environment, a .env in your CWD, or
      ~/.config/atesor-ai/.env (all loaded automatically):
        export GOOGLE_API_KEY=...        # or OPENAI_API_KEY / OPENROUTER_API_KEY
+     All supported variables are listed in /opt/atesor-ai/app/.env-example.
 
 Quick start:
   atesor-ai --setup-only
   atesor-ai --repo https://github.com/madler/zlib --verbose
 
-Runtime state is written to $ATESOR_HOME or ~/.local/share/atesor-ai.
+Runtime state is written to $ATESOR_HOME or ~/.local/share/atesor-ai;
+per-run debug logs land under <state>/workspace/logs/. Bundled
+dependency versions are recorded in /opt/atesor-ai/app/BUILD_INFO.
 
 MSG
 
