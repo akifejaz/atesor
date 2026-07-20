@@ -2,9 +2,10 @@ Package: atesor-ai
 Version: @VERSION@
 Section: devel
 Priority: optional
-Architecture: amd64
+Architecture: @ARCH@
 Maintainer: Akif Ejaz <akif.ejaz@10xengineers.ai>
-Depends: python3 (>= 3.10), docker.io | docker-ce | docker-engine, qemu-user-static, binfmt-support
+Depends: python3 (>= 3.10), docker.io | docker-ce | docker-engine, qemu-user-static, binfmt-support, ca-certificates
+Recommends: git
 Installed-Size: @SIZE@
 Homepage: https://github.com/akifejaz/atesor
 Description: Automated C/C++/Go/Rust to RISC-V porting agent
@@ -15,4 +16,6 @@ Description: Automated C/C++/Go/Rust to RISC-V porting agent
  The package bundles a self-contained Python virtualenv. It still
  requires a running Docker daemon plus qemu-user-static for riscv64
  emulation, and an LLM API key (GOOGLE_API_KEY, OPENAI_API_KEY, or
- OPENROUTER_API_KEY) in the environment or a .env file.
+ OPENROUTER_API_KEY) in the environment or a .env file. See
+ /opt/atesor-ai/app/.env-example for all supported variables and
+ /opt/atesor-ai/app/BUILD_INFO for the bundled dependency versions.

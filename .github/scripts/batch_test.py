@@ -233,8 +233,10 @@ _PLATFORM_CONTAINERS = {
     "ubuntu": "atesor-ai-sandbox-debian",
 }
 if PLATFORM not in _PLATFORM_CONTAINERS:
-    raise ValueError(
-        f"Unknown ATESOR_PLATFORM={PLATFORM!r}; "
+    # SystemExit instead of ValueError: an env-var typo should print a
+    # one-line error, not a traceback.
+    raise SystemExit(
+        f"[ERROR] Unknown ATESOR_PLATFORM={PLATFORM!r}; "
         f"expected one of {sorted(_PLATFORM_CONTAINERS)}"
     )
 _BASE_CONTAINER = _PLATFORM_CONTAINERS[PLATFORM]
@@ -724,6 +726,15 @@ def run_agent(repo_url: str, repo_name: str) -> tuple[bool, str, float]:
     except Exception as exc:
         duration = time.time() - start_time
         msg = f"Exception: {exc}"
+        # Never hand the container back to the pool with the agent
+        # still running in it — the next package would race a live
+        # sibling for apt/apk locks and repo state.
+        if proc is not None and proc.poll() is None:
+            _kill_proc_group(proc.pid)
+            try:
+                proc.wait(timeout=30)
+            except Exception:
+                pass
         try:
             with open(log_path, "a") as lf:
                 lf.write(f"\n\n=== UNHANDLED EXCEPTION: {exc} ===\n")

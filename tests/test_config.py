@@ -50,5 +50,38 @@ class TestConfigPaths(unittest.TestCase):
             self.assertTrue(config.is_running_in_docker())
 
 
+class TestAtesorHomeOverride(unittest.TestCase):
+    """ATESOR_HOME must win everywhere, including inside a container.
+
+    Regression: get_workspace_root() used to short-circuit on docker
+    detection BEFORE consulting ATESOR_HOME, silently sending all
+    workspace state to /workspace when the packaged CLI ran inside any
+    container (caught by packaging/deb/validate_deb.sh step 6).
+    """
+
+    def test_atesor_home_wins_inside_docker(self) -> None:
+        """The override beats the in-docker /workspace shortcut."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.dict(os.environ, {"ATESOR_HOME": home}):
+                with mock.patch.object(
+                    config, "is_running_in_docker", return_value=True
+                ):
+                    root = config.get_workspace_root()
+        self.assertEqual(root, os.path.join(home, "workspace"))
+
+    def test_docker_default_without_override(self) -> None:
+        """Without the override the sandbox default stays /workspace."""
+        env = {
+            k: v for k, v in os.environ.items() if k != "ATESOR_HOME"
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(
+                config, "is_running_in_docker", return_value=True
+            ):
+                self.assertEqual(config.get_workspace_root(), "/workspace")
+
+
 if __name__ == "__main__":
     unittest.main()
