@@ -8,7 +8,7 @@ to turn a ``{"packages": [...]}`` plan (produced by
 ``--shard-total``.
 
 Chunking matches ``batch_test._apply_shard`` and
-``missing-pkgs._apply_shard``: contiguous slices of size
+``missing_pkgs._apply_shard``: contiguous slices of size
 ``ceil(N / total)``, every name appears in exactly one shard.
 
 Output:
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         print(value)
 
     print(
-        f"[slice-pkgs] from={args.src} "
+        f"[slice_pkgs] from={args.src} "
         f"shard={args.shard_index + 1}/{args.shard_total} "
         f"total={len(names)} slice={len(slice_)}",
         file=sys.stderr,

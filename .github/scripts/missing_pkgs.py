@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         else ""
     )
     print(
-        f"[missing-pkgs] list={os.path.basename(args.list)}"
+        f"[missing_pkgs] list={os.path.basename(args.list)}"
         f"{shard_tag} platform={args.platform} "
         f"declared={len(declared)} built={len(built)} "
         f"missing={len(missing)}",

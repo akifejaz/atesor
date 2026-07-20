@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# Guarantee a clean removal: runtime bytecode caches (e.g. a root user
+# invoking the bundled venv python directly, bypassing the launcher's
+# PYTHONDONTWRITEBYTECODE) are not owned by the package, so dpkg would
+# leave them — and their directories — behind. No user data lives under
+# /opt/atesor-ai (runtime state goes to $ATESOR_HOME or XDG dirs), so
+# removing the tree wholesale is safe.
+
+case "$1" in
+    remove|purge)
+        rm -rf /opt/atesor-ai
+        ;;
+esac
+
+exit 0

@@ -151,7 +151,9 @@ class AgentExample:
     def _to_fixer_prompt(self) -> str:
         fix_data = self.fix or self.solution or {}
         error_ctx = self.raw.get("error_context", {})
-        error_msg = error_ctx.get("error_message", self.error_pattern)[:120]
+        error_msg = (
+            error_ctx.get("error_message") or self.error_pattern or ""
+        )[:120]
 
         actions_text = ""
         for action in fix_data.get("actions", []):

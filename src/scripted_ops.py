@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import shlex
+import threading
 from typing import Any, Dict, List, Optional
 
 from src.state import (
@@ -73,31 +74,57 @@ class ScriptedOperations:
 
         logger.info(f"ScriptedOperations initialized: {self.workspace_root}")
 
-    def _build_auth_clone_cmd(self, url: str, container_repo_path: str) -> str:
-        """Return a shell-safe clone command, configuring auth if needed.
+    # Per-clone GitHub auth overlay (see _github_auth_env), stored
+    # thread-locally: graph.py shares one ScriptedOperations instance,
+    # so concurrent threads cloning different URLs must not observe
+    # each other's headers. Class-level so direct helper calls (tests)
+    # see an empty overlay by default.
+    _auth_tls = threading.local()
 
-        When a ``GIT_TOKEN``/``GH_TOKEN`` is present, the bearer header
-        is scoped to ``https://github.com/`` ONLY (via git's
-        URL-matched ``http.<url>.extraHeader``). A global unscoped
-        extraHeader would attach the token to every git request to
-        ANY host — a clone of an attacker-controlled homepage URL from
-        the package list would then receive the token verbatim.
+    def _github_auth_env(self, url: str) -> Dict[str, str]:
+        """Return a per-invocation git-config env for GitHub auth.
+
+        When a ``GIT_TOKEN``/``GH_TOKEN`` is present and ``url`` is a
+        GitHub URL, returns ``GIT_CONFIG_COUNT/KEY_0/VALUE_0`` variables
+        that inject the bearer header for THAT git invocation only.
+
+        Two safety properties:
+          * The config key is URL-matched
+            (``http.https://github.com/.extraHeader``), so the header is
+            only ever sent to github.com — a clone of an
+            attacker-controlled homepage URL never receives the token.
+          * Nothing is written to the container's git config, so there
+            is no state for a concurrent worker to race (the previous
+            set→clone→unset design could strip a sibling's header on a
+            shared container) and nothing for later LLM-generated
+            commands to read.
         """
         token = os.environ.get("GIT_TOKEN", "") or os.environ.get(
             "GH_TOKEN", ""
         )
+        if not token or not url.startswith("https://github.com/"):
+            return {}
+        return {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: bearer {token}",
+        }
 
+    def _git_env(self) -> Dict[str, str]:
+        """Fail-fast git env merged with this thread's auth overlay."""
+        return {
+            **self._GIT_FAIL_FAST_ENV,
+            **getattr(self._auth_tls, "env", {}),
+        }
+
+    def _build_clone_cmd(self, url: str, container_repo_path: str) -> str:
+        """Return a shell-safe shallow-clone command for ``url``.
+
+        Auth travels out-of-band via ``_git_env()`` (env-injected git
+        config), never in the command string.
+        """
         if not url.startswith(("https://", "http://")):
             raise ValueError(f"Refusing non-http URL: {url!r}")
-
-        if token and url.startswith("https://github.com/"):
-            escaped_token = token.replace("'", "'\"'\"'")
-            configure_cmd = (
-                "git config --global "
-                "http.https://github.com/.extraHeader "
-                f"'Authorization: bearer {escaped_token}'"
-            )
-            execute_command(configure_cmd, use_docker=True)
 
         return (
             f"git clone --depth 1 {shlex.quote(url)} "
@@ -246,7 +273,7 @@ class ScriptedOperations:
                 container_repo_path,
             ]
             result = execute_command(
-                cmd, use_docker=True, extra_env=self._GIT_FAIL_FAST_ENV
+                cmd, use_docker=True, extra_env=self._git_env()
             )
             if result.success:
                 # No f-string in logger call: cheaper when log is off
@@ -384,7 +411,7 @@ class ScriptedOperations:
             f"cd {container_repo_path} && "
             f"git submodule update --init --recursive",
             use_docker=True,
-            extra_env=self._GIT_FAIL_FAST_ENV,
+            extra_env=self._git_env(),
             timeout=300,
         )
         if not result.success:
@@ -400,6 +427,12 @@ class ScriptedOperations:
         container to avoid ownership issues. If ``git pull`` fails (for
         example a force-pushed branch), it falls back to a re-clone.
 
+        GitHub auth (when a token is configured) is injected
+        per-invocation via ``GIT_CONFIG_*`` environment variables — it
+        is never written to the container's git config, so concurrent
+        workers cannot race it and LLM-generated commands running later
+        in the sandbox cannot read it.
+
         Args:
             url: The repository clone URL.
             name: The local directory name for the repository.
@@ -407,6 +440,14 @@ class ScriptedOperations:
         Returns:
             The ``CommandResult`` of the clone or update operation.
         """
+        self._auth_tls.env = self._github_auth_env(url)
+        try:
+            return self._clone_or_update_inner(url, name)
+        finally:
+            self._auth_tls.env = {}
+
+    def _clone_or_update_inner(self, url: str, name: str) -> CommandResult:
+        """Perform the actual clone/reset flow (see public wrapper)."""
         # Validate inputs once, up front: both are interpolated into
         # in-container shell strings below (rm -rf, git clone, cd).
         if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name) or name.startswith("."):
@@ -449,7 +490,7 @@ class ScriptedOperations:
             result = execute_command(
                 reset_cmd,
                 use_docker=True,
-                extra_env=self._GIT_FAIL_FAST_ENV,
+                extra_env=self._git_env(),
             )
 
             if not result.success:
@@ -470,7 +511,7 @@ class ScriptedOperations:
                 result = execute_command(
                     clone_cmd,
                     use_docker=True,
-                    extra_env=self._GIT_FAIL_FAST_ENV,
+                    extra_env=self._git_env(),
                 )
         else:
             execute_command(
@@ -478,11 +519,11 @@ class ScriptedOperations:
             )
 
             logger.info(f"Cloning repository {url}...")
-            cmd = self._build_auth_clone_cmd(url, container_repo_path)
+            cmd = self._build_clone_cmd(url, container_repo_path)
             result = execute_command(
                 cmd,
                 use_docker=True,
-                extra_env=self._GIT_FAIL_FAST_ENV,
+                extra_env=self._git_env(),
             )
 
             if not result.success and self._is_auth_error(result):

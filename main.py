@@ -72,9 +72,12 @@ def configure_logging(verbose: bool, repo_name: str = "") -> None:
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"
     )
 
-    # Remove existing handlers to avoid duplicates
+    # Remove existing handlers to avoid duplicates. Close each one as
+    # well: FileHandler keeps its log file open, so removing without
+    # closing leaks one file descriptor per reconfiguration.
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+        handler.close()
 
     # 1. File Handler (Always Capture Everything)
     # Use per-repo log files to avoid cross-process corruption in batch mode
@@ -216,6 +219,72 @@ def setup_docker_environment() -> bool:
         print(colored(f"Details: {e}", "yellow"))
         return False
 
+    # The docker-py client owns a urllib3 connection pool on the Docker
+    # socket; close it on every exit path so repeated setups (e.g.
+    # rebuild_all_sandboxes, batch preflight) do not accumulate open FDs.
+    try:
+        return _provision_sandbox(
+            client, profile, image_name, container_name, dockerfile
+        )
+    finally:
+        client.close()
+
+
+def _provision_sandbox(
+    client: "docker.DockerClient",
+    profile,
+    image_name: str,
+    container_name: str,
+    dockerfile: str,
+) -> bool:
+    """Serialize sandbox provisioning across concurrent workers.
+
+    Takes an exclusive host-side flock around the WHOLE provisioning
+    sequence (binfmt registration, image existence check + build,
+    container create/start/health-check). batch_test.py runs up to
+    --workers N ``main.py`` processes at once; without the lock
+    covering the image check, a cold start races N identical 15-45 min
+    QEMU image builds (one per worker) plus N concurrent binfmt
+    installer containers. The previous lock only covered container
+    creation. Whoever wins the lock does the expensive work once; the
+    waiters then see the image/container already present and continue
+    in seconds.
+    """
+    lock_path = os.path.join(LOGS_DIR, ".container_setup.lock")
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    lock_fd = open(lock_path, "w")
+    try:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print(
+                colored(
+                    "   Another worker is provisioning the sandbox "
+                    "(image build / container setup); waiting...",
+                    "yellow",
+                )
+            )
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        return _provision_sandbox_locked(
+            client, profile, image_name, container_name, dockerfile
+        )
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+
+def _provision_sandbox_locked(
+    client: "docker.DockerClient",
+    profile,
+    image_name: str,
+    container_name: str,
+    dockerfile: str,
+) -> bool:
+    """Build the sandbox image if needed and start the container.
+
+    The caller (`_provision_sandbox`) holds the setup flock for the
+    whole duration and closes the Docker client afterwards.
+    """
     # Preflight: the host must have qemu-riscv64 registered in
     # binfmt_misc, otherwise every riscv64 container exits immediately
     # with "exec format error" before the agent can run anything. The
@@ -292,27 +361,40 @@ def setup_docker_environment() -> bool:
                 platform="linux/riscv64",
                 decode=True,
             )
-            for chunk in build_stream:
-                if "stream" in chunk:
-                    line = chunk["stream"].rstrip()
-                    if not line:
-                        continue
-                    # Show step headers prominently; condense noisy lines
-                    if line.startswith("Step "):
-                        print(colored(f"   {line}", "cyan"))
-                    else:
-                        # Keep the user feeling alive: print a dot per
-                        # log line, full text every 50
-                        print(f"   {line}")
-                elif "errorDetail" in chunk:
-                    raise docker.errors.BuildError(
-                        chunk["errorDetail"].get("message", "build failed"),
-                        build_stream,
-                    )
-                elif "error" in chunk:
-                    raise docker.errors.BuildError(
-                        chunk["error"], build_stream
-                    )
+            try:
+                for chunk in build_stream:
+                    if "stream" in chunk:
+                        line = chunk["stream"].rstrip()
+                        if not line:
+                            continue
+                        # Show step headers prominently; condense noisy
+                        # lines
+                        if line.startswith("Step "):
+                            print(colored(f"   {line}", "cyan"))
+                        else:
+                            # Keep the user feeling alive: print a dot
+                            # per log line, full text every 50
+                            print(f"   {line}")
+                    elif "errorDetail" in chunk:
+                        raise docker.errors.BuildError(
+                            chunk["errorDetail"].get(
+                                "message", "build failed"
+                            ),
+                            build_stream,
+                        )
+                    elif "error" in chunk:
+                        raise docker.errors.BuildError(
+                            chunk["error"], build_stream
+                        )
+            finally:
+                # The generator wraps the build HTTP response; close it
+                # so an error raised mid-stream does not leak the
+                # socket. Guarded: docker-py returns a generator, but
+                # plain iterables (fakes, future API changes) have no
+                # close().
+                close_stream = getattr(build_stream, "close", None)
+                if close_stream is not None:
+                    close_stream()
             print(colored("Image built successfully", "green"))
         except docker.errors.BuildError as e:
             print(colored("ERROR: Failed to build Docker image", "red"))
@@ -322,113 +404,103 @@ def setup_docker_environment() -> bool:
             print(colored(f"ERROR: Build stream error: {e}", "red"))
             return False
 
-    # Create/Start Container (file-locked for multi-process safety)
-    lock_path = os.path.join(LOGS_DIR, ".container_setup.lock")
-    os.makedirs(LOGS_DIR, exist_ok=True)
+    # Create/Start Container (the caller holds the setup flock, so
+    # concurrent workers cannot race the create/recreate sequence).
     container = None
-    lock_fd = None
-    try:
-        lock_fd = open(lock_path, "w")
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-
-        for attempt in range(2):
+    for attempt in range(2):
+        try:
             try:
-                try:
-                    container = client.containers.get(container_name)
-                    # A container created before the workspace path
-                    # changed (e.g. after install/upgrade) keeps its old
-                    # bind mount and would operate on stale files while the
-                    # host-side checks look at the new location. Recreate it
-                    # when the /workspace source no longer matches.
-                    _expected_ws = os.path.realpath(WORKSPACE_ROOT)
-                    _ws_src = next(
-                        (
-                            m.get("Source")
-                            for m in container.attrs.get("Mounts", [])
-                            if m.get("Destination") == "/workspace"
-                        ),
-                        None,
-                    )
-                    if _ws_src and os.path.realpath(_ws_src) != _expected_ws:
-                        print(
-                            colored(
-                                f"   Container '{container_name}' has a "
-                                f"stale workspace mount ({_ws_src}); "
-                                f"recreating for {_expected_ws}...",
-                                "yellow",
-                            )
-                        )
-                        container.remove(force=True)
-                        raise docker.errors.NotFound("stale workspace mount")
-                    if container.status != "running":
-                        print(
-                            colored(
-                                f"   Starting existing container "
-                                f"'{container_name}'...",
-                                "yellow",
-                            )
-                        )
-                        container.start()
-                        time.sleep(2)
+                container = client.containers.get(container_name)
+                # A container created before the workspace path
+                # changed (e.g. after install/upgrade) keeps its old
+                # bind mount and would operate on stale files while the
+                # host-side checks look at the new location. Recreate it
+                # when the /workspace source no longer matches.
+                _expected_ws = os.path.realpath(WORKSPACE_ROOT)
+                _ws_src = next(
+                    (
+                        m.get("Source")
+                        for m in container.attrs.get("Mounts", [])
+                        if m.get("Destination") == "/workspace"
+                    ),
+                    None,
+                )
+                if _ws_src and os.path.realpath(_ws_src) != _expected_ws:
                     print(
                         colored(
-                            f"Container '{container_name}' is running", "green"
-                        )
-                    )
-                except docker.errors.NotFound:
-                    print(
-                        colored(
-                            f"   Creating container '{container_name}'...",
+                            f"   Container '{container_name}' has a "
+                            f"stale workspace mount ({_ws_src}); "
+                            f"recreating for {_expected_ws}...",
                             "yellow",
                         )
                     )
-
-                    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-                    container = client.containers.run(
-                        image_name,
-                        name=container_name,
-                        detach=True,
-                        tty=True,
-                        platform="linux/riscv64",
-                        network_mode="bridge",
-                        dns=["8.8.8.8", "8.8.4.4"],
-                        volumes={
-                            os.path.abspath(WORKSPACE_ROOT): {
-                                "bind": "/workspace",
-                                "mode": "rw",
-                            }
-                        },
-                        mem_limit="8g",
-                        cpu_quota=-1,
-                    )
-                    print(colored("Container created and started", "green"))
-                    time.sleep(5)
-
-                container.reload()
-                time.sleep(1)
+                    container.remove(force=True)
+                    raise docker.errors.NotFound("stale workspace mount")
                 if container.status != "running":
                     print(
                         colored(
-                            f"   Container status: {container.status}, "
-                            f"recreating...",
+                            f"   Starting existing container "
+                            f"'{container_name}'...",
                             "yellow",
                         )
                     )
-                    try:
-                        container.stop()
-                        container.remove()
-                    except Exception as e:
-                        logger.warning(f"Cleanup failed: {e}")
-                    continue
-
-                break
+                    container.start()
+                    time.sleep(2)
+                print(
+                    colored(
+                        f"Container '{container_name}' is running", "green"
+                    )
+                )
             except docker.errors.NotFound:
+                print(
+                    colored(
+                        f"   Creating container '{container_name}'...",
+                        "yellow",
+                    )
+                )
+
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+                container = client.containers.run(
+                    image_name,
+                    name=container_name,
+                    detach=True,
+                    tty=True,
+                    platform="linux/riscv64",
+                    network_mode="bridge",
+                    dns=["8.8.8.8", "8.8.4.4"],
+                    volumes={
+                        os.path.abspath(WORKSPACE_ROOT): {
+                            "bind": "/workspace",
+                            "mode": "rw",
+                        }
+                    },
+                    mem_limit="8g",
+                    cpu_quota=-1,
+                )
+                print(colored("Container created and started", "green"))
+                time.sleep(5)
+
+            container.reload()
+            time.sleep(1)
+            if container.status != "running":
+                print(
+                    colored(
+                        f"   Container status: {container.status}, "
+                        f"recreating...",
+                        "yellow",
+                    )
+                )
+                try:
+                    container.stop()
+                    container.remove()
+                except Exception as e:
+                    logger.warning(f"Cleanup failed: {e}")
                 continue
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+
+            break
+        except docker.errors.NotFound:
+            continue
 
     if container is None or container.status != "running":
         print(
@@ -1105,7 +1177,8 @@ def run_agent(
                     elif etype == "scripted_op":
                         msg = f"Ran scripted op: {data.get('operation')}"
                     elif etype == "error":
-                        msg = f"ERROR: {data.get('message')[:100]}..."
+                        err_txt = str(data.get("message") or "")[:100]
+                        msg = f"ERROR: {err_txt}..."
 
                     logger.info(f"[{ts}] {agent:12} | {etype:10} | {msg}")
 
@@ -1129,8 +1202,10 @@ def run_agent(
         return 1
 
     finally:
-        # Ensure logs are flushed
-        for handler in logger.handlers:
+        # Ensure logs are flushed. Handlers live on the ROOT logger
+        # (configure_logging attaches them there); the module logger has
+        # none, so flushing `logger.handlers` was a silent no-op.
+        for handler in logging.getLogger().handlers:
             handler.flush()
 
 
@@ -1197,7 +1272,15 @@ def cleanup_workspace(dry_run: bool = False) -> None:
         print(colored("\n[DRY RUN] No files will be deleted", "yellow"))
         return
 
-    choice = input(colored("\nSelect option (1-5, or 'q' to quit): ", "cyan"))
+    try:
+        choice = input(
+            colored("\nSelect option (1-5, or 'q' to quit): ", "cyan")
+        )
+    except (EOFError, KeyboardInterrupt):
+        # Non-interactive stdin (CI, piped input) or Ctrl-C: exit
+        # cleanly instead of dumping a traceback.
+        print(colored("\nCleanup cancelled (no interactive input)", "yellow"))
+        return
 
     dirs_to_clean = []
     if choice == "1":
@@ -1255,6 +1338,7 @@ def cleanup_container(remove_image: bool = False) -> None:
     profile = get_active_profile()
     container_name = get_container_name()
     image_name = profile.image_name
+    client = None
     try:
         client = docker.from_env()
 
@@ -1289,6 +1373,9 @@ def cleanup_container(remove_image: bool = False) -> None:
 
     except Exception as e:
         print(colored(f"Error during cleanup: {e}", "red"))
+    finally:
+        if client is not None:
+            client.close()
 
 
 def rebuild_all_sandboxes() -> bool:
@@ -1331,8 +1418,8 @@ def rebuild_all_sandboxes() -> bool:
     return True
 
 
-def main() -> None:
-    """Run the CLI entry point and start the porting workflow."""
+def main() -> int:
+    """Run the CLI entry point and return the process exit code."""
     parser = argparse.ArgumentParser(
         prog="atesor-ai",
         description="ATESOR AI - Automated software porting agent",
@@ -1510,28 +1597,11 @@ def main() -> None:
         print(colored("\nRebuild complete!", "green"))
         return 0
 
-    # API keys are only required when we are actually running the agent.
-    if args.repo and not args.setup_only:
-        if not check_keys():
-            return 1
-
-    # Set up Docker environment
-    if args.rebuild:
-        os.environ["REBUILD_IMAGE"] = "true"
-
-    if not setup_docker_environment():
-        return 1
-
-    # Setup/Rebuild only mode (no repository run)
-    if infra_only:
-        message = "\nSetup complete!"
-        if args.rebuild and not args.setup_only:
-            message = "\nRebuild complete!"
-        print(colored(message, "green"))
-        return 0
-
-    # Check recipe cache (skip with --force)
-    if not args.force:
+    # Recipe-cache fast path (skip with --force): a cache hit needs
+    # neither API keys nor a running sandbox — it only rewrites the
+    # recipe file from the cache — so check it BEFORE key validation
+    # and Docker provisioning instead of paying for both first.
+    if args.repo and not args.setup_only and not args.force:
         from src.memory import get_cached_recipe, materialize_cached_recipe
 
         cached = get_cached_recipe(repo_name)
@@ -1582,6 +1652,26 @@ def main() -> None:
                     )
                 )
             return 0
+
+    # API keys are only required when we are actually running the agent.
+    if args.repo and not args.setup_only:
+        if not check_keys():
+            return 1
+
+    # Set up Docker environment
+    if args.rebuild:
+        os.environ["REBUILD_IMAGE"] = "true"
+
+    if not setup_docker_environment():
+        return 1
+
+    # Setup/Rebuild only mode (no repository run)
+    if infra_only:
+        message = "\nSetup complete!"
+        if args.rebuild and not args.setup_only:
+            message = "\nRebuild complete!"
+        print(colored(message, "green"))
+        return 0
 
     # Run the agent
     exit_code = run_agent(
