@@ -360,6 +360,7 @@ def execute_command(
         command = _strip_bundled_toolchain_packages(command)
 
     # Execute command
+    host_env = None
     try:
         # FIXED: Execute in Docker container by default
         if use_docker:
@@ -459,7 +460,6 @@ def execute_command(
             # Execute on host (for git clone, etc.)
             logger.debug(f"Executing on host: {command[:100]}")
 
-            host_env = None
             if extra_env:
                 host_env = os.environ.copy()
                 host_env.update({str(k): str(v) for k, v in extra_env.items()})
@@ -499,6 +499,9 @@ def execute_command(
                         capture_output=True,
                         text=True,
                         timeout=timeout,
+                        # Preserve extra_env on host retries; docker
+                        # retries carry it inside docker_cmd already.
+                        env=host_env,
                     )
                     if not _is_pkg_lock_error(retry_result):
                         result = retry_result
@@ -1093,24 +1096,31 @@ def apply_patch(
                 f.write(patch_content)
                 patch_file = f.name
 
-            if filepath:
-                if "--- " in patch_content and "+++ " in patch_content:
-                    cmd = f"patch {filepath} < {patch_file}"
-                elif "@@ " in patch_content:
-                    cmd = f"patch -p0 {filepath} < {patch_file}"
+            # From here on the temp file exists on disk; remove it on
+            # every path (including the invalid-diff rejection and any
+            # unexpected exception) so failed patches don't litter /tmp.
+            try:
+                if filepath:
+                    if "--- " in patch_content and "+++ " in patch_content:
+                        cmd = f"patch {filepath} < {patch_file}"
+                    elif "@@ " in patch_content:
+                        cmd = f"patch -p0 {filepath} < {patch_file}"
+                    else:
+                        logger.warning(
+                            "Patch content is not a valid unified diff - "
+                            "rejecting"
+                        )
+                        return False
                 else:
-                    logger.warning(
-                        "Patch content is not a valid unified diff - "
-                        "rejecting"
-                    )
-                    os.remove(patch_file)
-                    return False
-            else:
-                cmd = f"patch -p1 < {patch_file}"
+                    cmd = f"patch -p1 < {patch_file}"
 
-            result = execute_command(cmd, cwd=cwd, use_docker=False)
-            os.remove(patch_file)
-            return result.success
+                result = execute_command(cmd, cwd=cwd, use_docker=False)
+                return result.success
+            finally:
+                try:
+                    os.remove(patch_file)
+                except OSError:
+                    pass
         except Exception as e:
             logger.error(f"Failed to apply patch on host: {e}")
             return False

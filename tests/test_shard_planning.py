@@ -33,7 +33,7 @@ missing_pkgs = _load(".github/scripts/missing_pkgs.py", "missing_pkgs_mod")
 
 
 class TestComputePlan(unittest.TestCase):
-    """plan-shards.compute_plan output shape and edge cases."""
+    """plan_shards.compute_plan output shape and edge cases."""
 
     def test_empty_list_yields_zero_shards(self) -> None:
         """Verify zero packages produce no shard groups."""
@@ -119,9 +119,9 @@ if __name__ == "__main__":
 
 
 class TestMissingPkgsApplyShard(unittest.TestCase):
-    """missing-pkgs._apply_shard must match batch_test._apply_shard.
+    """missing_pkgs._apply_shard must match batch_test._apply_shard.
 
-    The retry workflow uses missing-pkgs to figure out which packages
+    The retry workflow uses missing_pkgs to figure out which packages
     a single (platform, shard) job should re-run. Its chunking MUST
     match the main run's chunking exactly — otherwise the retry would
     re-run packages from the wrong shard.

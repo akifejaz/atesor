@@ -82,8 +82,16 @@ def get_state_home() -> str:
 
 
 def get_workspace_root() -> str:
-    """Get appropriate workspace root based on environment."""
-    if is_running_in_docker():
+    """Get appropriate workspace root based on environment.
+
+    ``ATESOR_HOME`` always wins — including inside a container — so the
+    documented override contract of ``get_state_home`` holds for the
+    workspace tree too (previously the in-docker shortcut silently
+    ignored it, sending state to ``/workspace`` in CI/devcontainers).
+    The bare ``/workspace`` default applies only inside the sandbox
+    container when no override is set.
+    """
+    if is_running_in_docker() and not os.environ.get("ATESOR_HOME"):
         return "/workspace"
     workspace = os.path.join(get_state_home(), "workspace")
     os.makedirs(workspace, exist_ok=True)
